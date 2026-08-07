@@ -87,6 +87,25 @@ class GitTools:
         return repo.git.diff("HEAD~1") if len(repo.heads) > 0 else repo.git.diff()
 
     @classmethod
+    def get_log(cls, workspace_root: str, max_count: int = 20) -> list:
+        """Get recent commit log."""
+        root = PathGuard.validate_path(workspace_root, ".")
+        repo = git.Repo(root)
+        commits = []
+        try:
+            for c in repo.iter_commits(max_count=max_count):
+                commits.append({
+                    "hash": c.hexsha,
+                    "message": c.message.strip(),
+                    "author": str(c.author),
+                    "time": c.committed_datetime.isoformat(),
+                    "files": len(c.stats.files) if c.stats else 0,
+                })
+        except Exception:
+            pass
+        return commits
+
+    @classmethod
     def rollback(cls, workspace_root: str, commit_hash: str) -> str:
         """Hard reset workspace to specified commit hash."""
         root = PathGuard.validate_path(workspace_root, ".")

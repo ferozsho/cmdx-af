@@ -4,22 +4,15 @@ import React, { useEffect, useState } from 'react'
 import {
   listProjects,
   getGitStatus,
+  getGitLog,
   type ProjectResponse,
 } from '@/lib/api'
-
-interface GitCommit {
-  hash: string
-  message: string
-  agent: string
-  time: string
-  files: number
-  branch: string
-}
 
 export default function GitHistoryPage() {
   const [projects, setProjects] = useState<ProjectResponse[]>([])
   const [selectedProject, setSelectedProject] = useState<string>('')
   const [gitStatus, setGitStatusState] = useState<any>(null)
+  const [commits, setCommits] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -39,10 +32,10 @@ export default function GitHistoryPage() {
     getGitStatus(selectedProject)
       .then((data) => setGitStatusState(data))
       .catch(console.error)
+    getGitLog(selectedProject)
+      .then((data) => setCommits(Array.isArray(data) ? data : []))
+      .catch(() => setCommits([]))
   }, [selectedProject])
-
-  // Mock commits for now — real endpoint coming
-  const commits: GitCommit[] = gitStatus?.commits || []
 
   return (
     <div>
@@ -116,7 +109,7 @@ export default function GitHistoryPage() {
             </p>
           </div>
         ) : (
-          commits.map((commit) => (
+          commits.map((commit: any) => (
             <div
               key={commit.hash}
               className="card-af p-4 flex items-start gap-3"
@@ -129,18 +122,18 @@ export default function GitHistoryPage() {
                   {commit.message}
                 </h4>
                 <p className="text-xs text-muted mt-1 m-0">
-                  {commit.agent} · {commit.files} files changed · branch{' '}
-                  {commit.branch}
+                  {commit.author} · {commit.files ?? 0} files
                 </p>
               </div>
               <div className="text-right flex-shrink-0">
                 <div className="text-xs font-mono font-bold text-foreground">
-                  {commit.hash.slice(0, 7)}
+                  {(commit.hash || '').slice(0, 7)}
                 </div>
-                <div className="text-[10px] text-muted mt-0.5">{commit.time}</div>
-                <button className="btn-secondary-af text-[10px] !px-2 !py-1 mt-1">
-                  Rollback
-                </button>
+                <div className="text-[10px] text-muted mt-0.5">
+                  {commit.time
+                    ? new Date(commit.time).toLocaleDateString()
+                    : ''}
+                </div>
               </div>
             </div>
           ))

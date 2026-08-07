@@ -355,7 +355,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                   status: data.status,
                   duration:
                     data.status === 'COMPLETED'
-                      ? ((data.duration_seconds as string) || '1.0s')
+                      ? `${(data.data?.duration_seconds || data.duration_seconds || 1).toFixed(1)}s`
                       : ag.duration,
                 }
               }

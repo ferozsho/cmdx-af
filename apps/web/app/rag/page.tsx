@@ -1,10 +1,11 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import {
   listProjects,
   ragSearch,
+  getRagStats,
   type ProjectResponse,
 } from '@/lib/api'
 
@@ -16,6 +17,11 @@ export default function RagManagerPage() {
   const [searching, setSearching] = useState(false)
   const [loadingProjects, setLoadingProjects] = useState(true)
   const [searchError, setSearchError] = useState<string | null>(null)
+  const [ragStats, setRagStats] = useState<{
+    files_indexed: number
+    chunks: number
+    last_index: string | null
+  } | null>(null)
 
   // Load projects on mount
   React.useEffect(() => {
@@ -27,6 +33,14 @@ export default function RagManagerPage() {
       .catch(console.error)
       .finally(() => setLoadingProjects(false))
   }, [])
+
+  // Fetch RAG stats when project changes
+  useEffect(() => {
+    if (!selectedProject) return
+    getRagStats(selectedProject)
+      .then((data) => setRagStats(data))
+      .catch(() => setRagStats(null))
+  }, [selectedProject])
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -68,10 +82,10 @@ export default function RagManagerPage() {
       {/* RAG Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-[18px] mb-[18px]">
         {[
-          ['Files Indexed', '—'],
-          ['Chunks', '—'],
-          ['Coverage', '—'],
-          ['Last Index', '—'],
+          ['Files Indexed', ragStats?.files_indexed ?? '—'],
+          ['Chunks', ragStats?.chunks ?? '—'],
+          ['Coverage', ragStats?.files_indexed ? `${Math.min(100, (ragStats.files_indexed * 10))}%` : '—'],
+          ['Last Index', ragStats?.last_index ?? '—'],
         ].map(([label, value]) => (
           <div
             key={label}

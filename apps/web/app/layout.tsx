@@ -4,6 +4,7 @@ import type { Metadata } from 'next'
 import { HeaderBreadcrumb } from './header-breadcrumb'
 import { ThemeToggle } from './theme-toggle'
 import { LiveWorkspaceLink } from './live-workspace-link'
+import { SidebarHealth } from './sidebar-health'
 import { NavItem } from './nav-item'
 import { ThemeProvider } from '@/components/theme-provider'
 
@@ -64,16 +65,8 @@ function Sidebar() {
       </div>
       <NavItem href="/settings" label="Settings" icon="⚙" />
 
-      {/* Sidebar Footer */}
-      <div className="mt-auto mb-0 mx-0 p-3.5 border border-[#263555] rounded-[12px] bg-[#151f39]">
-        <div className="flex items-center gap-[7px] text-xs font-semibold text-white">
-          <span className="inline-block w-2 h-2 rounded-full bg-[#3ed46e] shadow-[0_0_0_4px_rgba(62,212,110,.12)]" />
-          All services healthy
-        </div>
-        <div className="text-[11px] text-[#8490ac] mt-2">
-          FastAPI · PostgreSQL · Redis · Qdrant
-        </div>
-      </div>
+      {/* Sidebar Footer — live health */}
+      <SidebarHealth />
     </aside>
   )
 }

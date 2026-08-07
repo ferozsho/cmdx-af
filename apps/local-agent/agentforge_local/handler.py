@@ -51,6 +51,8 @@ class ToolHandler:
                 res = GitTools.commit_changes(ws_path, args["message"])
             elif req.tool_name == "git_diff":
                 res = GitTools.get_diff(ws_path)
+            elif req.tool_name == "git_log":
+                res = GitTools.get_log(ws_path, max_count=args.get("max_count", 20))
             elif req.tool_name == "git_rollback":
                 res = GitTools.rollback(ws_path, args["commit_hash"])
             elif req.tool_name == "run_command":

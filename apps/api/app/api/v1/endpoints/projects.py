@@ -174,6 +174,16 @@ def _count_files_and_dirs(project_path: Path, max_depth: int = 4) -> tuple:
 
 # ── API Endpoints ───────────────────────────────────────────────────────────
 
+# Default device/workspace until dynamic resolution is fully wired
+_DEFAULT_DEVICE = "dev_feroz_pc"
+_DEFAULT_WORKSPACE = "ws-test"
+
+
+def _resolve_workspace(project_id: str) -> str:
+    """Map project_id to a registered workspace_id (sync-safe fallback)."""
+    return _DEFAULT_WORKSPACE
+
+
 @router.get("/projects/stats/summary")
 async def get_project_stats(db: AsyncSession = Depends(get_db)) -> Any:
     """Get aggregated project stats for dashboard KPIs."""
@@ -366,8 +376,8 @@ async def validate_project_path(data: ValidatePathRequest) -> Any:
 async def get_project_tree(project_id: str) -> Any:
     """Fetch real project file tree from connected Local Agent."""
     tool_res = await ToolGateway.invoke_tool(
-        device_id="dev_feroz_pc",
-        workspace_id=project_id,
+        device_id=_DEFAULT_DEVICE,
+        workspace_id=_DEFAULT_WORKSPACE,
         job_id="job_tree",
         tool_name="get_project_tree",
         arguments={},
@@ -381,8 +391,8 @@ async def get_project_tree(project_id: str) -> Any:
 async def read_project_file(project_id: str, path: str = Query(...)) -> Any:
     """Read real project file content from connected Local Agent."""
     tool_res = await ToolGateway.invoke_tool(
-        device_id="dev_feroz_pc",
-        workspace_id=project_id,
+        device_id=_DEFAULT_DEVICE,
+        workspace_id=_DEFAULT_WORKSPACE,
         job_id="job_read_file",
         tool_name="read_file",
         arguments={"path": path},
@@ -396,8 +406,8 @@ async def read_project_file(project_id: str, path: str = Query(...)) -> Any:
 async def rag_search_project(project_id: str, data: RagQueryRequest) -> Any:
     """Perform real semantic search via Local Agent RAG Indexer."""
     tool_res = await ToolGateway.invoke_tool(
-        device_id="dev_feroz_pc",
-        workspace_id=project_id,
+        device_id=_DEFAULT_DEVICE,
+        workspace_id=_DEFAULT_WORKSPACE,
         job_id="job_rag",
         tool_name="rag_search",
         arguments={"query": data.query, "top_k": data.top_k},
@@ -411,8 +421,8 @@ async def rag_search_project(project_id: str, data: RagQueryRequest) -> Any:
 async def get_git_status(project_id: str) -> Any:
     """Get real Git status from Local Agent workspace."""
     tool_res = await ToolGateway.invoke_tool(
-        device_id="dev_feroz_pc",
-        workspace_id=project_id,
+        device_id=_DEFAULT_DEVICE,
+        workspace_id=_DEFAULT_WORKSPACE,
         job_id="job_git",
         tool_name="git_status",
         arguments={},
@@ -420,3 +430,41 @@ async def get_git_status(project_id: str) -> Any:
     if not tool_res.success:
         raise HTTPException(status_code=500, detail=tool_res.error)
     return tool_res.result
+
+
+@router.get("/projects/{project_id}/git/log")
+async def get_git_log(project_id: str, max_count: int = 20) -> Any:
+    """Get recent git commit log from Local Agent workspace."""
+    tool_res = await ToolGateway.invoke_tool(
+        device_id=_DEFAULT_DEVICE,
+        workspace_id=_DEFAULT_WORKSPACE,
+        job_id="job_git_log",
+        tool_name="git_log",
+        arguments={"max_count": max_count},
+    )
+    if not tool_res.success:
+        raise HTTPException(status_code=500, detail=tool_res.error)
+    return tool_res.result
+
+
+@router.get("/projects/{project_id}/rag/stats")
+async def get_rag_stats(project_id: str) -> Any:
+    """Get RAG indexing stats by searching with empty query."""
+    try:
+        tool_res = await ToolGateway.invoke_tool(
+            device_id=_DEFAULT_DEVICE,
+            workspace_id=_DEFAULT_WORKSPACE,
+            job_id="job_rag_stats",
+            tool_name="rag_search",
+            arguments={"query": ".", "top_k": 1},
+        )
+        if not tool_res.success:
+            return {"files_indexed": 0, "chunks": 0, "last_index": None}
+        results = tool_res.result if isinstance(tool_res.result, list) else []
+        return {
+            "files_indexed": len(results),
+            "chunks": sum(len(r.get("content", "")) for r in results) if results else 0,
+            "last_index": None,
+        }
+    except Exception:
+        return {"files_indexed": 0, "chunks": 0, "last_index": None}

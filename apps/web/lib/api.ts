@@ -215,6 +215,16 @@ export function getGitStatus(id: string): Promise<unknown> {
   return request<unknown>('GET', `/api/v1/projects/${encodeURIComponent(id)}/git/status`)
 }
 
+/** GET /api/v1/projects/:id/git/log */
+export function getGitLog(id: string, maxCount = 20): Promise<unknown[]> {
+  return request<unknown[]>('GET', `/api/v1/projects/${encodeURIComponent(id)}/git/log?max_count=${maxCount}`)
+}
+
+/** GET /api/v1/projects/:id/rag/stats */
+export function getRagStats(id: string): Promise<{ files_indexed: number; chunks: number; last_index: string | null }> {
+  return request('GET', `/api/v1/projects/${encodeURIComponent(id)}/rag/stats`)
+}
+
 /** POST /api/v1/projects/:id/instructions */
 export function submitInstruction(
   id: string,
