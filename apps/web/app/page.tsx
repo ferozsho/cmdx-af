@@ -1,4 +1,12 @@
 import React from 'react'
+import Link from 'next/link'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = {
+  title: 'Project Dashboard',
+  description:
+    'Manage software development projects, view connected developer workstation status, and monitor live AI agent pipelines.',
+}
 
 export default function DashboardPage() {
   return (
@@ -10,12 +18,12 @@ export default function DashboardPage() {
             Manage development projects, view workstation status, and monitor live agent pipelines.
           </p>
         </div>
-        <a
+        <Link
           href="/projects/new"
           className="bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm px-4 py-2 rounded-lg transition-colors shadow-lg shadow-blue-900/20"
         >
           + Create New Project
-        </a>
+        </Link>
       </div>
 
       {/* KPI Cards */}
@@ -58,9 +66,9 @@ export default function DashboardPage() {
             </p>
             <div className="mt-4 pt-4 border-t border-gray-800 flex items-center justify-between text-xs text-gray-400">
               <span>Path: <code className="text-gray-300">D:\Projects\cmdx-framework</code></span>
-              <a href="/projects/prj_demo_001" className="text-blue-400 font-medium hover:underline">
+              <Link href="/projects/prj_demo_001?tab=agents" className="text-blue-400 font-medium hover:underline">
                 Open Workspace →
-              </a>
+              </Link>
             </div>
           </div>
 
@@ -76,9 +84,9 @@ export default function DashboardPage() {
             </p>
             <div className="mt-4 pt-4 border-t border-gray-800 flex items-center justify-between text-xs text-gray-400">
               <span>Path: <code className="text-gray-300">D:\Projects\xplms</code></span>
-              <a href="/projects/prj_demo_001" className="text-blue-400 font-medium hover:underline">
+              <Link href="/projects/prj_demo_001?tab=agents" className="text-blue-400 font-medium hover:underline">
                 Open Workspace →
-              </a>
+              </Link>
             </div>
           </div>
         </div>
