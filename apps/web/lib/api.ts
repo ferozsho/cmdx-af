@@ -116,6 +116,27 @@ export function getFullHealth(): Promise<FullHealthResponse> {
   return request<FullHealthResponse>('GET', '/api/v1/health/full')
 }
 
+/** GET /api/v1/settings */
+export function getSettings(): Promise<{
+  deepseek_api_key_masked: string
+  deepseek_base_url: string
+  chat_model: string
+  coder_model: string
+  has_key: boolean
+}> {
+  return request('GET', '/api/v1/settings')
+}
+
+/** PUT /api/v1/settings */
+export function updateSettings(data: {
+  deepseek_api_key?: string
+  deepseek_base_url?: string
+  chat_model?: string
+  coder_model?: string
+}): Promise<{ ok: boolean }> {
+  return request('PUT', '/api/v1/settings', data)
+}
+
 /** GET /api/v1/projects/stats/summary */
 export function getProjectStats(): Promise<{
   total_projects: number

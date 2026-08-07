@@ -86,16 +86,19 @@ async def _check_qdrant() -> ComponentHealth:
 
 async def _check_llm() -> ComponentHealth:
     """Check LLM provider connectivity."""
-    if not settings.DEEPSEEK_API_KEY:
+    from app.core.config import get_setting
+    api_key = get_setting("DEEPSEEK_API_KEY", settings.DEEPSEEK_API_KEY)
+    base_url = get_setting("DEEPSEEK_BASE_URL", settings.DEEPSEEK_BASE_URL)
+
+    if not api_key:
         return ComponentHealth(status="not_configured", message="No API key set")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
-                f"{settings.DEEPSEEK_BASE_URL}/models",
-                headers={"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}"},
+                f"{base_url}/models",
+                headers={"Authorization": f"Bearer {api_key}"},
             )
             if resp.status_code in (200, 401):
-                # 401 means endpoint exists but key may be wrong — still reachable
                 return ComponentHealth(status="healthy", message="API reachable")
             return ComponentHealth(
                 status="degraded",

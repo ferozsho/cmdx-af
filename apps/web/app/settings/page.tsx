@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useCallback, useState } from 'react'
-import { getFullHealth, type ComponentHealth } from '@/lib/api'
+import React, { useCallback, useRef, useState } from 'react'
+import { getFullHealth, updateSettings, type ComponentHealth } from '@/lib/api'
 
 type TestStatus = 'idle' | 'testing' | 'success' | 'error'
 
@@ -12,6 +12,11 @@ interface TestResult {
 
 export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const apiKeyRef = useRef<HTMLInputElement>(null)
+  const baseUrlRef = useRef<HTMLInputElement>(null)
+
   const [deepseekResult, setDeepseekResult] = useState<TestResult>({
     status: 'idle',
     message: '',
@@ -21,10 +26,26 @@ export default function SettingsPage() {
     message: '',
   })
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const apiKey = apiKeyRef.current?.value || ''
+      const baseUrl = baseUrlRef.current?.value || ''
+      await updateSettings({
+        deepseek_api_key: apiKey,
+        deepseek_base_url: baseUrl,
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : 'Failed to save settings',
+      )
+    } finally {
+      setSaving(false)
+    }
   }
 
   const testConnection = useCallback(
@@ -88,11 +109,18 @@ export default function SettingsPage() {
         </div>
         <button
           onClick={handleSave}
-          className="btn-primary-af text-sm"
+          disabled={saving}
+          className="btn-primary-af text-sm disabled:opacity-50"
         >
-          Save Changes
+          {saving ? 'Saving...' : 'Save Changes'}
         </button>
       </div>
+
+      {saveError && (
+        <div className="max-w-[920px] rounded-[10px] p-3 text-xs font-medium mb-4 bg-red-500/10 text-red-500 border border-red-500/30">
+          {saveError}
+        </div>
+      )}
 
       {saved && (
         <div className="max-w-[920px] rounded-[10px] p-3 text-xs font-medium mb-4 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
@@ -106,7 +134,17 @@ export default function SettingsPage() {
         className="card-af max-w-[920px] p-6 space-y-5"
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-[18px]">
-          <SettingsField label="DeepSeek Base URL" defaultValue="https://api.deepseek.com" />
+          <div>
+            <label className="block font-bold text-[13px] text-foreground mb-[7px]">
+              DeepSeek Base URL
+            </label>
+            <input
+              ref={baseUrlRef}
+              type="text"
+              defaultValue="https://api.deepseek.com"
+              className="input-af"
+            />
+          </div>
           <SettingsField label="Chat Model" defaultValue="deepseek-chat" />
           <SettingsField label="Coder Model" defaultValue="deepseek-coder" />
           <SettingsField label="Max Agent Steps" defaultValue="10" type="number" />
@@ -121,6 +159,7 @@ export default function SettingsPage() {
             DeepSeek API Key
           </label>
           <input
+            ref={apiKeyRef}
             type="password"
             placeholder="••••••••••••••••"
             className="input-af"

@@ -1,7 +1,17 @@
 """Application Configuration Settings."""
 
 import os
+from typing import Dict
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# Runtime-overridable settings (set by Settings page via API)
+runtime_settings: Dict[str, str] = {}
+
+
+def get_setting(key: str, default: str = "") -> str:
+    """Get a setting value — runtime override takes precedence over env."""
+    return runtime_settings.get(key) or default
 
 
 class Settings(BaseSettings):
