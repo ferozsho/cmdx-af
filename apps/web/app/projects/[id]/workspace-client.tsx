@@ -13,10 +13,26 @@ function formatFileSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
 
+function cleanPath(str: string | null | undefined): string {
+  if (!str) return ''
+  let s = str
+  try {
+    if (s.includes('%')) s = decodeURIComponent(s)
+    if (s.includes('%')) s = decodeURIComponent(s)
+  } catch {
+    // ignore
+  }
+  return s.replace(/[=%\s]+$/g, '').replace(/^\/+/, '').trim()
+}
+
 function hasChangedChild(dirPath: string, gitStatus?: any): boolean {
   if (!gitStatus) return false
-  const prefix = dirPath ? `${dirPath}/` : ''
-  const isMatch = (f: string) => f.startsWith(prefix)
+  const cleanDir = cleanPath(dirPath)
+  const prefix = cleanDir ? `${cleanDir}/` : ''
+  const isMatch = (f: string) => {
+    const cleanF = cleanPath(f)
+    return cleanF.startsWith(prefix)
+  }
   return (
     gitStatus.modified_files?.some(isMatch) ||
     gitStatus.untracked_files?.some(isMatch) ||
@@ -38,17 +54,34 @@ function FileTreeNode({
   onSelectFile: (path: string) => void
   gitStatus?: any
 }) {
-  const [isOpen, setIsOpen] = useState(true)
+  const currentPath = parentPath ? `${parentPath}/${node.name}` : node.name
+
+  const cleanSelected = cleanPath(selectedPath)
+  const cleanCurrent = cleanPath(currentPath)
+
+  // Directory is an ancestor of selected file if selected path equals or starts with `cleanCurrent/`
+  const isAncestorOfSelected =
+    node.type === 'dir' &&
+    Boolean(cleanSelected && cleanCurrent && (cleanSelected === cleanCurrent || cleanSelected.startsWith(`${cleanCurrent}/`)))
+
+  const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
+
+  // Reset user toggle when selected file changes
+  useEffect(() => {
+    setUserExpanded(null)
+  }, [cleanSelected])
+
+  // Open if user explicitly expanded OR if it is an ancestor of the selected file
+  const isOpen = userExpanded !== null ? userExpanded : isAncestorOfSelected
 
   if (node.type === 'dir') {
-    const currentPath = parentPath ? `${parentPath}/${node.name}` : node.name
     const dirHasChanges = hasChangedChild(currentPath, gitStatus)
 
     return (
       <div className="pl-2 space-y-0.5">
         <button
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={() => setUserExpanded(!isOpen)}
           className="w-full text-left font-semibold text-gray-400 hover:text-white select-none flex items-center justify-between gap-1.5 py-1 px-1 rounded hover:bg-gray-800/40 transition-colors cursor-pointer group"
         >
           <div className="flex items-center gap-1.5 truncate min-w-0">
@@ -69,24 +102,28 @@ function FileTreeNode({
         </button>
         {isOpen && (
           <div className="border-l border-gray-800/80 pl-2 space-y-0.5">
-            {node.children?.map((child: any, idx: number) => (
-              <FileTreeNode
-                key={idx}
-                node={child}
-                parentPath={currentPath}
-                selectedPath={selectedPath}
-                onSelectFile={onSelectFile}
-                gitStatus={gitStatus}
-              />
-            ))}
+            {node.children?.map((child: any) => {
+              const childPath = currentPath ? `${currentPath}/${child.name}` : child.name
+              return (
+                <FileTreeNode
+                  key={childPath}
+                  node={child}
+                  parentPath={currentPath}
+                  selectedPath={selectedPath}
+                  onSelectFile={onSelectFile}
+                  gitStatus={gitStatus}
+                />
+              )
+            })}
           </div>
         )}
       </div>
     )
   }
 
-  const filePath = parentPath ? `${parentPath}/${node.name}` : node.name
-  const isSelected = selectedPath === filePath
+  const filePath = currentPath
+  const cleanFilePath = cleanPath(filePath)
+  const isSelected = cleanSelected === cleanFilePath
 
   // Status flags
   const isModified = gitStatus?.modified_files?.includes(filePath)
@@ -160,15 +197,17 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
   // Helper to safely parse search parameters even if encoded by proxy/port forwarding
   const getParam = (key: string): string | null => {
-    const val = searchParams.get(key)
-    if (val) return val
-    try {
-      const rawSearch = decodeURIComponent(searchParams.toString())
-      const match = rawSearch.match(new RegExp(`(?:^|[?&])${key}=([^&]*)`))
-      return match ? decodeURIComponent(match[1]) : null
-    } catch {
-      return null
+    let val = searchParams.get(key)
+    if (!val && typeof window !== 'undefined') {
+      try {
+        const rawSearch = window.location.search
+        const match = rawSearch.match(new RegExp(`(?:^|[?&]|%26)${key}=([^&%]*)`, 'i'))
+        if (match) val = match[1]
+      } catch {
+        // ignore
+      }
     }
+    return val ? cleanPath(val) : null
   }
 
   // Read URL search params
@@ -189,7 +228,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
   const [fileTree, setFileTree] = useState<any>(null)
   const [gitStatus, setGitStatus] = useState<any>(null)
-  const [selectedFilePath, setSelectedFilePath] = useState<string>(urlFile)
+  const [selectedFilePath, setSelectedFilePath] = useState<string>(cleanPath(urlFile))
   const [selectedFileContent, setSelectedFileContent] = useState<string>('')
   const [loadingFile, setLoadingFile] = useState<boolean>(false)
 
@@ -209,31 +248,37 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
   // Function to switch tab with URL sync
   const updateUrl = (tab: string, file?: string, q?: string) => {
+    const cleanTab = cleanPath(tab).toLowerCase()
+    const cleanFile = cleanPath(file)
+    const cleanQ = cleanPath(q)
+
     const params = new URLSearchParams()
-    params.set('tab', tab.toLowerCase())
-    if (file) params.set('file', file)
-    if (q) params.set('q', q)
+    params.set('tab', cleanTab)
+    if (cleanFile) params.set('file', cleanFile)
+    if (cleanQ) params.set('q', cleanQ)
     router.push(`${pathname}?${params.toString()}`, { scroll: false })
   }
 
   // Handle file selection with URL search param
   const handleSelectFile = async (path: string) => {
-    setSelectedFilePath(path)
-    updateUrl('files', path)
+    const targetPath = cleanPath(path)
+    if (!targetPath) return
+    setSelectedFilePath(targetPath)
+    updateUrl('files', targetPath)
     setLoadingFile(true)
     try {
       const res = await fetch(
-        `http://localhost:8000/api/v1/projects/${projectId}/files/content?path=${encodeURIComponent(path)}`
+        `http://localhost:8000/api/v1/projects/${projectId}/files/content?path=${encodeURIComponent(targetPath)}`
       )
       const data = await res.json()
       if (data.content !== undefined) {
         setSelectedFileContent(data.content)
       } else {
-        setSelectedFileContent(`// Unable to load content for ${path}`)
+        setSelectedFileContent(`// Unable to load content for ${targetPath}`)
       }
     } catch (err) {
       console.error('Failed to load file content:', err)
-      setSelectedFileContent(`// Error loading file content for ${path}`)
+      setSelectedFileContent(`// Error loading file content for ${targetPath}`)
     } finally {
       setLoadingFile(false)
     }
@@ -471,9 +516,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 <div className="font-bold text-blue-400 flex items-center gap-1.5 pb-1">
                   <span>📁</span> {fileTree.name}/
                 </div>
-                {fileTree.children?.map((node: any, idx: number) => (
+                {fileTree.children?.map((node: any) => (
                   <FileTreeNode
-                    key={idx}
+                    key={node.name}
                     node={node}
                     parentPath=""
                     selectedPath={selectedFilePath}

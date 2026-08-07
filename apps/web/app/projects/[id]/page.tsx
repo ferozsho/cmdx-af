@@ -2,6 +2,18 @@ import React, { Suspense } from 'react'
 import type { Metadata } from 'next'
 import WorkspaceClient from './workspace-client'
 
+function cleanPath(str: string | null | undefined): string {
+  if (!str) return ''
+  let s = str
+  try {
+    if (s.includes('%')) s = decodeURIComponent(s)
+    if (s.includes('%')) s = decodeURIComponent(s)
+  } catch {
+    // ignore
+  }
+  return s.replace(/[=%\s]+$/g, '').trim()
+}
+
 export async function generateMetadata({
   params,
   searchParams,
@@ -12,21 +24,24 @@ export async function generateMetadata({
   const resolvedParams = await params
   const rawSearchParams = await searchParams
 
-  let tab = (rawSearchParams.tab || 'AGENTS').toUpperCase()
-  let file = rawSearchParams.file
-  let q = rawSearchParams.q
+  let tab = 'AGENTS'
+  let file = ''
+  let q = ''
 
-  // Handle case where query params were encoded into a single key by remote proxy
-  if (!rawSearchParams.tab) {
-    const rawKeys = Object.keys(rawSearchParams).join('&')
-    const decoded = decodeURIComponent(rawKeys)
-    const tabMatch = decoded.match(/tab=([^&]+)/i)
-    if (tabMatch) tab = tabMatch[1].toUpperCase()
-    const fileMatch = decoded.match(/file=([^&]+)/i)
-    if (fileMatch) file = fileMatch[1]
-    const qMatch = decoded.match(/q=([^&]+)/i)
-    if (qMatch) q = qMatch[1]
-  }
+  const allParamsStr = Object.entries(rawSearchParams)
+    .map(([k, v]) => (v ? `${k}=${v}` : k))
+    .join('&')
+
+  const decodedParamsStr = cleanPath(allParamsStr)
+
+  const tabMatch = decodedParamsStr.match(/tab=([^&]*)/i)
+  if (tabMatch) tab = cleanPath(tabMatch[1]).toUpperCase()
+
+  const fileMatch = decodedParamsStr.match(/file=([^&]*)/i)
+  if (fileMatch) file = cleanPath(fileMatch[1])
+
+  const qMatch = decodedParamsStr.match(/q=([^&]*)/i)
+  if (qMatch) q = cleanPath(qMatch[1])
 
   const titleMap: Record<string, string> = {
     AGENTS: 'Live Agent Pipeline',
