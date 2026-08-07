@@ -1,9 +1,11 @@
 """WSS Connection Manager for Local Agent Device Communication."""
 
 import asyncio
-from typing import Dict
+from typing import Dict, Optional
 from fastapi import WebSocket
+from sqlalchemy.ext.asyncio import AsyncSession
 from agentforge_protocol import ToolRequest, ToolResult
+from app.repositories.device_repo import DeviceRepository
 
 
 class WSSConnectionManager:
@@ -13,15 +15,49 @@ class WSSConnectionManager:
         self.active_connections: Dict[str, WebSocket] = {}
         self.pending_requests: Dict[str, asyncio.Future[ToolResult]] = {}
 
-    async def connect(self, device_id: str, websocket: WebSocket) -> None:
-        """Accept connection and register active device socket."""
+    async def connect(
+        self,
+        device_id: str,
+        websocket: WebSocket,
+        db: AsyncSession | None = None,
+    ) -> None:
+        """Accept connection, register device in DB, and track as active."""
         await websocket.accept()
         self.active_connections[device_id] = websocket
 
-    def disconnect(self, device_id: str) -> None:
-        """Unregister device socket on disconnect."""
+        if db:
+            try:
+                repo = DeviceRepository(db)
+                device = await repo.get_by_id(device_id)
+                if device:
+                    await repo.update_status(device_id, "online")
+                else:
+                    await repo.create(
+                        name=device_id,
+                        hostname="auto-registered",
+                        platform="unknown",
+                    )
+                    await repo.update_status(device_id, "online")
+                await db.commit()
+            except Exception:
+                pass
+
+    async def disconnect(
+        self,
+        device_id: str,
+        db: AsyncSession | None = None,
+    ) -> None:
+        """Unregister device socket and mark offline in DB."""
         if device_id in self.active_connections:
             del self.active_connections[device_id]
+
+        if db:
+            try:
+                repo = DeviceRepository(db)
+                await repo.update_status(device_id, "offline")
+                await db.commit()
+            except Exception:
+                pass
 
     def is_device_online(self, device_id: str) -> bool:
         """Check if device is currently connected."""

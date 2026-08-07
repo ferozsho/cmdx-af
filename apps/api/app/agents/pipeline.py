@@ -60,7 +60,12 @@ class PipelineOrchestrator:
             results.append(res)
 
             if event_callback:
-                await event_callback(agent.agent_name, "COMPLETED", f"{agent.agent_name} finished in {duration}s.")
+                await event_callback(
+                    agent.agent_name,
+                    "COMPLETED",
+                    f"{agent.agent_name} finished in {duration}s.",
+                    data=res,
+                )
 
         return {
             "instruction_id": instruction_id,

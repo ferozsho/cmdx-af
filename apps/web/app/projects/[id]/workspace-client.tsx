@@ -260,6 +260,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     { name: 'Git Agent', status: 'PENDING', duration: '-' },
   ])
 
+  // Store structured results from agent pipeline executions
+  const [pipelineResults, setPipelineResults] = useState<Record<string, any>>({})
+
   // Project data from API
   const [project, setProject] = useState<ProjectResponse | null>(null)
   const [projectLoading, setProjectLoading] = useState(true)
@@ -350,12 +353,22 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 return {
                   ...ag,
                   status: data.status,
-                  duration: data.status === 'COMPLETED' ? '1.0s' : ag.duration,
+                  duration:
+                    data.status === 'COMPLETED'
+                      ? ((data.duration_seconds as string) || '1.0s')
+                      : ag.duration,
                 }
               }
               return ag
-            })
+            }),
           )
+          // Store structured agent output for tabs
+          if (data.status === 'COMPLETED' && data.data) {
+            setPipelineResults((prev) => ({
+              ...prev,
+              [data.agent_name]: data.data,
+            }))
+          }
         }
 
         if (data.agent_name === 'Git Agent' && data.status === 'COMPLETED') {
@@ -513,6 +526,49 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         </form>
       </section>
 
+      {/* Pipeline Progress Bar */}
+      {isRunning && (
+        <section className="card-af p-4">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-xs font-semibold text-foreground">
+              Pipeline Progress
+            </span>
+            <span className="text-[10px] text-muted">
+              {agentsState.filter((a) => a.status === 'COMPLETED').length} /{' '}
+              {agentsState.length} agents
+            </span>
+          </div>
+          <div className="w-full bg-surface-secondary rounded-full h-2 overflow-hidden border border-border">
+            <div
+              className="h-full bg-gradient-to-r from-primary to-primary-hover rounded-full transition-all duration-500"
+              style={{
+                width: `${Math.round(
+                  (agentsState.filter((a) => a.status !== 'PENDING').length /
+                    agentsState.length) *
+                    100,
+                )}%`,
+              }}
+            />
+          </div>
+          <div className="flex flex-wrap gap-1 mt-3">
+            {agentsState.map((ag) => (
+              <span
+                key={ag.name}
+                className={`text-[9px] px-1.5 py-0.5 rounded ${
+                  ag.status === 'COMPLETED'
+                    ? 'bg-emerald-500/15 text-emerald-500'
+                    : ag.status === 'RUNNING'
+                      ? 'bg-primary/15 text-primary animate-pulse'
+                      : 'bg-surface-secondary text-muted'
+                }`}
+              >
+                {ag.name.split(' ')[0]}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Main Tab Content */}
       {activeTab === 'AGENTS' && (
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -658,45 +714,101 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
       {activeTab === 'GIT' && (
         <section className="card-af p-6 text-xs space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Local Git Isolation Status</h2>
+          <h2 className="text-sm font-semibold text-foreground">
+            Local Git Status
+          </h2>
           {gitStatus ? (
-            <div className="bg-surface-secondary border border-border rounded-lg p-4 font-mono space-y-2 text-foreground">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-muted">Active Branch: </span>
-                  <span className="text-primary font-bold">{gitStatus.branch}</span>
+            <>
+              <div className="bg-surface-secondary border border-border rounded-lg p-4 font-mono space-y-2 text-foreground">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-muted">Active Branch: </span>
+                    <span className="text-primary font-bold">
+                      {gitStatus.branch}
+                    </span>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      gitStatus.is_dirty
+                        ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
+                        : 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
+                    }`}
+                  >
+                    {gitStatus.is_dirty
+                      ? 'Dirty (Uncommitted)'
+                      : 'Clean Working Tree'}
+                  </span>
                 </div>
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    gitStatus.is_dirty
-                      ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
-                      : 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
-                  }`}
-                >
-                  {gitStatus.is_dirty ? 'Dirty (Uncommitted Changes)' : 'Clean Working Tree'}
-                </span>
+                {gitStatus.staged_files?.length > 0 && (
+                  <div>
+                    <div className="text-muted mt-2 font-sans font-semibold">
+                      Staged:
+                    </div>
+                    {gitStatus.staged_files.map((f: string, i: number) => (
+                      <div key={i} className="text-primary pl-2">
+                        ● {f}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {gitStatus.modified_files?.length > 0 && (
+                  <div>
+                    <div className="text-muted mt-2 font-sans font-semibold">
+                      Modified:
+                    </div>
+                    {gitStatus.modified_files.map((f: string, i: number) => (
+                      <div key={i} className="text-amber-500 pl-2">
+                        ~ {f}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {gitStatus.untracked_files?.length > 0 && (
+                  <div>
+                    <div className="text-muted mt-2 font-sans font-semibold">
+                      Untracked:
+                    </div>
+                    {gitStatus.untracked_files.map((f: string, i: number) => (
+                      <div key={i} className="text-emerald-500 pl-2">
+                        + {f}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {gitStatus.unpushed_files?.length > 0 && (
+                  <div>
+                    <div className="text-muted mt-2 font-sans font-semibold">
+                      Unpushed:
+                    </div>
+                    {gitStatus.unpushed_files.map((f: string, i: number) => (
+                      <div key={i} className="text-blue-500 pl-2">
+                        ↑ {f}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              {gitStatus.modified_files?.length > 0 && (
-                <div>
-                  <div className="text-muted mt-2 font-sans font-semibold">Modified Files:</div>
-                  {gitStatus.modified_files.map((f: string, i: number) => (
-                    <div key={i} className="text-amber-500 pl-2">
-                      ~ {f}
-                    </div>
-                  ))}
+
+              {pipelineResults['Git Agent'] && (
+                <div className="bg-surface-secondary border border-border rounded-lg p-4 space-y-2">
+                  <div className="text-xs font-semibold text-foreground">
+                    Last Agent Commit
+                  </div>
+                  <div className="font-mono text-xs">
+                    <span className="text-muted">Branch: </span>
+                    <span className="text-primary">
+                      {pipelineResults['Git Agent'].branch}
+                    </span>
+                  </div>
+                  <div className="font-mono text-xs">
+                    <span className="text-muted">Message: </span>
+                    <span className="text-foreground">
+                      {pipelineResults['Git Agent'].commit_message}
+                    </span>
+                  </div>
                 </div>
               )}
-              {gitStatus.untracked_files?.length > 0 && (
-                <div>
-                  <div className="text-muted mt-2 font-sans font-semibold">Untracked Files:</div>
-                  {gitStatus.untracked_files.map((f: string, i: number) => (
-                    <div key={i} className="text-emerald-500 pl-2">
-                      + {f}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            </>
           ) : (
             <div className="text-muted font-mono animate-pulse">
               Fetching live Git repository status from local agent...
@@ -755,56 +867,174 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
       {activeTab === 'TESTS' && (
         <section className="card-af p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Test Results</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-            {[
-              ['Total', '—'],
-              ['Passed', '—'],
-              ['Failed', '—'],
-              ['Coverage', '—'],
-            ].map(([label, value]) => (
-              <div
-                key={label}
-                className="bg-surface-secondary border border-border rounded-lg p-4 text-center"
-              >
-                <div className="text-[10px] text-muted uppercase">{label}</div>
-                <div className="text-xl font-bold text-foreground mt-1">{value}</div>
+          <h2 className="text-sm font-semibold text-foreground">
+            Test Results
+          </h2>
+          {pipelineResults['Test Agent'] ? (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                {[
+                  ['Total', (pipelineResults['Test Agent'].tests_passed || 0) + (pipelineResults['Test Agent'].tests_failed || 0)],
+                  ['Passed', pipelineResults['Test Agent'].tests_passed || 0],
+                  ['Failed', pipelineResults['Test Agent'].tests_failed || 0],
+                  ['Coverage', `${pipelineResults['Test Agent'].coverage_percent || 0}%`],
+                ].map(([label, value]) => (
+                  <div
+                    key={label as string}
+                    className="bg-surface-secondary border border-border rounded-lg p-4 text-center"
+                  >
+                    <div className="text-[10px] text-muted uppercase">
+                      {label}
+                    </div>
+                    <div
+                      className={`text-xl font-bold mt-1 ${
+                        label === 'Failed' && Number(value) > 0
+                          ? 'text-red-500'
+                          : 'text-foreground'
+                      }`}
+                    >
+                      {String(value)}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <p className="text-xs text-muted">
-            Test results appear here after the Test Agent runs during a pipeline
-            execution.
-          </p>
+              {pipelineResults['Test Agent'].test_summary && (
+                <div className="bg-surface-secondary border border-border rounded-lg p-4">
+                  <div className="text-xs font-semibold text-foreground mb-1">
+                    Summary
+                  </div>
+                  <p className="text-xs text-muted">
+                    {pipelineResults['Test Agent'].test_summary}
+                  </p>
+                </div>
+              )}
+              {pipelineResults['Test Agent'].tests_generated?.length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold text-foreground mb-2">
+                    Test Files Generated
+                  </div>
+                  <div className="space-y-1">
+                    {pipelineResults['Test Agent'].tests_generated.map(
+                      (f: string, i: number) => (
+                        <div
+                          key={i}
+                          className="text-xs font-mono text-emerald-600 dark:text-emerald-400"
+                        >
+                          ✓ {f}
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-muted">
+              Test results appear here after the Test Agent runs during a
+              pipeline execution.
+            </p>
+          )}
         </section>
       )}
 
       {activeTab === 'VALIDATION' && (
         <section className="card-af p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Validation Report</h2>
-          <div className="space-y-2 text-xs">
-            {[
-              ['Python Syntax', '—'],
-              ['Ruff Lint', '—'],
-              ['Ruff Format', '—'],
-              ['mypy Type Check', '—'],
-              ['Bandit Security', '—'],
-              ['Dependency Check', '—'],
-              ['Environment Variables', '—'],
-            ].map(([check, status]) => (
-              <div
-                key={check}
-                className="flex justify-between py-2 border-b border-border last:border-0"
-              >
-                <span className="text-foreground-secondary">{check}</span>
-                <span className="text-muted font-mono">{status}</span>
+          <h2 className="text-sm font-semibold text-foreground">
+            Validation Report
+          </h2>
+          {pipelineResults['Validation Agent'] ? (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  [
+                    'Lint Issues',
+                    pipelineResults['Validation Agent'].lint_issues || 0,
+                    'text-amber-500',
+                  ],
+                  [
+                    'Type Errors',
+                    pipelineResults['Validation Agent'].type_errors || 0,
+                    'text-red-500',
+                  ],
+                  [
+                    'Security Issues',
+                    pipelineResults['Validation Agent'].security_issues || 0,
+                    'text-red-500',
+                  ],
+                ].map(([label, value, color]) => (
+                  <div
+                    key={label as string}
+                    className="bg-surface-secondary border border-border rounded-lg p-4 text-center"
+                  >
+                    <div className="text-[10px] text-muted uppercase">
+                      {label}
+                    </div>
+                    <div className={`text-xl font-bold mt-1 ${color}`}>
+                      {String(value)}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <p className="text-xs text-muted">
-            Validation results appear after the Validation Agent completes during
-            pipeline execution.
-          </p>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted">Build Status:</span>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    pipelineResults['Validation Agent'].build_status ===
+                    'PASSED'
+                      ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
+                      : 'bg-red-500/15 text-red-500 border border-red-500/30'
+                  }`}
+                >
+                  {pipelineResults['Validation Agent'].build_status || '—'}
+                </span>
+              </div>
+              {pipelineResults['Validation Agent'].auto_fixes_applied
+                ?.length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold text-foreground mb-2">
+                    Auto-Fixes Applied
+                  </div>
+                  <div className="space-y-1">
+                    {pipelineResults[
+                      'Validation Agent'
+                    ].auto_fixes_applied.map((f: string, i: number) => (
+                      <div
+                        key={i}
+                        className="text-xs font-mono text-primary"
+                      >
+                        🔧 {f}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {pipelineResults['Validation Agent'].recommendations?.length >
+                0 && (
+                <div>
+                  <div className="text-xs font-semibold text-foreground mb-2">
+                    Recommendations
+                  </div>
+                  <ul className="space-y-1">
+                    {pipelineResults[
+                      'Validation Agent'
+                    ].recommendations.map((r: string, i: number) => (
+                      <li
+                        key={i}
+                        className="text-xs text-muted flex gap-2"
+                      >
+                        <span className="text-primary">→</span> {r}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-muted">
+              Validation results appear after the Validation Agent completes
+              during pipeline execution.
+            </p>
+          )}
         </section>
       )}
     </div>

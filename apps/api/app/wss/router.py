@@ -1,17 +1,23 @@
 """WebSocket Route for Local Agent Device Connections."""
 
 import json
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 from agentforge_protocol import MessageType, ToolResult
+from app.core.database import get_db
 from app.wss.connection_manager import wss_manager
 
 router = APIRouter()
 
 
 @router.websocket("/ws/devices/{device_id}")
-async def device_websocket_endpoint(websocket: WebSocket, device_id: str) -> None:
+async def device_websocket_endpoint(
+    websocket: WebSocket,
+    device_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> None:
     """WebSocket endpoint for Local Agent device connection."""
-    await wss_manager.connect(device_id, websocket)
+    await wss_manager.connect(device_id, websocket, db)
     try:
         while True:
             data_text = await websocket.receive_text()
@@ -23,6 +29,6 @@ async def device_websocket_endpoint(websocket: WebSocket, device_id: str) -> Non
                 wss_manager.handle_tool_result(tool_res)
 
     except WebSocketDisconnect:
-        wss_manager.disconnect(device_id)
+        await wss_manager.disconnect(device_id, db)
     except Exception:
-        wss_manager.disconnect(device_id)
+        await wss_manager.disconnect(device_id, db)

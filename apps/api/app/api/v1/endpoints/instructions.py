@@ -37,16 +37,21 @@ async def submit_instruction(project_id: str, data: InstructionSubmit) -> Any:
     async def _run_async_pipeline() -> None:
         orchestrator = PipelineOrchestrator()
 
-        async def _event_cb(agent_name: str, status: str, msg: str) -> None:
-            await broadcaster.broadcast(
-                project_id,
-                {
-                    "instruction_id": ins_id,
-                    "agent_name": agent_name,
-                    "status": status,
-                    "message": msg,
-                },
-            )
+        async def _event_cb(
+            agent_name: str,
+            status: str,
+            msg: str,
+            data: dict | None = None,
+        ) -> None:
+            payload: dict = {
+                "instruction_id": ins_id,
+                "agent_name": agent_name,
+                "status": status,
+                "message": msg,
+            }
+            if data:
+                payload["data"] = data
+            await broadcaster.broadcast(project_id, payload)
 
         await orchestrator.run_pipeline(ins_id, data.prompt, event_callback=_event_cb)
 
