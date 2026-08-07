@@ -61,15 +61,28 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const searchParams = useSearchParams()
   const pathname = usePathname()
 
+  // Helper to safely parse search parameters even if encoded by proxy/port forwarding
+  const getParam = (key: string): string | null => {
+    const val = searchParams.get(key)
+    if (val) return val
+    try {
+      const rawSearch = decodeURIComponent(searchParams.toString())
+      const match = rawSearch.match(new RegExp(`(?:^|[?&])${key}=([^&]*)`))
+      return match ? decodeURIComponent(match[1]) : null
+    } catch {
+      return null
+    }
+  }
+
   // Read URL search params
-  const activeTab = (searchParams.get('tab') || 'agents').toUpperCase() as
+  const activeTab = (getParam('tab') || 'agents').toUpperCase() as
     | 'AGENTS'
     | 'FILES'
     | 'RAG'
     | 'GIT'
 
-  const urlFile = searchParams.get('file') || 'plan.md'
-  const urlQuery = searchParams.get('q') || ''
+  const urlFile = getParam('file') || 'plan.md'
+  const urlQuery = getParam('q') || ''
 
   const [prompt, setPrompt] = useState('')
   const [isRunning, setIsRunning] = useState(false)

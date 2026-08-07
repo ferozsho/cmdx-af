@@ -6,14 +6,32 @@ export async function generateMetadata({
   params,
   searchParams,
 }: {
-  params: { id: string }
-  searchParams: { tab?: string; file?: string; q?: string }
+  params: Promise<{ id: string }>
+  searchParams: Promise<Record<string, string | undefined>>
 }): Promise<Metadata> {
-  const tab = (searchParams.tab || 'AGENTS').toUpperCase()
+  const resolvedParams = await params
+  const rawSearchParams = await searchParams
+
+  let tab = (rawSearchParams.tab || 'AGENTS').toUpperCase()
+  let file = rawSearchParams.file
+  let q = rawSearchParams.q
+
+  // Handle case where query params were encoded into a single key by remote proxy
+  if (!rawSearchParams.tab) {
+    const rawKeys = Object.keys(rawSearchParams).join('&')
+    const decoded = decodeURIComponent(rawKeys)
+    const tabMatch = decoded.match(/tab=([^&]+)/i)
+    if (tabMatch) tab = tabMatch[1].toUpperCase()
+    const fileMatch = decoded.match(/file=([^&]+)/i)
+    if (fileMatch) file = fileMatch[1]
+    const qMatch = decoded.match(/q=([^&]+)/i)
+    if (qMatch) q = qMatch[1]
+  }
+
   const titleMap: Record<string, string> = {
     AGENTS: 'Live Agent Pipeline',
-    FILES: searchParams.file ? `File: ${searchParams.file}` : 'Local Workspace Files',
-    RAG: searchParams.q ? `RAG Search: "${searchParams.q}"` : 'Semantic RAG Search',
+    FILES: file ? `File: ${file}` : 'Local Workspace Files',
+    RAG: q ? `RAG Search: "${q}"` : 'Semantic RAG Search',
     GIT: 'Local Git Isolation Status',
   }
 
@@ -21,11 +39,12 @@ export async function generateMetadata({
 
   return {
     title: `Commerce Platform (${tabTitle})`,
-    description: `Manage project ${params.id} workspace, view multi-agent pipeline execution, explore live local files, run RAG semantic search, and monitor Git branch isolation.`,
+    description: `Manage project ${resolvedParams.id} workspace, view multi-agent pipeline execution, explore live local files, run RAG semantic search, and monitor Git branch isolation.`,
   }
 }
 
-export default function WorkspacePage({ params }: { params: { id: string } }) {
+export default async function WorkspacePage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = await params
   return (
     <Suspense
       fallback={
@@ -34,7 +53,7 @@ export default function WorkspacePage({ params }: { params: { id: string } }) {
         </div>
       }
     >
-      <WorkspaceClient projectId={params.id} />
+      <WorkspaceClient projectId={resolvedParams.id} />
     </Suspense>
   )
 }
