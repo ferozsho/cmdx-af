@@ -90,11 +90,30 @@ export interface HealthResponse {
   version: string
 }
 
+export interface ComponentHealth {
+  status: string
+  message: string
+}
+
+export interface FullHealthResponse {
+  status: string
+  app_name: string
+  environment: string
+  mode: string
+  version: string
+  components: Record<string, ComponentHealth>
+}
+
 // ── API Functions ──────────────────────────────────────────────────────────
 
 /** GET /api/v1/health */
 export function getHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('GET', '/api/v1/health')
+}
+
+/** GET /api/v1/health/full */
+export function getFullHealth(): Promise<FullHealthResponse> {
+  return request<FullHealthResponse>('GET', '/api/v1/health/full')
 }
 
 /** GET /api/v1/projects */

@@ -1,15 +1,78 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useCallback, useState } from 'react'
+import { getFullHealth, type ComponentHealth } from '@/lib/api'
+
+type TestStatus = 'idle' | 'testing' | 'success' | 'error'
+
+interface TestResult {
+  status: TestStatus
+  message: string
+}
 
 export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
+  const [deepseekResult, setDeepseekResult] = useState<TestResult>({
+    status: 'idle',
+    message: '',
+  })
+  const [dbResult, setDbResult] = useState<TestResult>({
+    status: 'idle',
+    message: '',
+  })
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault()
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
   }
+
+  const testConnection = useCallback(
+    async (
+      componentKey: string,
+      setResult: (r: TestResult) => void,
+    ) => {
+      setResult({ status: 'testing', message: 'Testing...' })
+      try {
+        const health = await getFullHealth()
+        const component: ComponentHealth | undefined =
+          health.components[componentKey]
+        if (!component) {
+          setResult({
+            status: 'error',
+            message: `Component "${componentKey}" not found in health response.`,
+          })
+          return
+        }
+        if (component.status === 'healthy') {
+          setResult({
+            status: 'success',
+            message: component.message || 'Connected successfully.',
+          })
+        } else if (component.status === 'degraded') {
+          setResult({
+            status: 'error',
+            message: `Degraded: ${component.message}`,
+          })
+        } else if (component.status === 'not_configured') {
+          setResult({
+            status: 'error',
+            message: component.message || 'Not configured.',
+          })
+        } else {
+          setResult({
+            status: 'error',
+            message: `Unhealthy: ${component.message}`,
+          })
+        }
+      } catch (err: unknown) {
+        const msg =
+          err instanceof Error ? err.message : 'Unknown error'
+        setResult({ status: 'error', message: `Connection failed: ${msg}` })
+      }
+    },
+    [],
+  )
 
   return (
     <div>
@@ -78,19 +141,41 @@ export default function SettingsPage() {
           />
         </div>
 
-        <div className="pt-[18px] border-t border-border flex gap-2.5">
-          <button
-            type="button"
-            className="btn-secondary-af text-xs !px-[15px] !py-[10px]"
-          >
-            Test DeepSeek Connection
-          </button>
-          <button
-            type="button"
-            className="btn-secondary-af text-xs !px-[15px] !py-[10px]"
-          >
-            Test Database Connection
-          </button>
+        <div className="pt-[18px] border-t border-border flex flex-wrap gap-2.5 items-start">
+          <div className="flex flex-col gap-1.5">
+            <button
+              type="button"
+              className="btn-secondary-af text-xs !px-[15px] !py-[10px]"
+              onClick={() =>
+                testConnection('deepseek_api', (r) => setDeepseekResult(r))
+              }
+              disabled={deepseekResult.status === 'testing'}
+            >
+              {deepseekResult.status === 'testing'
+                ? 'Testing...'
+                : 'Test DeepSeek Connection'}
+            </button>
+            {deepseekResult.status !== 'idle' && (
+              <TestFeedback result={deepseekResult} />
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <button
+              type="button"
+              className="btn-secondary-af text-xs !px-[15px] !py-[10px]"
+              onClick={() =>
+                testConnection('postgresql', (r) => setDbResult(r))
+              }
+              disabled={dbResult.status === 'testing'}
+            >
+              {dbResult.status === 'testing'
+                ? 'Testing...'
+                : 'Test Database Connection'}
+            </button>
+            {dbResult.status !== 'idle' && (
+              <TestFeedback result={dbResult} />
+            )}
+          </div>
         </div>
       </form>
     </div>
@@ -121,4 +206,29 @@ function SettingsField({
       />
     </div>
   )
+}
+
+function TestFeedback({ result }: { result: TestResult }) {
+  if (result.status === 'testing') {
+    return (
+      <span className="text-[11px] text-muted animate-pulse">
+        {result.message}
+      </span>
+    )
+  }
+  if (result.status === 'success') {
+    return (
+      <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+        ✓ {result.message}
+      </span>
+    )
+  }
+  if (result.status === 'error') {
+    return (
+      <span className="text-[11px] font-medium text-red-500">
+        ✗ {result.message}
+      </span>
+    )
+  }
+  return null
 }
