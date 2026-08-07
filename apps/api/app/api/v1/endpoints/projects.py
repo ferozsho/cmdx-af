@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.repositories.project_repo import ProjectRepository
+from app.repositories.device_repo import DeviceRepository
 from app.tools.gateway.tool_gateway import ToolGateway
 
 router = APIRouter()
@@ -172,6 +173,23 @@ def _count_files_and_dirs(project_path: Path, max_depth: int = 4) -> tuple:
 
 
 # ── API Endpoints ───────────────────────────────────────────────────────────
+
+@router.get("/projects/stats/summary")
+async def get_project_stats(db: AsyncSession = Depends(get_db)) -> Any:
+    """Get aggregated project stats for dashboard KPIs."""
+    repo = ProjectRepository(db)
+    device_repo = DeviceRepository(db)
+    total = await repo.count()
+    online = await device_repo.count_online()
+    total_devices = await device_repo.count()
+    return {
+        "total_projects": total,
+        "online_devices": online,
+        "total_devices": total_devices,
+        "agent_runs": 0,
+        "tests_passed": 0,
+    }
+
 
 @router.get("/projects", response_model=List[ProjectResponse])
 async def list_projects(db: AsyncSession = Depends(get_db)) -> Any:

@@ -38,11 +38,15 @@ class PipelineOrchestrator:
         instruction_id: str,
         prompt: str,
         event_callback: Any = None,
+        device_id: str = "dev_feroz_pc",
+        workspace_id: str = "ws-test",
     ) -> Dict[str, Any]:
         """Execute all sequential agents in order, emitting live progress events."""
         context: Dict[str, Any] = {
             "instruction_id": instruction_id,
             "prompt": prompt,
+            "device_id": device_id,
+            "workspace_id": workspace_id,
         }
         results: List[Dict[str, Any]] = []
 

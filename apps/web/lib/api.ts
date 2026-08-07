@@ -116,6 +116,17 @@ export function getFullHealth(): Promise<FullHealthResponse> {
   return request<FullHealthResponse>('GET', '/api/v1/health/full')
 }
 
+/** GET /api/v1/projects/stats/summary */
+export function getProjectStats(): Promise<{
+  total_projects: number
+  online_devices: number
+  total_devices: number
+  agent_runs: number
+  tests_passed: number
+}> {
+  return request('GET', '/api/v1/projects/stats/summary')
+}
+
 /** GET /api/v1/projects */
 export function listProjects(): Promise<ProjectResponse[]> {
   return request<ProjectResponse[]>('GET', '/api/v1/projects')

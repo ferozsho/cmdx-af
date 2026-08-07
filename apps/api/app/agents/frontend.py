@@ -5,21 +5,21 @@ from app.agents.base import BaseAgent
 
 
 SYSTEM_PROMPT = """You are a Frontend Engineer agent specializing in React, Next.js 16,
-and TypeScript. Generate frontend code that follows project design patterns.
+and TypeScript. Generate production-ready frontend code that follows project patterns.
 Return JSON with:
-- "files_generated": list of file paths you would create/modify
+- "files": list of {path, content} objects with COMPLETE file content
 - "components": list of component names created
-- "summary": brief description of what was implemented"""
+- "summary": brief description"""
 
 
 class FrontendAgent(BaseAgent):
-    """Frontend Agent generating React/Next.js components and pages."""
+    """Frontend Agent generating and writing React/Next.js components."""
 
     def __init__(self) -> None:
         super().__init__("Frontend Agent", capability="coding")
 
     async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate frontend code files using LLM."""
+        """Generate frontend code via LLM and write to workspace."""
         prompt = context.get("prompt", "")
         plan = context.get("plan_json", {})
         try:
@@ -27,23 +27,25 @@ class FrontendAgent(BaseAgent):
                 prompt=(
                     f"User instruction: {prompt}\n\n"
                     f"Implementation plan: {plan}\n\n"
-                    "Generate the required frontend code (React/Next.js components, "
-                    "pages, hooks) following project conventions and design patterns."
+                    "Generate COMPLETE frontend code files (React/Next.js components, "
+                    "pages, hooks) with full file content. Each file must include "
+                    "ALL imports and complete implementation code."
                 ),
                 system_prompt=SYSTEM_PROMPT,
                 json_mode=True,
             )
+            files = response.content.get("files", [])
+            write_results = (
+                await self._write_files(context, files) if files else []
+            )
             return {
                 "status": "COMPLETED",
-                "files_generated": response.content.get("files_generated", []),
+                "files_generated": [f["path"] for f in files],
+                "files_written": write_results,
                 "components": response.content.get("components", []),
                 "summary": response.content.get("summary", ""),
                 "tokens_used": response.total_tokens,
                 "cost": response.cost,
             }
         except Exception as e:
-            return {
-                "status": "FAILED",
-                "error": str(e),
-                "files_generated": [],
-            }
+            return {"status": "FAILED", "error": str(e), "files_generated": []}
