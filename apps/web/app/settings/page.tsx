@@ -16,6 +16,14 @@ export default function SettingsPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const apiKeyRef = useRef<HTMLInputElement>(null)
   const baseUrlRef = useRef<HTMLInputElement>(null)
+  const chatModelRef = useRef<HTMLInputElement>(null)
+  const coderModelRef = useRef<HTMLInputElement>(null)
+  const maxStepsRef = useRef<HTMLInputElement>(null)
+  const timeoutRef = useRef<HTMLInputElement>(null)
+  const ragTopKRef = useRef<HTMLInputElement>(null)
+  const ragThresholdRef = useRef<HTMLInputElement>(null)
+  const contextBudgetRef = useRef<HTMLInputElement>(null)
+  const allowedCommandsRef = useRef<HTMLTextAreaElement>(null)
 
   const [deepseekResult, setDeepseekResult] = useState<TestResult>({
     status: 'idle',
@@ -31,11 +39,21 @@ export default function SettingsPage() {
     setSaving(true)
     setSaveError(null)
     try {
-      const apiKey = apiKeyRef.current?.value || ''
-      const baseUrl = baseUrlRef.current?.value || ''
       await updateSettings({
-        deepseek_api_key: apiKey,
-        deepseek_base_url: baseUrl,
+        deepseek_api_key: apiKeyRef.current?.value || '',
+        deepseek_base_url: baseUrlRef.current?.value || '',
+        chat_model: chatModelRef.current?.value || '',
+        coder_model: coderModelRef.current?.value || '',
+        max_agent_steps: parseInt(maxStepsRef.current?.value || '10', 10),
+        agent_timeout: parseInt(timeoutRef.current?.value || '600', 10),
+        rag_top_k: parseInt(ragTopKRef.current?.value || '5', 10),
+        rag_similarity_threshold: parseFloat(
+          ragThresholdRef.current?.value || '0.65',
+        ),
+        context_window_budget:
+          contextBudgetRef.current?.value || '30%',
+        allowed_commands:
+          allowedCommandsRef.current?.value || '',
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -145,13 +163,13 @@ export default function SettingsPage() {
               className="input-af"
             />
           </div>
-          <SettingsField label="Chat Model" defaultValue="deepseek-chat" />
-          <SettingsField label="Coder Model" defaultValue="deepseek-coder" />
-          <SettingsField label="Max Agent Steps" defaultValue="10" type="number" />
-          <SettingsField label="Agent Timeout (seconds)" defaultValue="600" type="number" />
-          <SettingsField label="RAG Top K" defaultValue="5" type="number" />
-          <SettingsField label="RAG Similarity Threshold" defaultValue="0.65" type="number" step="0.01" />
-          <SettingsField label="Context Window Budget" defaultValue="30%" />
+          <Field label="Chat Model" inputRef={chatModelRef} defaultValue="deepseek-chat" />
+          <Field label="Coder Model" inputRef={coderModelRef} defaultValue="deepseek-coder" />
+          <Field label="Max Agent Steps" inputRef={maxStepsRef} defaultValue="10" type="number" />
+          <Field label="Agent Timeout (seconds)" inputRef={timeoutRef} defaultValue="600" type="number" />
+          <Field label="RAG Top K" inputRef={ragTopKRef} defaultValue="5" type="number" />
+          <Field label="RAG Similarity Threshold" inputRef={ragThresholdRef} defaultValue="0.65" type="number" step="0.01" />
+          <Field label="Context Window Budget" inputRef={contextBudgetRef} defaultValue="30%" />
         </div>
 
         <div className="field">
@@ -174,6 +192,7 @@ export default function SettingsPage() {
             Allowed Commands
           </label>
           <textarea
+            ref={allowedCommandsRef}
             rows={3}
             defaultValue="pip install, npm install, npm run build, python -m, npx, pytest, jest, ruff, eslint, mypy, bandit"
             className="input-af font-mono text-xs resize-y"
@@ -221,16 +240,18 @@ export default function SettingsPage() {
   )
 }
 
-function SettingsField({
+function Field({
   label,
   defaultValue,
   type = 'text',
   step,
+  inputRef,
 }: {
   label: string
   defaultValue: string
   type?: string
   step?: string
+  inputRef: React.RefObject<HTMLInputElement | null>
 }) {
   return (
     <div>
@@ -238,6 +259,7 @@ function SettingsField({
         {label}
       </label>
       <input
+        ref={inputRef}
         type={type}
         defaultValue={defaultValue}
         step={step}

@@ -133,6 +133,12 @@ export function updateSettings(data: {
   deepseek_base_url?: string
   chat_model?: string
   coder_model?: string
+  max_agent_steps?: number
+  agent_timeout?: number
+  rag_top_k?: number
+  rag_similarity_threshold?: number
+  context_window_budget?: string
+  allowed_commands?: string
 }): Promise<{ ok: boolean }> {
   return request('PUT', '/api/v1/settings', data)
 }
