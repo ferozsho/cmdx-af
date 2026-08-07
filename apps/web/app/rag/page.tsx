@@ -48,10 +48,10 @@ export default function RagManagerPage() {
       {/* Page Header — matches prototype .page-title */}
       <div className="flex items-start justify-between mb-[22px]">
         <div>
-          <h2 className="text-[26px] font-bold text-main m-0 mb-[5px]">
+          <h2 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">
             RAG Manager
           </h2>
-          <p className="text-sub text-sm m-0">
+          <p className="text-muted text-sm m-0">
             Index coverage, vector retrieval and project context quality.
           </p>
         </div>
@@ -77,17 +77,17 @@ export default function RagManagerPage() {
             key={label}
             className="card-af p-5"
           >
-            <div className="text-xs font-semibold text-sub uppercase tracking-wider">
+            <div className="text-xs font-semibold text-muted uppercase tracking-wider">
               {label}
             </div>
-            <div className="text-2xl font-bold text-main mt-2">{value}</div>
+            <div className="text-2xl font-bold text-foreground mt-2">{value}</div>
           </div>
         ))}
       </div>
 
       {/* Search */}
       <div className="card-af p-5 space-y-4">
-        <h3 className="text-sm font-bold text-main m-0">
+        <h3 className="text-sm font-bold text-foreground m-0">
           Semantic Code Search
         </h3>
         <form onSubmit={handleSearch} className="space-y-3">
@@ -126,7 +126,7 @@ export default function RagManagerPage() {
         </form>
 
         {searchError && (
-          <div className="text-xs text-[#d6263b] bg-[#fff0f0] border border-[#ffd0d4] rounded-[10px] p-3">
+          <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded-[10px] p-3">
             {searchError}
           </div>
         )}
@@ -139,31 +139,31 @@ export default function RagManagerPage() {
                 key={i}
                 className="card-af p-4 flex gap-3 text-xs"
               >
-                <div className="w-9 h-9 rounded-[9px] bg-[#f2edfb] text-[#6734bd] grid place-items-center flex-shrink-0 text-sm">
+                <div className="w-9 h-9 rounded-[9px] bg-primary/10 text-primary grid place-items-center flex-shrink-0 text-sm font-bold">
                   ◫
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-main text-xs m-0 truncate">
+                  <h4 className="font-bold text-foreground text-xs m-0 truncate">
                     {r.file || r.file_path || 'Unknown file'}
                     {r.lines && (
-                      <span className="font-normal text-sub ml-2">
+                      <span className="font-normal text-muted ml-2">
                         lines {r.lines}
                       </span>
                     )}
                   </h4>
-                  <p className="text-sub text-xs mt-1 line-clamp-2 m-0">
+                  <p className="text-muted text-xs mt-1 line-clamp-2 m-0">
                     {r.text || r.content || r.snippet || 'No preview available'}
                   </p>
                 </div>
                 <div className="text-right flex-shrink-0">
                   {r.score !== undefined && (
-                    <span className="text-xs font-bold text-[#1f7a35]">
+                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
                       {typeof r.score === 'number'
                         ? `${Math.round(r.score * 100)}%`
                         : r.score}
                     </span>
                   )}
-                  <div className="text-[10px] text-sub mt-0.5">similarity</div>
+                  <div className="text-[10px] text-muted mt-0.5">similarity</div>
                 </div>
               </div>
             ))}
@@ -172,7 +172,7 @@ export default function RagManagerPage() {
 
         {results.length === 0 && !searching && query && (
           <div className="text-center py-8">
-            <p className="text-sm text-sub">
+            <p className="text-sm text-muted">
               No results found. Try a different query or select a different project.
             </p>
           </div>

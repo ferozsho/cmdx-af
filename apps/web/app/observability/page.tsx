@@ -17,10 +17,10 @@ export default function ObservabilityPage() {
       {/* Page Header — matches prototype .page-title */}
       <div className="flex items-start justify-between mb-[22px]">
         <div>
-          <h2 className="text-[26px] font-bold text-main m-0 mb-[5px]">
+          <h2 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">
             Observability
           </h2>
-          <p className="text-sub text-sm m-0">
+          <p className="text-muted text-sm m-0">
             Operational metrics for pipelines, agents, RAG, and LLM usage.
           </p>
         </div>
@@ -30,7 +30,7 @@ export default function ObservabilityPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-[18px]">
         {/* Agent Duration */}
         <div className="card-af p-[18px]">
-          <h3 className="text-sm font-bold text-main m-0 mb-4">
+          <h3 className="text-sm font-bold text-foreground m-0 mb-4">
             Agent Duration (avg)
           </h3>
           {[
@@ -42,14 +42,14 @@ export default function ObservabilityPage() {
             ['Git', 22],
           ].map(([name, pct]) => (
             <div key={name} className="grid grid-cols-[120px_1fr_48px] gap-[10px] items-center my-3 text-xs">
-              <span className="text-main truncate">{name}</span>
-              <div className="h-2 bg-[#edf0f5] dark:bg-[#1f2937] rounded-full overflow-hidden">
+              <span className="text-foreground truncate">{name}</span>
+              <div className="h-2 bg-surface-secondary rounded-full overflow-hidden border border-border/50">
                 <div
                   className="h-full bg-gradient-to-r from-[#1b78d2] to-[#6e38c7] rounded-full"
                   style={{ width: `${pct}%` }}
                 />
               </div>
-              <span className="text-main font-mono text-right font-bold">
+              <span className="text-foreground font-mono text-right font-bold">
                 {pct}s
               </span>
             </div>
@@ -58,7 +58,7 @@ export default function ObservabilityPage() {
 
         {/* Pipeline Health */}
         <div className="card-af p-[18px]">
-          <h3 className="text-sm font-bold text-main m-0 mb-4">
+          <h3 className="text-sm font-bold text-foreground m-0 mb-4">
             Pipeline Health
           </h3>
           <div className="space-y-1 text-xs">
@@ -71,10 +71,10 @@ export default function ObservabilityPage() {
             ].map(([label, value]) => (
               <div
                 key={label}
-                className="flex justify-between py-[11px] border-b border-[#e3e8f1] dark:border-[#1f2937] last:border-0"
+                className="flex justify-between py-[11px] border-b border-border last:border-0"
               >
-                <span className="text-sub">{label}</span>
-                <span className="text-main font-bold">{value}</span>
+                <span className="text-muted">{label}</span>
+                <span className="text-foreground font-bold">{value}</span>
               </div>
             ))}
           </div>
@@ -82,7 +82,7 @@ export default function ObservabilityPage() {
 
         {/* LLM Usage */}
         <div className="card-af p-[18px]">
-          <h3 className="text-sm font-bold text-main m-0 mb-4">
+          <h3 className="text-sm font-bold text-foreground m-0 mb-4">
             DeepSeek Usage
           </h3>
           <div className="space-y-1 text-xs">
@@ -94,10 +94,10 @@ export default function ObservabilityPage() {
             ].map(([label, value]) => (
               <div
                 key={label}
-                className="flex justify-between py-[11px] border-b border-[#e3e8f1] dark:border-[#1f2937] last:border-0"
+                className="flex justify-between py-[11px] border-b border-border last:border-0"
               >
-                <span className="text-sub">{label}</span>
-                <span className="text-main font-bold">{value}</span>
+                <span className="text-muted">{label}</span>
+                <span className="text-foreground font-bold">{value}</span>
               </div>
             ))}
           </div>
@@ -105,7 +105,7 @@ export default function ObservabilityPage() {
 
         {/* Infrastructure Health */}
         <div className="card-af p-[18px]">
-          <h3 className="text-sm font-bold text-main m-0 mb-4">
+          <h3 className="text-sm font-bold text-foreground m-0 mb-4">
             Infrastructure
           </h3>
           <div className="space-y-1 text-xs">
@@ -118,16 +118,16 @@ export default function ObservabilityPage() {
             ].map(([name, status]) => (
               <div
                 key={name}
-                className="flex justify-between py-[11px] border-b border-[#e3e8f1] dark:border-[#1f2937] last:border-0"
+                className="flex justify-between py-[11px] border-b border-border last:border-0"
               >
-                <span className="text-sub">{name}</span>
+                <span className="text-muted">{name}</span>
                 <span
                   className={`font-bold ${
                     status === 'Healthy'
-                      ? 'text-[#238636]'
+                      ? 'text-emerald-600 dark:text-emerald-400'
                       : status === '—'
-                        ? 'text-sub'
-                        : 'text-[#d6263b]'
+                        ? 'text-muted'
+                        : 'text-red-500'
                   }`}
                 >
                   {status === 'Healthy' && '● '}

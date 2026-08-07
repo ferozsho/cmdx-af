@@ -49,7 +49,7 @@ export default async function WorkspacePage({ params }: { params: Promise<{ id: 
   return (
     <Suspense
       fallback={
-        <div className="max-w-7xl mx-auto p-12 text-center text-gray-400 font-mono animate-pulse">
+        <div className="max-w-7xl mx-auto p-12 text-center text-muted font-mono animate-pulse">
           Loading AgentForge Workspace Control Plane...
         </div>
       }

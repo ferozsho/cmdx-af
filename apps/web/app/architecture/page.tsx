@@ -67,21 +67,21 @@ export default function ArchitecturePage() {
   ]
 
   const colorMap: Record<string, string> = {
-    red: 'border-red-800 bg-red-950/20',
-    purple: 'border-purple-800 bg-purple-950/20',
-    blue: 'border-blue-800 bg-blue-950/20',
-    teal: 'border-teal-800 bg-teal-950/20',
-    gold: 'border-amber-800 bg-amber-950/20',
-    green: 'border-emerald-800 bg-emerald-950/20',
+    red: 'border-red-500/30 bg-red-500/10',
+    purple: 'border-primary/30 bg-primary/10',
+    blue: 'border-blue-500/30 bg-blue-500/10',
+    teal: 'border-teal-500/30 bg-teal-500/10',
+    gold: 'border-amber-500/30 bg-amber-500/10',
+    green: 'border-emerald-500/30 bg-emerald-500/10',
   }
 
   const textColorMap: Record<string, string> = {
-    red: 'text-red-400',
-    purple: 'text-purple-400',
-    blue: 'text-blue-400',
-    teal: 'text-teal-400',
-    gold: 'text-amber-400',
-    green: 'text-emerald-400',
+    red: 'text-red-600 dark:text-red-400',
+    purple: 'text-primary',
+    blue: 'text-blue-600 dark:text-blue-400',
+    teal: 'text-teal-600 dark:text-teal-400',
+    gold: 'text-amber-600 dark:text-amber-400',
+    green: 'text-emerald-600 dark:text-emerald-400',
   }
 
   return (
@@ -89,10 +89,10 @@ export default function ArchitecturePage() {
       {/* Page Header — matches prototype .page-title */}
       <div className="flex items-start justify-between mb-[22px]">
         <div>
-          <h2 className="text-[26px] font-bold text-main m-0 mb-[5px]">
+          <h2 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">
             System Architecture
           </h2>
-          <p className="text-sub text-sm m-0">
+          <p className="text-muted text-sm m-0">
             End-to-end platform stack for the AgentForge AI Agent Framework.
           </p>
         </div>
@@ -102,10 +102,10 @@ export default function ArchitecturePage() {
         {layers.map((layer, i) => (
           <React.Fragment key={layer.title}>
             <div
-              className={`border border-[1.5px] rounded-[13px] p-[14px] my-[10px] text-center ${colorMap[layer.color] || 'border-[#e3e8f1] bg-white'}`}
+              className={`border-[1.5px] rounded-[13px] p-[14px] my-[10px] text-center ${colorMap[layer.color] || 'border-border bg-surface'}`}
             >
               <div
-                className={`font-black mb-2 text-xs uppercase tracking-wider ${textColorMap[layer.color] || 'text-main'}`}
+                className={`font-black mb-2 text-xs uppercase tracking-wider ${textColorMap[layer.color] || 'text-foreground'}`}
               >
                 {layer.title}
               </div>
@@ -113,7 +113,7 @@ export default function ArchitecturePage() {
                 {layer.items.map((item) => (
                   <div
                     key={item}
-                    className="bg-white dark:bg-[#1f2937] border border-[#dfe4ee] dark:border-[#374151] rounded-[9px] p-[9px] text-xs text-main font-medium"
+                    className="bg-surface border border-border rounded-[9px] p-[9px] text-xs text-foreground font-medium"
                   >
                     {item}
                   </div>
@@ -121,7 +121,7 @@ export default function ArchitecturePage() {
               </div>
             </div>
             {i < layers.length - 1 && (
-              <div className="text-center text-[#778198] text-[22px] h-[18px] leading-none my-1">
+              <div className="text-center text-muted text-[22px] h-[18px] leading-none my-1">
                 ↓
               </div>
             )}

@@ -92,10 +92,10 @@ function FileTreeNode({
         <button
           type="button"
           onClick={() => setUserExpanded(!isOpen)}
-          className="w-full text-left font-semibold text-gray-400 hover:text-white select-none flex items-center justify-between gap-1.5 py-1 px-1 rounded hover:bg-gray-800/40 transition-colors cursor-pointer group"
+          className="w-full text-left font-semibold text-muted hover:text-foreground select-none flex items-center justify-between gap-1.5 py-1 px-1 rounded hover:bg-hover transition-colors cursor-pointer group"
         >
           <div className="flex items-center gap-1.5 truncate min-w-0">
-            <span className="text-[10px] text-gray-500 w-3 text-center flex-shrink-0 group-hover:text-blue-400">
+            <span className="text-[10px] text-muted w-3 text-center flex-shrink-0 group-hover:text-primary">
               {isOpen ? '▼' : '▶'}
             </span>
             <span className="flex-shrink-0">📁</span>
@@ -103,7 +103,7 @@ function FileTreeNode({
           </div>
           {dirHasChanges && (
             <span
-              className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-amber-950/80 text-amber-400 border border-amber-800/80 flex-shrink-0"
+              className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-amber-500/15 text-amber-500 border border-amber-500/30 flex-shrink-0"
               title="Contains modified/uncommitted files"
             >
               ●
@@ -111,7 +111,7 @@ function FileTreeNode({
           )}
         </button>
         {isOpen && (
-          <div className="border-l border-gray-800/80 pl-2 space-y-0.5">
+          <div className="border-l border-border pl-2 space-y-0.5">
             {node.children?.map((child: any) => {
               const childPath = currentPath ? `${currentPath}/${child.name}` : child.name
               return (
@@ -147,8 +147,8 @@ function FileTreeNode({
       onClick={() => onSelectFile(filePath)}
       className={`w-full text-left font-mono text-xs px-2 py-1.5 rounded flex items-center justify-between gap-2 transition-colors ${
         isSelected
-          ? 'bg-blue-900/40 text-blue-300 font-bold border border-blue-700/50'
-          : 'text-gray-300 hover:bg-gray-800/60 hover:text-white'
+          ? 'bg-primary/15 text-primary font-bold border border-primary/30'
+          : 'text-foreground-secondary hover:bg-hover hover:text-foreground'
       }`}
     >
       <div className="flex items-center gap-2 truncate min-w-0">
@@ -160,7 +160,7 @@ function FileTreeNode({
         {/* Status Flags */}
         {isModified && (
           <span
-            className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-amber-950/90 text-amber-400 border border-amber-800/80"
+            className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-amber-500/15 text-amber-500 border border-amber-500/30"
             title="Modified locally"
           >
             MODIFIED
@@ -168,7 +168,7 @@ function FileTreeNode({
         )}
         {isUntracked && (
           <span
-            className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-emerald-950/90 text-emerald-400 border border-emerald-800/80"
+            className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-emerald-500/15 text-emerald-500 border border-emerald-500/30"
             title="Untracked new file"
           >
             NEW
@@ -176,7 +176,7 @@ function FileTreeNode({
         )}
         {isStaged && (
           <span
-            className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-blue-950/90 text-blue-400 border border-blue-800/80"
+            className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-blue-500/15 text-blue-500 border border-blue-500/30"
             title="Staged in index"
           >
             STAGED
@@ -184,7 +184,7 @@ function FileTreeNode({
         )}
         {isUnpushed && (
           <span
-            className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-purple-950/90 text-purple-400 border border-purple-800/80"
+            className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-purple-500/15 text-purple-500 border border-purple-500/30"
             title="Unpushed commit"
           >
             UNPUSHED
@@ -193,7 +193,7 @@ function FileTreeNode({
 
         {/* File Size */}
         {node.size !== undefined && (
-          <span className="text-[10px] text-gray-500 font-sans font-normal">{formatFileSize(node.size)}</span>
+          <span className="text-[10px] text-muted font-sans font-normal">{formatFileSize(node.size)}</span>
         )}
       </div>
     </button>
@@ -439,22 +439,22 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-[#e3e8f1] pb-4">
+      <header className="flex items-center justify-between border-b border-border pb-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold text-[#121827]">
+            <h1 className="text-xl font-bold text-foreground">
               {projectLoading
                 ? 'Loading...'
                 : project?.name || 'Project'}
             </h1>
-            <span className="status-badge status-running text-xs">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary/15 text-primary border border-primary/30">
               ●{' '}
               {project?.execution_target === 'LOCAL'
                 ? 'Local · Connected'
                 : 'Cloud · Connected'}
             </span>
           </div>
-          <p className="text-xs text-[#687386] mt-1">
+          <p className="text-xs text-muted mt-1">
             {projectLoading
               ? 'Loading project details...'
               : projectError
@@ -474,8 +474,8 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 href={href}
                 className={`px-3 py-1.5 rounded-[10px] text-xs font-semibold transition-colors ${
                   isActive
-                    ? 'bg-[#6e37c9] text-white shadow-lg shadow-purple-900/20'
-                    : 'bg-white text-[#687386] hover:text-[#121827] border border-[#e3e8f1]'
+                    ? 'btn-primary-af !px-3 !py-1.5 !text-xs shadow-md'
+                    : 'btn-secondary-af !px-3 !py-1.5 !text-xs'
                 }`}
               >
                 {tab}
@@ -493,12 +493,12 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="e.g. Create payment management module with FastAPI endpoints, React admin table, unit tests, and git commit..."
-            className="flex-1 bg-white border border-[#d9dfeb] rounded-[10px] px-4 py-2.5 text-sm text-[#121827] focus:outline-none focus:border-[#7b48d0]"
+            className="input-af flex-1"
           />
           <button
             type="submit"
             disabled={isRunning}
-            className="btn-primary-af text-xs disabled:opacity-50"
+            className="btn-primary-af text-xs disabled:opacity-50 whitespace-nowrap"
           >
             {isRunning ? 'Running Pipeline...' : 'Run Instruction'}
           </button>
@@ -510,23 +510,23 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Agent Sequence List */}
           <div className="md:col-span-1 space-y-3">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Agent Sequence</h2>
+            <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Agent Sequence</h2>
             <div className="space-y-2">
               {agentsState.map((ag) => (
                 <div
                   key={ag.name}
                   className="card-af p-3 flex items-center justify-between text-xs"
                 >
-                  <span className="font-medium text-[#121827]">{ag.name}</span>
+                  <span className="font-medium text-foreground">{ag.name}</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-[#687386]">{ag.duration}</span>
+                    <span className="text-[10px] text-muted">{ag.duration}</span>
                     <span
                       className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         ag.status === 'COMPLETED'
-                          ? 'bg-[#e9f8ed] text-[#1b7e33]'
+                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
                           : ag.status === 'RUNNING'
-                          ? 'bg-[#eee8ff] text-[#6c36bf] animate-pulse'
-                          : 'bg-[#eef1f5] text-[#667085]'
+                          ? 'bg-primary/15 text-primary animate-pulse'
+                          : 'bg-surface-secondary text-muted'
                       }`}
                     >
                       {ag.status}
@@ -539,11 +539,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
           {/* Live Event Console */}
           <div className="md:col-span-2 card-af p-4 flex flex-col h-[500px]">
-            <h2 className="text-sm font-semibold text-[#687386] uppercase tracking-wider mb-3">
+            <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-3">
               Live Event Console
             </h2>
-            <div className="flex-1 bg-[#0f141e] border border-gray-800 rounded-[10px] p-3 font-mono text-xs overflow-y-auto space-y-2 text-[#c8d0df]">
-              <div className="text-[#687386]">[System] Connected to SSE stream for project {projectId}</div>
+            <div className="flex-1 bg-[#0f141e] border border-border/80 rounded-[10px] p-3 font-mono text-xs overflow-y-auto space-y-2 text-[#c8d0df]">
+              <div className="text-muted">[System] Connected to SSE stream for project {projectId}</div>
               {events.map((ev, i) => (
                 <div key={i} className="text-[#49e56d]">
                   <span className="text-[#7f899c]">[{ev.time}]</span> {ev.text}
@@ -558,15 +558,15 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* File Tree Panel */}
           <div className="md:col-span-1 card-af p-4 text-xs space-y-2 max-h-[600px] overflow-y-auto">
-            <div className="text-sm font-semibold text-[#121827] font-sans mb-3 flex items-center justify-between">
+            <div className="text-sm font-semibold text-foreground font-sans mb-3 flex items-center justify-between">
               <span>Live Workspace File Tree</span>
-              <span className="text-[10px] bg-blue-950 text-blue-400 border border-blue-800 px-2 py-0.5 rounded font-mono">
+              <span className="text-[10px] bg-primary/15 text-primary border border-primary/30 px-2 py-0.5 rounded font-mono">
                 WSS Connected
               </span>
             </div>
             {fileTree ? (
               <div className="space-y-1 font-mono">
-                <div className="font-bold text-blue-400 flex items-center gap-1.5 pb-1">
+                <div className="font-bold text-primary flex items-center gap-1.5 pb-1">
                   <span>📁</span> {fileTree.name}/
                 </div>
                 {fileTree.children?.map((node: any) => (
@@ -581,14 +581,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                 ))}
               </div>
             ) : (
-              <div className="text-gray-500 font-mono animate-pulse">Loading live workspace tree...</div>
+              <div className="text-muted font-mono animate-pulse">Loading live workspace tree...</div>
             )}
           </div>
 
           {/* File Code / Diff Viewer Panel */}
           <div className="md:col-span-2 space-y-2">
             {loadingFile ? (
-              <div className="bg-[#111827] border border-gray-800 rounded-xl p-12 text-center text-xs text-gray-400 font-mono animate-pulse">
+              <div className="card-af p-12 text-center text-xs text-muted font-mono animate-pulse">
                 Fetching file content from local workstation over WSS...
               </div>
             ) : (
@@ -603,8 +603,8 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       )}
 
       {activeTab === 'RAG' && (
-        <section className="bg-[#111827] border border-gray-800 rounded-xl p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-white">Local RAG Semantic Search</h2>
+        <section className="card-af p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-foreground">Local RAG Semantic Search</h2>
           <form
             onSubmit={(e) => {
               e.preventDefault()
@@ -617,9 +617,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               value={ragQuery}
               onChange={(e) => setRagQuery(e.target.value)}
               placeholder="Search codebase semantically (e.g. payment processing logic)..."
-              className="flex-1 bg-[#0d121f] border border-gray-800 rounded-lg px-3 py-2 text-xs text-white"
+              className="input-af flex-1"
             />
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-semibold">
+            <button type="submit" className="btn-primary-af text-xs">
               Search RAG
             </button>
           </form>
@@ -627,14 +627,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           {ragResults.length > 0 && (
             <div className="space-y-3 pt-2">
               {ragResults.map((res, i) => (
-                <article key={i} className="bg-[#0d121f] border border-gray-800 rounded-lg p-3 text-xs space-y-1 font-mono">
-                  <div className="flex justify-between text-blue-400 font-sans font-semibold">
+                <article key={i} className="bg-surface-secondary border border-border rounded-lg p-3 text-xs space-y-1 font-mono">
+                  <div className="flex justify-between text-primary font-sans font-semibold">
                     <span>
                       {res.file_path} (Lines {res.start_line}-{res.end_line})
                     </span>
                     <span>Relevance: {(res.score * 100).toFixed(0)}%</span>
                   </div>
-                  <pre className="text-gray-300 bg-[#090d16] p-2 rounded overflow-x-auto">{res.content}</pre>
+                  <pre className="text-foreground-secondary bg-[#090d16] p-2 rounded overflow-x-auto text-xs">{res.content}</pre>
                 </article>
               ))}
             </div>
@@ -643,20 +643,20 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       )}
 
       {activeTab === 'GIT' && (
-        <section className="bg-[#111827] border border-gray-800 rounded-xl p-6 text-xs space-y-4">
-          <h2 className="text-sm font-semibold text-white">Local Git Isolation Status</h2>
+        <section className="card-af p-6 text-xs space-y-4">
+          <h2 className="text-sm font-semibold text-foreground">Local Git Isolation Status</h2>
           {gitStatus ? (
-            <div className="bg-[#0d121f] border border-gray-800 rounded-lg p-4 font-mono space-y-2 text-gray-300">
+            <div className="bg-surface-secondary border border-border rounded-lg p-4 font-mono space-y-2 text-foreground">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-gray-500">Active Branch: </span>
-                  <span className="text-blue-400 font-bold">{gitStatus.branch}</span>
+                  <span className="text-muted">Active Branch: </span>
+                  <span className="text-primary font-bold">{gitStatus.branch}</span>
                 </div>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                     gitStatus.is_dirty
-                      ? 'bg-amber-950 text-amber-400 border border-amber-800'
-                      : 'bg-emerald-950 text-emerald-400'
+                      ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
+                      : 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
                   }`}
                 >
                   {gitStatus.is_dirty ? 'Dirty (Uncommitted Changes)' : 'Clean Working Tree'}
@@ -664,9 +664,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               </div>
               {gitStatus.modified_files?.length > 0 && (
                 <div>
-                  <div className="text-gray-500 mt-2 font-sans font-semibold">Modified Files:</div>
+                  <div className="text-muted mt-2 font-sans font-semibold">Modified Files:</div>
                   {gitStatus.modified_files.map((f: string, i: number) => (
-                    <div key={i} className="text-amber-400 pl-2">
+                    <div key={i} className="text-amber-500 pl-2">
                       ~ {f}
                     </div>
                   ))}
@@ -674,9 +674,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               )}
               {gitStatus.untracked_files?.length > 0 && (
                 <div>
-                  <div className="text-gray-500 mt-2 font-sans font-semibold">Untracked Files:</div>
+                  <div className="text-muted mt-2 font-sans font-semibold">Untracked Files:</div>
                   {gitStatus.untracked_files.map((f: string, i: number) => (
-                    <div key={i} className="text-emerald-400 pl-2">
+                    <div key={i} className="text-emerald-500 pl-2">
                       + {f}
                     </div>
                   ))}
@@ -684,7 +684,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               )}
             </div>
           ) : (
-            <div className="text-gray-500 font-mono animate-pulse">
+            <div className="text-muted font-mono animate-pulse">
               Fetching live Git repository status from local agent...
             </div>
           )}
@@ -692,9 +692,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       )}
 
       {activeTab === 'ARTIFACTS' && (
-        <section className="bg-[#111827] border border-gray-800 rounded-xl p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-white">Generated Artifacts</h2>
-          <p className="text-xs text-gray-500">
+        <section className="card-af p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-foreground">Generated Artifacts</h2>
+          <p className="text-xs text-muted">
             Implementation plans, architecture documents, UI specs, test reports,
             and validation reports appear here after each pipeline run.
           </p>
@@ -708,16 +708,16 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               .map((ev: any, i: number) => (
                 <div
                   key={i}
-                  className="bg-[#0d121f] border border-gray-800 rounded-lg p-4 flex gap-3"
+                  className="bg-surface-secondary border border-border rounded-lg p-4 flex gap-3"
                 >
-                  <div className="w-10 h-10 rounded-lg bg-purple-950/50 border border-purple-800 flex items-center justify-center flex-shrink-0">
-                    <span className="text-purple-300 text-sm">📋</span>
+                  <div className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                    <span className="text-primary text-sm">📋</span>
                   </div>
                   <div className="flex-1">
-                    <h4 className="text-xs font-semibold text-white">
+                    <h4 className="text-xs font-semibold text-foreground">
                       {ev.text?.split(']')[1] || ev.text}
                     </h4>
-                    <p className="text-[10px] text-gray-500 mt-1">
+                    <p className="text-[10px] text-muted mt-1">
                       Generated during pipeline execution
                     </p>
                   </div>
@@ -729,7 +729,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               ev.text?.includes('document'),
             ).length === 0 && (
               <div className="text-center py-8">
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-muted">
                   No artifacts yet. Run a pipeline to generate implementation
                   artifacts.
                 </p>
@@ -740,8 +740,8 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       )}
 
       {activeTab === 'TESTS' && (
-        <section className="bg-[#111827] border border-gray-800 rounded-xl p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-white">Test Results</h2>
+        <section className="card-af p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-foreground">Test Results</h2>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             {[
               ['Total', '—'],
@@ -751,14 +751,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             ].map(([label, value]) => (
               <div
                 key={label}
-                className="bg-[#0d121f] border border-gray-800 rounded-lg p-4 text-center"
+                className="bg-surface-secondary border border-border rounded-lg p-4 text-center"
               >
-                <div className="text-[10px] text-gray-500 uppercase">{label}</div>
-                <div className="text-xl font-bold text-white mt-1">{value}</div>
+                <div className="text-[10px] text-muted uppercase">{label}</div>
+                <div className="text-xl font-bold text-foreground mt-1">{value}</div>
               </div>
             ))}
           </div>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted">
             Test results appear here after the Test Agent runs during a pipeline
             execution.
           </p>
@@ -766,8 +766,8 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       )}
 
       {activeTab === 'VALIDATION' && (
-        <section className="bg-[#111827] border border-gray-800 rounded-xl p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-white">Validation Report</h2>
+        <section className="card-af p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-foreground">Validation Report</h2>
           <div className="space-y-2 text-xs">
             {[
               ['Python Syntax', '—'],
@@ -780,14 +780,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             ].map(([check, status]) => (
               <div
                 key={check}
-                className="flex justify-between py-2 border-b border-gray-800 last:border-0"
+                className="flex justify-between py-2 border-b border-border last:border-0"
               >
-                <span className="text-gray-400">{check}</span>
-                <span className="text-gray-500 font-mono">{status}</span>
+                <span className="text-foreground-secondary">{check}</span>
+                <span className="text-muted font-mono">{status}</span>
               </div>
             ))}
           </div>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted">
             Validation results appear after the Validation Agent completes during
             pipeline execution.
           </p>

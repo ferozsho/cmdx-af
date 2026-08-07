@@ -85,10 +85,10 @@ export default function NewProjectClient() {
       {/* Page Header — matches prototype .page-title */}
       <div className="flex items-start justify-between mb-[22px]">
         <div>
-          <h2 className="text-[26px] font-bold text-main m-0 mb-[5px]">
+          <h2 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">
             Create New Project
           </h2>
-          <p className="text-sub text-sm m-0">
+          <p className="text-muted text-sm m-0">
             Connect a project directory and let the agent pipeline understand it.
           </p>
         </div>
@@ -100,7 +100,7 @@ export default function NewProjectClient() {
       >
         {/* Execution Target */}
         <div>
-          <label className="block text-[13px] font-bold text-main mb-2">
+          <label className="block text-[13px] font-bold text-foreground mb-2">
             Execution Target
           </label>
           <div className="grid grid-cols-2 gap-3">
@@ -109,12 +109,12 @@ export default function NewProjectClient() {
               onClick={() => setTarget('LOCAL')}
               className={`p-4 border rounded-xl text-left transition-colors ${
                 target === 'LOCAL'
-                  ? 'border-[#7846cb] bg-[#f3edff] text-[#6532b7]'
+                  ? 'border-primary bg-primary/10 text-primary'
                   : 'btn-secondary-af !font-normal'
               }`}
             >
               <div className="font-bold text-sm">Local Machine</div>
-              <div className="text-xs opacity-70 mt-1">
+              <div className="text-xs opacity-80 mt-1">
                 Runs on connected developer PC via WSS
               </div>
             </button>
@@ -123,12 +123,12 @@ export default function NewProjectClient() {
               onClick={() => setTarget('CLOUD')}
               className={`p-4 border rounded-xl text-left transition-colors ${
                 target === 'CLOUD'
-                  ? 'border-[#7846cb] bg-[#f3edff] text-[#6532b7]'
+                  ? 'border-primary bg-primary/10 text-primary'
                   : 'btn-secondary-af !font-normal'
               }`}
             >
               <div className="font-bold text-sm">Cloud Workspace</div>
-              <div className="text-xs opacity-70 mt-1">
+              <div className="text-xs opacity-80 mt-1">
                 Runs in isolated cloud container
               </div>
             </button>
@@ -137,7 +137,7 @@ export default function NewProjectClient() {
 
         {/* Project Name */}
         <div>
-          <label className="block text-[13px] font-bold text-[#121827] mb-1">
+          <label className="block text-[13px] font-bold text-foreground mb-1">
             Project Name
           </label>
           <input
@@ -146,13 +146,13 @@ export default function NewProjectClient() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Commerce Platform"
-            className="w-full bg-white border border-[#d9dfeb] rounded-[10px] px-3 py-2.5 text-sm text-[#121827] focus:outline-none focus:border-[#7b48d0] focus:shadow-[0_0_0_3px_rgba(123,72,208,.11)]"
+            className="input-af"
           />
         </div>
 
         {/* Description */}
         <div>
-          <label className="block text-[13px] font-bold text-[#121827] mb-1">
+          <label className="block text-[13px] font-bold text-foreground mb-1">
             Description
           </label>
           <textarea
@@ -160,14 +160,14 @@ export default function NewProjectClient() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Brief project summary..."
-            className="w-full bg-white border border-[#d9dfeb] rounded-[10px] px-3 py-2.5 text-sm text-[#121827] focus:outline-none focus:border-[#7b48d0] focus:shadow-[0_0_0_3px_rgba(123,72,208,.11)]"
+            className="input-af"
           />
         </div>
 
         {/* Local Path + Check Folder */}
         {target === 'LOCAL' && (
           <div>
-            <label className="block text-[13px] font-bold text-[#121827] mb-1">
+            <label className="block text-[13px] font-bold text-foreground mb-1">
               Local Workspace Path
             </label>
             <div className="flex gap-2">
@@ -181,13 +181,13 @@ export default function NewProjectClient() {
                   setPathError(null)
                 }}
                 placeholder="e.g. D:\Projects\cmdx-framework"
-                className="flex-1 bg-white border border-[#d9dfeb] rounded-[10px] px-3 py-2.5 text-xs text-[#121827] focus:outline-none focus:border-[#7b48d0] font-mono"
+                className="input-af font-mono !text-xs flex-1"
               />
               <button
                 type="button"
                 onClick={handleCheckFolder}
                 disabled={checking || !localPath.trim()}
-                className="px-4 py-2.5 text-xs font-bold rounded-[10px] bg-white border border-[#e3e8f1] text-[#26324a] hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                className="btn-secondary-af !py-2.5 text-xs whitespace-nowrap disabled:opacity-50"
               >
                 {checking ? 'Checking...' : 'Check Folder'}
               </button>
@@ -195,7 +195,7 @@ export default function NewProjectClient() {
 
             {/* Path validation result */}
             {checking && (
-              <div className="mt-2 text-xs text-[#687386] animate-pulse">
+              <div className="mt-2 text-xs text-muted animate-pulse">
                 Validating project folder...
               </div>
             )}
@@ -204,52 +204,52 @@ export default function NewProjectClient() {
               <div
                 className={`mt-3 rounded-[10px] p-4 text-xs space-y-1.5 ${
                   pathResult.valid
-                    ? 'bg-[#e9f8ed] border border-[#c8ebd1]'
-                    : 'bg-[#fff0f0] border border-[#ffd0d4]'
+                    ? 'bg-emerald-500/10 border border-emerald-500/30'
+                    : 'bg-red-500/10 border border-red-500/30'
                 }`}
               >
-                <div className="font-semibold text-sm mb-2 text-[#121827]">
+                <div className="font-semibold text-sm mb-2 text-foreground">
                   {pathResult.valid ? '✓ Folder Valid' : '✕ Folder Issues'}
                 </div>
                 {pathResult.exists && (
-                  <div className="text-[#17702b]">✓ Directory exists</div>
+                  <div className="text-emerald-600 dark:text-emerald-400 font-medium">✓ Directory exists</div>
                 )}
                 {!pathResult.exists && (
-                  <div className="text-[#d6263b]">✕ Directory does not exist</div>
+                  <div className="text-red-600 dark:text-red-400 font-medium">✕ Directory does not exist</div>
                 )}
                 {pathResult.readable && (
-                  <div className="text-[#17702b]">✓ Read permission</div>
+                  <div className="text-emerald-600 dark:text-emerald-400 font-medium">✓ Read permission</div>
                 )}
                 {!pathResult.readable && pathResult.exists && (
-                  <div className="text-[#d6263b]">✕ Not readable</div>
+                  <div className="text-red-600 dark:text-red-400 font-medium">✕ Not readable</div>
                 )}
                 {pathResult.writable && (
-                  <div className="text-[#17702b]">✓ Write permission</div>
+                  <div className="text-emerald-600 dark:text-emerald-400 font-medium">✓ Write permission</div>
                 )}
                 {!pathResult.writable && pathResult.exists && (
-                  <div className="text-[#dd7a00]">⚠ Not writable</div>
+                  <div className="text-amber-600 dark:text-amber-400 font-medium">⚠ Not writable</div>
                 )}
                 {pathResult.git_repository && (
-                  <div className="text-[#17702b]">✓ Git repository detected</div>
+                  <div className="text-emerald-600 dark:text-emerald-400 font-medium">✓ Git repository detected</div>
                 )}
                 {!pathResult.git_repository && pathResult.exists && (
-                  <div className="text-[#dd7a00]">
+                  <div className="text-amber-600 dark:text-amber-400 font-medium">
                     ⚠ No Git repository found
                   </div>
                 )}
                 {pathResult.files_count > 0 && (
-                  <div className="text-[#121827]">
+                  <div className="text-foreground">
                     {pathResult.files_count} files, {pathResult.directories_count}{' '}
                     directories
                   </div>
                 )}
                 {pathResult.detected_stack.length > 0 && (
-                  <div className="text-[#6f35c8]">
+                  <div className="text-primary font-semibold">
                     Detected: {pathResult.detected_stack.join(', ')}
                   </div>
                 )}
                 {pathResult.warnings.map((w, i) => (
-                  <div key={i} className="text-[#dd7a00]">
+                  <div key={i} className="text-amber-600 dark:text-amber-400 font-medium">
                     ⚠ {w}
                   </div>
                 ))}
@@ -257,7 +257,7 @@ export default function NewProjectClient() {
             )}
 
             {pathError && (
-              <div className="mt-2 text-xs text-[#d6263b] bg-[#fff0f0] border border-[#ffd0d4] rounded-[10px] p-3">
+              <div className="mt-2 text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded-[10px] p-3">
                 {pathError}
               </div>
             )}
@@ -266,7 +266,7 @@ export default function NewProjectClient() {
 
         {/* Technology Stack */}
         <div>
-          <label className="block text-[13px] font-bold text-[#121827] mb-2">
+          <label className="block text-[13px] font-bold text-foreground mb-2">
             Technology Stack
           </label>
           <div className="flex flex-wrap gap-2">
@@ -277,8 +277,8 @@ export default function NewProjectClient() {
                 onClick={() => toggleTech(tech)}
                 className={`text-xs px-2.5 py-2 rounded-[9px] border transition-colors ${
                   techStack.includes(tech)
-                    ? 'border-[#7846cb] bg-[#f3edff] text-[#6532b7]'
-                    : 'border-[#dce2ec] bg-white text-[#526077] hover:border-gray-300'
+                    ? 'border-primary bg-primary/10 text-primary font-bold'
+                    : 'border-border bg-surface-secondary text-foreground-secondary hover:bg-hover'
                 }`}
               >
                 {tech}
@@ -289,7 +289,7 @@ export default function NewProjectClient() {
 
         {/* Initial Instruction */}
         <div>
-          <label className="block text-[13px] font-bold text-[#121827] mb-1">
+          <label className="block text-[13px] font-bold text-foreground mb-1">
             Initial Instruction (optional)
           </label>
           <textarea
@@ -297,22 +297,22 @@ export default function NewProjectClient() {
             value={initialInstruction}
             onChange={(e) => setInitialInstruction(e.target.value)}
             placeholder="e.g. Create a payments module with SQLAlchemy models, FastAPI endpoints, tests, and documentation."
-            className="w-full bg-white border border-[#d9dfeb] rounded-[10px] px-3 py-2.5 text-sm text-[#121827] focus:outline-none focus:border-[#7b48d0] focus:shadow-[0_0_0_3px_rgba(123,72,208,.11)] resize-y"
+            className="input-af resize-y"
           />
         </div>
 
         {/* Error */}
         {submitError && (
-          <div className="text-xs text-[#d6263b] bg-[#fff0f0] border border-[#ffd0d4] rounded-[10px] p-3">
+          <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded-[10px] p-3">
             {submitError}
           </div>
         )}
 
         {/* Actions */}
-        <div className="pt-4 flex justify-end gap-2.5 border-t border-[#e3e8f1]">
+        <div className="pt-4 flex justify-end gap-2.5 border-t border-border">
           <Link
             href="/"
-            className="px-4 py-2.5 text-xs font-bold text-[#687386] hover:text-[#121827] rounded-[10px] border border-[#e3e8f1] bg-white"
+            className="btn-secondary-af text-xs flex items-center justify-center"
           >
             Cancel
           </Link>

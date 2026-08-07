@@ -40,7 +40,7 @@ export default function DashboardPage() {
     return (
       <div className="space-y-8">
         <div className="animate-pulse space-y-6">
-          <div className="h-8 bg-gray-200 rounded w-64" />
+          <div className="h-8 bg-surface-secondary rounded w-64 border border-border" />
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="card-af p-5 h-28" />
@@ -53,11 +53,11 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="card-af p-6 text-center border-red-200">
-        <p className="text-red-600 font-medium text-sm">{error}</p>
+      <div className="card-af p-6 text-center border-red-500/30 bg-red-500/10 text-foreground">
+        <p className="text-red-500 font-medium text-sm">{error}</p>
         <button
           onClick={() => window.location.reload()}
-          className="mt-3 text-sm text-red-500 hover:text-red-400 underline"
+          className="mt-3 text-sm text-red-400 hover:underline"
         >
           Retry
         </button>
@@ -70,16 +70,16 @@ export default function DashboardPage() {
       {/* Page Header — matches prototype .page-title */}
       <div className="flex items-start justify-between mb-[22px]">
         <div>
-          <h2 className="text-[26px] font-bold text-[#121827] m-0 mb-[5px]">
+          <h2 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">
             Projects
           </h2>
-          <p className="text-[#687386] text-sm m-0">
+          <p className="text-muted text-sm m-0">
             Monitor agentic coding projects and recent pipeline activity.
           </p>
         </div>
         <Link
           href="/projects/new"
-          className="inline-block border-0 rounded-[10px] py-[10px] px-[15px] font-bold text-sm bg-[#6e37c9] text-white hover:bg-[#5c2eb2] transition-colors"
+          className="btn-primary-af text-sm inline-block"
         >
           ＋ Create Project
         </Link>
@@ -116,10 +116,10 @@ export default function DashboardPage() {
       {/* Projects Grid — matches prototype .projects-grid (3 columns) */}
       {projects.length === 0 ? (
         <div className="card-af p-10 text-center">
-          <p className="text-[#687386] text-sm">No projects yet.</p>
+          <p className="text-muted text-sm">No projects yet.</p>
           <Link
             href="/projects/new"
-            className="text-[#6f35c8] text-sm font-medium hover:underline mt-2 inline-block"
+            className="text-primary text-sm font-medium hover:underline mt-2 inline-block"
           >
             Create your first project →
           </Link>
@@ -130,21 +130,20 @@ export default function DashboardPage() {
             <Link
               key={project.id}
               href={`/projects/${encodeURIComponent(project.id)}?tab=agents`}
-              className="card-af p-5 transition-all duration-200 hover:-translate-y-0.5 block"
-              style={{ transition: '.2s' }}
+              className="card-af card-af-hover p-5 block"
             >
               <div className="flex items-start justify-between mb-0">
-                <div className="w-11 h-11 rounded-[12px] bg-[#eee7fb] text-[#6734bd] grid place-items-center text-[21px] flex-shrink-0">
+                <div className="w-11 h-11 rounded-[12px] bg-primary/10 text-primary grid place-items-center text-[21px] flex-shrink-0">
                   ⚡
                 </div>
-                <span className="inline-flex items-center gap-[6px] rounded-full py-[5px] px-[10px] text-xs font-bold bg-[#eee8ff] text-[#6c36bf]">
+                <span className="inline-flex items-center gap-[6px] rounded-full py-[5px] px-[10px] text-xs font-bold bg-primary/15 text-primary">
                   ● {project.execution_target}
                 </span>
               </div>
-              <h3 className="font-bold text-[#121827] text-[15px] mt-3 mb-0">
+              <h3 className="font-bold text-foreground text-[15px] mt-3 mb-0">
                 {project.name}
               </h3>
-              <p className="text-[#687386] text-[13px] mt-0.5 min-h-[40px] line-clamp-2">
+              <p className="text-muted text-[13px] mt-0.5 min-h-[40px] line-clamp-2">
                 {project.description || 'No description provided.'}
               </p>
               {project.tech_stack && Object.keys(project.tech_stack).length > 0 && (
@@ -152,20 +151,20 @@ export default function DashboardPage() {
                   {Object.keys(project.tech_stack).map((tech) => (
                     <span
                       key={tech}
-                      className="text-[11px] py-[5px] px-2 border border-[#e3e8f1] rounded-[7px] bg-[#f9fafc] text-[#526077]"
+                      className="text-[11px] py-[5px] px-2 border border-border rounded-[7px] bg-surface-secondary text-foreground-secondary"
                     >
                       {tech}
                     </span>
                   ))}
                 </div>
               )}
-              <div className="flex justify-between pt-[14px] border-t border-[#e3e8f1] text-xs text-[#687386]">
+              <div className="flex justify-between pt-[14px] border-t border-border text-xs text-muted">
                 <span>
                   {project.created_at
                     ? new Date(project.created_at).toLocaleDateString()
                     : '—'}
                 </span>
-                <span className="text-[#1976d2] font-medium">
+                <span className="text-primary font-medium hover:underline">
                   Open Workspace →
                 </span>
               </div>
@@ -190,14 +189,17 @@ function StatCard({
 }) {
   return (
     <div className="card-af p-5">
-      <div className="flex justify-between text-[#687386] text-[13px]">
+      <div className="flex justify-between text-muted text-[13px]">
         <span>{label}</span>
         <span>{icon}</span>
       </div>
-      <div className="text-[30px] font-extrabold text-[#121827] my-[7px]">
+      <div className="text-[30px] font-extrabold text-foreground my-[7px]">
         {value}
       </div>
-      <div className="text-xs text-[#238636]">{trend}</div>
+      <div className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">{trend}</div>
+    </div>
+  )
+}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: 'class',
   content: [
     './app/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
@@ -7,19 +8,36 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Prototype design tokens (source: docs/index.html)
-        bg: '#f6f8fc',
-        panel: '#ffffff',
-        text: '#121827',
-        muted: '#687386',
-        line: '#e3e8f1',
+        background: 'var(--background)',
+        surface: 'var(--surface)',
+        'surface-secondary': 'var(--surface-secondary)',
+        'surface-elevated': 'var(--surface-elevated)',
+
+        foreground: 'var(--foreground)',
+        'foreground-secondary': 'var(--foreground-secondary)',
+        muted: 'var(--muted-foreground)',
+
+        border: 'var(--border)',
+        'border-strong': 'var(--border-strong)',
+
+        input: 'var(--input-background)',
+        hover: 'var(--hover)',
+
+        primary: 'var(--primary)',
+        'primary-hover': 'var(--primary-hover)',
+
+        // Legacy compatibility design tokens
+        bg: 'var(--background)',
+        panel: 'var(--surface)',
+        text: 'var(--foreground)',
+        line: 'var(--border)',
         nav: '#111a33',
         'nav-dark': '#0e1529',
         'nav-hover': '#202d4f',
         purple: {
-          DEFAULT: '#6f35c8',
+          DEFAULT: 'var(--primary)',
           light: '#8a5ade',
-          bg: '#f3edff',
+          bg: 'var(--surface-secondary)',
         },
         blue: {
           DEFAULT: '#1976d2',
@@ -29,22 +47,21 @@ module.exports = {
         },
         green: {
           DEFAULT: '#238636',
-          bg: '#e9f8ed',
+          bg: 'rgba(35, 134, 54, 0.15)',
         },
         orange: {
           DEFAULT: '#dd7a00',
         },
         red: {
           DEFAULT: '#d6263b',
-          bg: '#fff0f0',
+          bg: 'rgba(214, 38, 59, 0.15)',
         },
         gold: {
           DEFAULT: '#a56a00',
         },
-        // Additional app-specific
         'af-purple': {
-          DEFAULT: '#6e37c9',
-          hover: '#5c2eb2',
+          DEFAULT: 'var(--primary)',
+          hover: 'var(--primary-hover)',
         },
       },
       borderRadius: {
@@ -53,8 +70,8 @@ module.exports = {
         'af-xs': '8px',
       },
       boxShadow: {
-        'af': '0 10px 30px rgba(20,32,62,.08)',
-        'af-hover': '0 14px 35px rgba(20,32,62,.12)',
+        'af': '0 10px 30px var(--shadow-color)',
+        'af-hover': '0 14px 35px var(--shadow-color)',
       },
     },
   },

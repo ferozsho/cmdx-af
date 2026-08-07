@@ -16,10 +16,10 @@ export default function SettingsPage() {
       {/* Page Header — matches prototype .page-title */}
       <div className="flex items-start justify-between mb-[22px]">
         <div>
-          <h2 className="text-[26px] font-bold text-main m-0 mb-[5px]">
+          <h2 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">
             Settings
           </h2>
-          <p className="text-sub text-sm m-0">
+          <p className="text-muted text-sm m-0">
             Configure AgentForge platform settings and API connections.
           </p>
         </div>
@@ -32,11 +32,7 @@ export default function SettingsPage() {
       </div>
 
       {saved && (
-        <div className="max-w-[920px] rounded-[10px] p-3 text-xs font-medium mb-4" style={{
-          background: 'var(--pill-done-bg)',
-          color: 'var(--pill-done-text)',
-          border: '1px solid var(--pill-done-text)',
-        }}>
+        <div className="max-w-[920px] rounded-[10px] p-3 text-xs font-medium mb-4 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
           Settings saved successfully.
         </div>
       )}
@@ -58,7 +54,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="field">
-          <label className="block font-bold text-[13px] text-main mb-[7px]">
+          <label className="block font-bold text-[13px] text-foreground mb-[7px]">
             DeepSeek API Key
           </label>
           <input
@@ -66,13 +62,13 @@ export default function SettingsPage() {
             placeholder="••••••••••••••••"
             className="input-af"
           />
-          <p className="text-[10px] text-sub mt-1">
+          <p className="text-[10px] text-muted mt-1">
             Your API key is never exposed to the browser and is stored encrypted.
           </p>
         </div>
 
         <div className="field">
-          <label className="block font-bold text-[13px] text-main mb-[7px]">
+          <label className="block font-bold text-[13px] text-foreground mb-[7px]">
             Allowed Commands
           </label>
           <textarea
@@ -82,7 +78,7 @@ export default function SettingsPage() {
           />
         </div>
 
-        <div className="pt-[18px] border-t flex gap-2.5" style={{ borderColor: 'var(--line)' }}>
+        <div className="pt-[18px] border-t border-border flex gap-2.5">
           <button
             type="button"
             className="btn-secondary-af text-xs !px-[15px] !py-[10px]"
@@ -114,7 +110,7 @@ function SettingsField({
 }) {
   return (
     <div>
-      <label className="block font-bold text-[13px] text-main mb-[7px]">
+      <label className="block font-bold text-[13px] text-foreground mb-[7px]">
         {label}
       </label>
       <input
