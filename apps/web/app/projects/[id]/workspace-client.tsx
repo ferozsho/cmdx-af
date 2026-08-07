@@ -4,6 +4,16 @@ import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import DiffViewer from '@/components/diff-viewer'
+import {
+  getProject,
+  getProjectTree,
+  getFileContent,
+  ragSearch,
+  getGitStatus,
+  submitInstruction,
+  buildSSEUrl,
+  type ProjectResponse,
+} from '@/lib/api'
 
 function formatFileSize(bytes?: number): string {
   if (bytes === undefined || bytes === null) return ''
@@ -216,6 +226,9 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     | 'FILES'
     | 'RAG'
     | 'GIT'
+    | 'ARTIFACTS'
+    | 'TESTS'
+    | 'VALIDATION'
 
   const urlFile = getParam('file') || 'plan.md'
   const urlQuery = getParam('q') || ''
@@ -246,6 +259,28 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     { name: 'Git Agent', status: 'PENDING', duration: '-' },
   ])
 
+  // Project data from API
+  const [project, setProject] = useState<ProjectResponse | null>(null)
+  const [projectLoading, setProjectLoading] = useState(true)
+  const [projectError, setProjectError] = useState<string | null>(null)
+
+  // Fetch project details
+  useEffect(() => {
+    async function loadProject() {
+      try {
+        const data = await getProject(projectId)
+        setProject(data)
+      } catch (err) {
+        setProjectError(
+          err instanceof Error ? err.message : 'Failed to load project',
+        )
+      } finally {
+        setProjectLoading(false)
+      }
+    }
+    loadProject()
+  }, [projectId])
+
   // Function to switch tab with URL sync
   const updateUrl = (tab: string, file?: string, q?: string) => {
     const cleanTab = cleanPath(tab).toLowerCase()
@@ -267,10 +302,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     updateUrl('files', targetPath)
     setLoadingFile(true)
     try {
-      const res = await fetch(
-        `http://localhost:8000/api/v1/projects/${projectId}/files/content?path=${encodeURIComponent(targetPath)}`
-      )
-      const data = await res.json()
+      const data = await getFileContent(projectId, targetPath)
       if (data.content !== undefined) {
         setSelectedFileContent(data.content)
       } else {
@@ -289,13 +321,8 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     if (!queryText.trim()) return
     updateUrl('rag', undefined, queryText)
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/projects/${projectId}/rag/search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: queryText, top_k: 5 }),
-      })
-      const data = await res.json()
-      setRagResults(data)
+      const data = await ragSearch(projectId, queryText)
+      setRagResults(Array.isArray(data) ? data : [data])
     } catch (err) {
       console.error('Failed to search RAG:', err)
     }
@@ -303,7 +330,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
   // Subscribe to SSE events
   useEffect(() => {
-    const eventSource = new EventSource(`http://localhost:8000/api/v1/projects/${projectId}/stream`)
+    const eventSource = new EventSource(buildSSEUrl(projectId))
 
     eventSource.onmessage = (event) => {
       try {
@@ -347,14 +374,12 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   useEffect(() => {
     if (activeTab === 'FILES') {
       if (!fileTree) {
-        fetch(`http://localhost:8000/api/v1/projects/${projectId}/tree`)
-          .then((res) => res.json())
+        getProjectTree(projectId)
           .then((data) => setFileTree(data))
           .catch((err) => console.error('Failed to load file tree:', err))
       }
       if (!gitStatus) {
-        fetch(`http://localhost:8000/api/v1/projects/${projectId}/git/status`)
-          .then((res) => res.json())
+        getGitStatus(projectId)
           .then((data) => setGitStatus(data))
           .catch((err) => console.error('Failed to load git status:', err))
       }
@@ -366,8 +391,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       executeRagSearch(urlQuery)
     }
     if (activeTab === 'GIT' && !gitStatus) {
-      fetch(`http://localhost:8000/api/v1/projects/${projectId}/git/status`)
-        .then((res) => res.json())
+      getGitStatus(projectId)
         .then((data) => setGitStatus(data))
         .catch((err) => console.error('Failed to load git status:', err))
     }
@@ -405,11 +429,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     setAgentsState((prev) => prev.map((ag) => ({ ...ag, status: 'PENDING', duration: '-' })))
 
     try {
-      await fetch(`http://localhost:8000/api/v1/projects/${projectId}/instructions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      })
+      await submitInstruction(projectId, prompt)
     } catch (err) {
       console.error('Failed to trigger instruction pipeline:', err)
       setIsRunning(false)
@@ -419,32 +439,43 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-gray-800 pb-4">
+      <header className="flex items-center justify-between border-b border-[#e3e8f1] pb-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold text-white">Commerce Platform</h1>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 font-mono">
-              ● FEROZ-PC (Connected)
+            <h1 className="text-xl font-bold text-[#121827]">
+              {projectLoading
+                ? 'Loading...'
+                : project?.name || 'Project'}
+            </h1>
+            <span className="status-badge status-running text-xs">
+              ●{' '}
+              {project?.execution_target === 'LOCAL'
+                ? 'Local · Connected'
+                : 'Cloud · Connected'}
             </span>
           </div>
-          <p className="text-xs text-gray-400 mt-1">
-            Local Workspace: <code className="text-gray-200">D:\Projects\cmdx-framework</code>
+          <p className="text-xs text-[#687386] mt-1">
+            {projectLoading
+              ? 'Loading project details...'
+              : projectError
+                ? `Error: ${projectError}`
+                : project?.description || 'No description.'}
           </p>
         </div>
 
         {/* Tab Navigation Links */}
         <nav className="flex gap-2">
-          {(['AGENTS', 'FILES', 'RAG', 'GIT'] as const).map((tab) => {
+          {(['AGENTS', 'FILES', 'RAG', 'GIT', 'ARTIFACTS', 'TESTS', 'VALIDATION'] as const).map((tab) => {
             const isActive = activeTab === tab
             const href = `/projects/${projectId}?tab=${tab.toLowerCase()}`
             return (
               <Link
                 key={tab}
                 href={href}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                className={`px-3 py-1.5 rounded-[10px] text-xs font-semibold transition-colors ${
                   isActive
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/30'
-                    : 'bg-[#111827] text-gray-400 hover:text-white border border-gray-800'
+                    ? 'bg-[#6e37c9] text-white shadow-lg shadow-purple-900/20'
+                    : 'bg-white text-[#687386] hover:text-[#121827] border border-[#e3e8f1]'
                 }`}
               >
                 {tab}
@@ -455,19 +486,19 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       </header>
 
       {/* Instruction Form */}
-      <section className="bg-[#111827] border border-gray-800 rounded-xl p-4">
+      <section className="card-af p-4">
         <form onSubmit={handleStartPipeline} className="flex gap-3">
           <input
             type="text"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="e.g. Create payment management module with FastAPI endpoints, React admin table, unit tests, and git commit..."
-            className="flex-1 bg-[#0d121f] border border-gray-800 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+            className="flex-1 bg-white border border-[#d9dfeb] rounded-[10px] px-4 py-2.5 text-sm text-[#121827] focus:outline-none focus:border-[#7b48d0]"
           />
           <button
             type="submit"
             disabled={isRunning}
-            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold px-5 py-2.5 rounded-lg transition-colors"
+            className="btn-primary-af text-xs disabled:opacity-50"
           >
             {isRunning ? 'Running Pipeline...' : 'Run Instruction'}
           </button>
@@ -484,18 +515,18 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               {agentsState.map((ag) => (
                 <div
                   key={ag.name}
-                  className="bg-[#111827] border border-gray-800 rounded-lg p-3 flex items-center justify-between text-xs"
+                  className="card-af p-3 flex items-center justify-between text-xs"
                 >
-                  <span className="font-medium text-white">{ag.name}</span>
+                  <span className="font-medium text-[#121827]">{ag.name}</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-gray-500">{ag.duration}</span>
+                    <span className="text-[10px] text-[#687386]">{ag.duration}</span>
                     <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         ag.status === 'COMPLETED'
-                          ? 'bg-emerald-950 text-emerald-400'
+                          ? 'bg-[#e9f8ed] text-[#1b7e33]'
                           : ag.status === 'RUNNING'
-                          ? 'bg-blue-950 text-blue-400 animate-pulse'
-                          : 'bg-gray-800 text-gray-400'
+                          ? 'bg-[#eee8ff] text-[#6c36bf] animate-pulse'
+                          : 'bg-[#eef1f5] text-[#667085]'
                       }`}
                     >
                       {ag.status}
@@ -507,13 +538,15 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           </div>
 
           {/* Live Event Console */}
-          <div className="md:col-span-2 bg-[#111827] border border-gray-800 rounded-xl p-4 flex flex-col h-[500px]">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Live Event Console</h2>
-            <div className="flex-1 bg-[#090d16] border border-gray-900 rounded-lg p-3 font-mono text-xs overflow-y-auto space-y-2">
-              <div className="text-gray-500">[System] Connected to WSS stream for project {projectId}</div>
+          <div className="md:col-span-2 card-af p-4 flex flex-col h-[500px]">
+            <h2 className="text-sm font-semibold text-[#687386] uppercase tracking-wider mb-3">
+              Live Event Console
+            </h2>
+            <div className="flex-1 bg-[#0f141e] border border-gray-800 rounded-[10px] p-3 font-mono text-xs overflow-y-auto space-y-2 text-[#c8d0df]">
+              <div className="text-[#687386]">[System] Connected to SSE stream for project {projectId}</div>
               {events.map((ev, i) => (
-                <div key={i} className="text-emerald-400">
-                  <span className="text-gray-500">[{ev.time}]</span> {ev.text}
+                <div key={i} className="text-[#49e56d]">
+                  <span className="text-[#7f899c]">[{ev.time}]</span> {ev.text}
                 </div>
               ))}
             </div>
@@ -524,8 +557,8 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       {activeTab === 'FILES' && (
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* File Tree Panel */}
-          <div className="md:col-span-1 bg-[#111827] border border-gray-800 rounded-xl p-4 text-xs text-gray-300 space-y-2 max-h-[600px] overflow-y-auto">
-            <div className="text-sm font-semibold text-white font-sans mb-3 flex items-center justify-between">
+          <div className="md:col-span-1 card-af p-4 text-xs space-y-2 max-h-[600px] overflow-y-auto">
+            <div className="text-sm font-semibold text-[#121827] font-sans mb-3 flex items-center justify-between">
               <span>Live Workspace File Tree</span>
               <span className="text-[10px] bg-blue-950 text-blue-400 border border-blue-800 px-2 py-0.5 rounded font-mono">
                 WSS Connected
@@ -655,6 +688,109 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
               Fetching live Git repository status from local agent...
             </div>
           )}
+        </section>
+      )}
+
+      {activeTab === 'ARTIFACTS' && (
+        <section className="bg-[#111827] border border-gray-800 rounded-xl p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-white">Generated Artifacts</h2>
+          <p className="text-xs text-gray-500">
+            Implementation plans, architecture documents, UI specs, test reports,
+            and validation reports appear here after each pipeline run.
+          </p>
+          <div className="space-y-3">
+            {events
+              .filter((ev: any) =>
+                ev.text?.includes('plan') ||
+                ev.text?.includes('artifact') ||
+                ev.text?.includes('document'),
+              )
+              .map((ev: any, i: number) => (
+                <div
+                  key={i}
+                  className="bg-[#0d121f] border border-gray-800 rounded-lg p-4 flex gap-3"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-purple-950/50 border border-purple-800 flex items-center justify-center flex-shrink-0">
+                    <span className="text-purple-300 text-sm">📋</span>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-xs font-semibold text-white">
+                      {ev.text?.split(']')[1] || ev.text}
+                    </h4>
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      Generated during pipeline execution
+                    </p>
+                  </div>
+                </div>
+              ))}
+            {events.filter((ev: any) =>
+              ev.text?.includes('plan') ||
+              ev.text?.includes('artifact') ||
+              ev.text?.includes('document'),
+            ).length === 0 && (
+              <div className="text-center py-8">
+                <p className="text-xs text-gray-500">
+                  No artifacts yet. Run a pipeline to generate implementation
+                  artifacts.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'TESTS' && (
+        <section className="bg-[#111827] border border-gray-800 rounded-xl p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-white">Test Results</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            {[
+              ['Total', '—'],
+              ['Passed', '—'],
+              ['Failed', '—'],
+              ['Coverage', '—'],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="bg-[#0d121f] border border-gray-800 rounded-lg p-4 text-center"
+              >
+                <div className="text-[10px] text-gray-500 uppercase">{label}</div>
+                <div className="text-xl font-bold text-white mt-1">{value}</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500">
+            Test results appear here after the Test Agent runs during a pipeline
+            execution.
+          </p>
+        </section>
+      )}
+
+      {activeTab === 'VALIDATION' && (
+        <section className="bg-[#111827] border border-gray-800 rounded-xl p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-white">Validation Report</h2>
+          <div className="space-y-2 text-xs">
+            {[
+              ['Python Syntax', '—'],
+              ['Ruff Lint', '—'],
+              ['Ruff Format', '—'],
+              ['mypy Type Check', '—'],
+              ['Bandit Security', '—'],
+              ['Dependency Check', '—'],
+              ['Environment Variables', '—'],
+            ].map(([check, status]) => (
+              <div
+                key={check}
+                className="flex justify-between py-2 border-b border-gray-800 last:border-0"
+              >
+                <span className="text-gray-400">{check}</span>
+                <span className="text-gray-500 font-mono">{status}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500">
+            Validation results appear after the Validation Agent completes during
+            pipeline execution.
+          </p>
         </section>
       )}
     </div>

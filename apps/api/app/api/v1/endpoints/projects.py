@@ -1,9 +1,16 @@
 """Projects and Workspaces API Endpoints."""
 
+import os
 import uuid
-from typing import Any, List
-from fastapi import APIRouter, HTTPException, Query
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
+from app.repositories.project_repo import ProjectRepository
 from app.tools.gateway.tool_gateway import ToolGateway
 
 router = APIRouter()
@@ -17,6 +24,7 @@ class ProjectCreate(BaseModel):
     execution_target: str = "LOCAL"
     device_id: str | None = None
     local_path: str | None = None
+    tech_stack: List[str] | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -26,7 +34,32 @@ class ProjectResponse(BaseModel):
     name: str
     description: str | None = None
     execution_target: str
+    tech_stack: dict | None = None
     status: str = "ACTIVE"
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class ValidatePathRequest(BaseModel):
+    """Schema for project path validation."""
+
+    path: str
+
+
+class ValidatePathResponse(BaseModel):
+    """Structured path validation result."""
+
+    valid: bool
+    exists: bool = False
+    is_directory: bool = False
+    readable: bool = False
+    writable: bool = False
+    git_repository: bool = False
+    detected_stack: List[str] = []
+    project_name: str | None = None
+    files_count: int = 0
+    directories_count: int = 0
+    warnings: List[str] = []
 
 
 class RagQueryRequest(BaseModel):
@@ -36,44 +69,228 @@ class RagQueryRequest(BaseModel):
     top_k: int = 5
 
 
-MOCK_PROJECTS = [
-    {
-        "id": "prj_demo_001",
-        "name": "Commerce Platform",
-        "description": "Full-stack E-commerce analytics & payment platform",
-        "execution_target": "LOCAL",
-        "status": "ACTIVE",
-    }
-]
+# ── Technology stack detection ──────────────────────────────────────────────
 
+STACK_MARKERS: Dict[str, List[str]] = {
+    "Python": ["requirements.txt", "pyproject.toml", "setup.py", "setup.cfg", "Pipfile"],
+    "FastAPI": ["fastapi"],
+    "Django": ["manage.py"],
+    "Flask": ["flask"],
+    "Next.js": ["next.config.js", "next.config.mjs", "next.config.ts"],
+    "React": ["react"],
+    "Node.js": ["package.json"],
+    "TypeScript": ["tsconfig.json"],
+    "PHP": ["composer.json", "index.php", "version.php"],
+    "Moodle": ["version.php", "config.php", "lib/moodlelib.php"],
+    "PostgreSQL": ["psycopg2", "asyncpg", "pg"],
+    "MySQL": ["mysqlclient", "pymysql", "mysql2"],
+    "Redis": ["redis"],
+    "Docker": ["Dockerfile", "docker-compose.yml", "docker-compose.yaml"],
+    "MongoDB": ["mongoengine", "pymongo", "motor"],
+}
+
+
+def _detect_tech_stack(project_path: Path) -> List[str]:
+    """Scan project directory and detect technologies."""
+    detected: List[str] = []
+    try:
+        root_files = {f.name for f in project_path.iterdir() if f.is_file()}
+        all_files_lower = {f.name.lower() for f in project_path.rglob("*") if f.is_file()}
+
+        for tech, markers in STACK_MARKERS.items():
+            for marker in markers:
+                if marker in root_files or marker in all_files_lower:
+                    detected.append(tech)
+                    break
+
+        # Check package.json for additional frameworks
+        pkg_json = project_path / "package.json"
+        if pkg_json.exists():
+            import json
+            try:
+                pkg_data = json.loads(pkg_json.read_text())
+                deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}  # noqa: E501
+                for tech, markers in {
+                    "Next.js": ["next"],
+                    "React": ["react"],
+                    "Vue": ["vue"],
+                    "Angular": ["@angular/core"],
+                    "Express": ["express"],
+                }.items():
+                    if any(m in deps for m in markers):
+                        if tech not in detected:
+                            detected.append(tech)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Check pyproject.toml for Python frameworks
+        pptoml = project_path / "pyproject.toml"
+        if pptoml.exists():
+            try:
+                content = pptoml.read_text().lower()
+                for framework in ["fastapi", "django", "flask", "celery"]:
+                    if framework in content and framework.title() not in detected:
+                        if framework == "fastapi":
+                            detected.append("FastAPI")
+                        elif framework == "django":
+                            detected.append("Django")
+            except OSError:
+                pass
+    except (OSError, PermissionError):
+        pass
+    return sorted(set(detected))
+
+
+def _count_files_and_dirs(project_path: Path, max_depth: int = 4) -> tuple:
+    """Count files and directories up to max_depth."""
+    files_count = 0
+    dirs_count = 0
+    try:
+        for root, dirs, files in os.walk(project_path):
+            depth = len(Path(root).relative_to(project_path).parts)
+            if depth > max_depth:
+                dirs.clear()
+                continue
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in
+                       {"node_modules", "__pycache__", ".git", ".next", "venv", ".venv"}]
+            files_count += len([f for f in files if not f.startswith(".")])
+            dirs_count += len(dirs)
+            if depth >= max_depth:
+                dirs.clear()
+    except (OSError, PermissionError):
+        pass
+    return files_count, dirs_count
+
+
+# ── API Endpoints ───────────────────────────────────────────────────────────
 
 @router.get("/projects", response_model=List[ProjectResponse])
-async def list_projects() -> Any:
-    """Get all projects."""
-    return MOCK_PROJECTS
+async def list_projects(db: AsyncSession = Depends(get_db)) -> Any:
+    """Get all projects from the database."""
+    repo = ProjectRepository(db)
+    projects = await repo.list_all()
+    return [
+        ProjectResponse(
+            id=p.id,
+            name=p.name,
+            description=p.description,
+            execution_target=p.execution_target,
+            tech_stack=p.tech_stack,
+            status="ACTIVE",
+            created_at=p.created_at.isoformat() if p.created_at else None,
+            updated_at=p.updated_at.isoformat() if p.updated_at else None,
+        )
+        for p in projects
+    ]
 
 
 @router.post("/projects", response_model=ProjectResponse)
-async def create_project(data: ProjectCreate) -> Any:
-    """Create new project."""
-    new_proj = {
-        "id": f"prj_{uuid.uuid4().hex[:8]}",
-        "name": data.name,
-        "description": data.description,
-        "execution_target": data.execution_target,
-        "status": "ACTIVE",
-    }
-    MOCK_PROJECTS.append(new_proj)
-    return new_proj
+async def create_project(
+    data: ProjectCreate, db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Create a new project in the database."""
+    repo = ProjectRepository(db)
+    tech_stack_list = data.tech_stack or []
+    project = await repo.create(
+        name=data.name,
+        description=data.description,
+        execution_target=data.execution_target,
+        tech_stack={t: True for t in tech_stack_list},
+    )
+    return ProjectResponse(
+        id=project.id,
+        name=project.name,
+        description=project.description,
+        execution_target=project.execution_target,
+        tech_stack=project.tech_stack,
+        status="ACTIVE",
+        created_at=project.created_at.isoformat() if project.created_at else None,
+    )
 
 
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
-async def get_project(project_id: str) -> Any:
-    """Get project details by ID."""
-    for p in MOCK_PROJECTS:
-        if p["id"] == project_id:
-            return p
-    return MOCK_PROJECTS[0]
+async def get_project(
+    project_id: str, db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Get project details by ID from the database."""
+    repo = ProjectRepository(db)
+    project = await repo.get_by_id(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return ProjectResponse(
+        id=project.id,
+        name=project.name,
+        description=project.description,
+        execution_target=project.execution_target,
+        tech_stack=project.tech_stack,
+        status="ACTIVE",
+        created_at=project.created_at.isoformat() if project.created_at else None,
+        updated_at=project.updated_at.isoformat() if project.updated_at else None,
+    )
+
+
+@router.post("/projects/validate-path", response_model=ValidatePathResponse)
+async def validate_project_path(data: ValidatePathRequest) -> Any:
+    """Validate a project directory path and detect its technology stack."""
+    raw_path = data.path.strip()
+    result = ValidatePathResponse(valid=False)
+
+    # Security: block obviously dangerous paths
+    if not raw_path:
+        result.warnings.append("Path is empty.")
+        return result
+
+    try:
+        project_path = Path(raw_path).expanduser().resolve()
+    except (OSError, RuntimeError) as e:
+        result.warnings.append(f"Cannot resolve path: {e}")
+        return result
+
+    # Check existence
+    result.exists = project_path.exists()
+    if not result.exists:
+        result.warnings.append(f"Directory does not exist: {project_path}")
+        return result
+
+    # Check is directory
+    result.is_directory = project_path.is_dir()
+    if not result.is_directory:
+        result.warnings.append(f"Path is not a directory: {project_path}")
+        return result
+
+    # Check readability
+    result.readable = os.access(project_path, os.R_OK)
+    if not result.readable:
+        result.warnings.append(f"Directory is not readable: {project_path}")
+
+    # Check writability
+    result.writable = os.access(project_path, os.W_OK)
+    if not result.writable:
+        result.warnings.append(f"Directory is not writable: {project_path}")
+
+    # Check for git repository
+    result.git_repository = (project_path / ".git").is_dir()
+    if not result.git_repository:
+        result.warnings.append(
+            "No Git repository detected. Git versioning will be unavailable."
+        )
+
+    # Detect tech stack
+    result.detected_stack = _detect_tech_stack(project_path)
+
+    # Count files and dirs (limited depth for performance)
+    try:
+        result.files_count, result.directories_count = _count_files_and_dirs(
+            project_path, max_depth=4
+        )
+    except Exception:
+        pass
+
+    # Project name from directory
+    result.project_name = project_path.name
+
+    result.valid = result.exists and result.is_directory and result.readable
+    return result
 
 
 @router.get("/projects/{project_id}/tree")

@@ -2,8 +2,13 @@
 
 import uuid
 from typing import Any, List
-from fastapi import APIRouter
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
+from app.repositories.device_repo import DeviceRepository
 
 router = APIRouter()
 
@@ -17,24 +22,26 @@ class DeviceResponse(BaseModel):
     platform: str
     status: str
     agent_version: str = "0.1.0"
-
-
-MOCK_DEVICES = [
-    {
-        "id": "dev_feroz_pc",
-        "name": "FEROZ-PC",
-        "hostname": "FEROZ-PC",
-        "platform": "Windows 11 Pro",
-        "status": "online",
-        "agent_version": "0.1.0",
-    }
-]
+    os_version: str | None = None
 
 
 @router.get("/devices", response_model=List[DeviceResponse])
-async def list_devices() -> Any:
-    """Get all registered workstation devices."""
-    return MOCK_DEVICES
+async def list_devices(db: AsyncSession = Depends(get_db)) -> Any:
+    """Get all registered workstation devices from the database."""
+    repo = DeviceRepository(db)
+    devices = await repo.list_all()
+    return [
+        DeviceResponse(
+            id=d.id,
+            name=d.name,
+            hostname=d.hostname,
+            platform=d.platform,
+            status=d.status,
+            agent_version=d.agent_version,
+            os_version=d.os_version,
+        )
+        for d in devices
+    ]
 
 
 @router.post("/devices/pairing-code")
