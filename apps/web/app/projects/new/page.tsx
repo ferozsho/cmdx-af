@@ -11,12 +11,3 @@ export const metadata: Metadata = {
 export default function NewProjectPage() {
   return <NewProjectClient />
 }
-            className="bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs px-5 py-2.5 rounded-lg transition-colors"
-          >
-            Register Project
-          </button>
-        </div>
-      </form>
-    </div>
-  )
-}

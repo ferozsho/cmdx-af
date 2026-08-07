@@ -253,7 +253,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
         {/* Tab Navigation Links */}
         <nav className="flex gap-2">
-          {(['AGENTS', 'FILES', 'RAG', 'GIT'] as TabType[]).map((tab) => {
+          {(['AGENTS', 'FILES', 'RAG', 'GIT'] as const).map((tab) => {
             const isActive = activeTab === tab
             const href = `/projects/${projectId}?tab=${tab.toLowerCase()}`
             return (
