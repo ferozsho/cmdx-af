@@ -17,10 +17,18 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const TECH_OPTIONS = [
+    'Python', 'FastAPI', 'Django', 'Next.js', 'React', 'Node.js',
+    'TypeScript', 'PHP', 'Moodle', 'PostgreSQL', 'MySQL', 'MongoDB',
+    'Redis', 'Docker',
+  ]
+
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
+  const [editTarget, setEditTarget] = useState<'LOCAL' | 'CLOUD'>('LOCAL')
+  const [editTechStack, setEditTechStack] = useState<string[]>([])
   const [editSaving, setEditSaving] = useState(false)
 
   // Delete state
@@ -50,6 +58,15 @@ export default function DashboardPage() {
     setEditingId(project.id)
     setEditName(project.name)
     setEditDesc(project.description || '')
+    setEditTarget(
+      project.execution_target === 'CLOUD' ? 'CLOUD' : 'LOCAL',
+    )
+    const stack = project.tech_stack
+    setEditTechStack(
+      stack && typeof stack === 'object'
+        ? Object.keys(stack).filter((k) => stack[k])
+        : [],
+    )
     setDeletingId(null)
     setDeleteConfirm(false)
   }
@@ -58,7 +75,12 @@ export default function DashboardPage() {
     if (!editingId || !editName.trim()) return
     setEditSaving(true)
     try {
-      await updateProject(editingId, { name: editName.trim(), description: editDesc.trim() })
+      await updateProject(editingId, {
+        name: editName.trim(),
+        description: editDesc.trim(),
+        execution_target: editTarget,
+        tech_stack: editTechStack,
+      })
       setProjects((prev) =>
         prev.map((p) =>
           p.id === editingId
@@ -264,10 +286,46 @@ export default function DashboardPage() {
 
       {/* Edit Project Modal */}
       {editingId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="card-af max-w-[480px] w-full mx-4 p-6 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[8vh] bg-black/50 backdrop-blur-sm">
+          <div className="card-af max-w-[520px] w-full mx-4 p-6 space-y-4 shadow-2xl max-h-[85vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-foreground">Edit Project</h3>
             <div className="space-y-3">
+              {/* Execution Target */}
+              <div>
+                <label className="block text-[13px] font-bold text-foreground mb-2">
+                  Execution Target
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditTarget('LOCAL')}
+                    className={`p-3 border rounded-xl text-left transition-colors ${
+                      editTarget === 'LOCAL'
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'btn-secondary-af !font-normal'
+                    }`}
+                  >
+                    <div className="font-bold text-xs">Local Machine</div>
+                    <div className="text-[10px] opacity-80 mt-0.5">
+                      Runs via WSS on your PC
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditTarget('CLOUD')}
+                    className={`p-3 border rounded-xl text-left transition-colors ${
+                      editTarget === 'CLOUD'
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'btn-secondary-af !font-normal'
+                    }`}
+                  >
+                    <div className="font-bold text-xs">Cloud Workspace</div>
+                    <div className="text-[10px] opacity-80 mt-0.5">
+                      Runs in isolated container
+                    </div>
+                  </button>
+                </div>
+              </div>
               <div>
                 <label className="block text-[13px] font-bold text-foreground mb-1">
                   Project Name
@@ -290,6 +348,37 @@ export default function DashboardPage() {
                   onChange={(e) => setEditDesc(e.target.value)}
                   className="input-af resize-y"
                 />
+              </div>
+              {/* Technology Stack */}
+              <div>
+                <label className="block text-[13px] font-bold text-foreground mb-2">
+                  Technology Stack
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {TECH_OPTIONS.map((tech) => {
+                    const selected = editTechStack.includes(tech)
+                    return (
+                      <button
+                        key={tech}
+                        type="button"
+                        onClick={() =>
+                          setEditTechStack((prev) =>
+                            prev.includes(tech)
+                              ? prev.filter((t) => t !== tech)
+                              : [...prev, tech],
+                          )
+                        }
+                        className={`text-[11px] px-2.5 py-1 rounded-md border transition-colors ${
+                          selected
+                            ? 'bg-primary/15 border-primary text-primary font-bold'
+                            : 'bg-surface-secondary border-border text-muted'
+                        }`}
+                      >
+                        {tech}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
             </div>
             <div className="flex justify-end gap-2.5 pt-2 border-t border-border">
