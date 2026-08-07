@@ -24,24 +24,10 @@ export async function generateMetadata({
   const resolvedParams = await params
   const rawSearchParams = await searchParams
 
-  let tab = 'AGENTS'
-  let file = ''
-  let q = ''
-
-  const allParamsStr = Object.entries(rawSearchParams)
-    .map(([k, v]) => (v ? `${k}=${v}` : k))
-    .join('&')
-
-  const decodedParamsStr = cleanPath(allParamsStr)
-
-  const tabMatch = decodedParamsStr.match(/tab=([^&]*)/i)
-  if (tabMatch) tab = cleanPath(tabMatch[1]).toUpperCase()
-
-  const fileMatch = decodedParamsStr.match(/file=([^&]*)/i)
-  if (fileMatch) file = cleanPath(fileMatch[1])
-
-  const qMatch = decodedParamsStr.match(/q=([^&]*)/i)
-  if (qMatch) q = cleanPath(qMatch[1])
+  const tabRaw = cleanPath(rawSearchParams.tab)
+  const tab = tabRaw ? tabRaw.toUpperCase() : 'AGENTS'
+  const file = cleanPath(rawSearchParams.file)
+  const q = cleanPath(rawSearchParams.q)
 
   const titleMap: Record<string, string> = {
     AGENTS: 'Live Agent Pipeline',

@@ -373,6 +373,26 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     }
   }, [activeTab, projectId])
 
+  // One-time URL cleanup: remove any stale %3D (=) artifacts from the file param
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const raw = window.location.search
+    if (raw.includes('%3D') || raw.includes('%3d')) {
+      const cleanFile = cleanPath(searchParams.get('file'))
+      const cleanQ = cleanPath(searchParams.get('q'))
+      const cleanTab = cleanPath(searchParams.get('tab'))
+      const params = new URLSearchParams()
+      if (cleanTab) params.set('tab', cleanTab.toLowerCase())
+      if (cleanFile) params.set('file', cleanFile)
+      if (cleanQ) params.set('q', cleanQ)
+      const cleanSearch = params.toString()
+      if (cleanSearch && raw !== `?${cleanSearch}`) {
+        router.replace(`${pathname}?${cleanSearch}`, { scroll: false })
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const handleStartPipeline = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!prompt.trim()) return
