@@ -39,8 +39,8 @@ export async function generateMetadata({
   const tabTitle = titleMap[tab] || 'Workspace'
 
   return {
-    title: `Commerce Platform (${tabTitle})`,
-    description: `Manage project ${resolvedParams.id} workspace, view multi-agent pipeline execution, explore live local files, run RAG semantic search, and monitor Git branch isolation.`,
+    title: `Project (${tabTitle})`,
+    description: `Manage project workspace, view multi-agent pipeline execution, explore live local files, run RAG semantic search, and monitor Git branch isolation.`,
   }
 }
 
