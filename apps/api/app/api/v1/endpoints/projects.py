@@ -40,6 +40,15 @@ class ProjectResponse(BaseModel):
     updated_at: str | None = None
 
 
+class ProjectUpdate(BaseModel):
+    """Schema for updating a project (all fields optional)."""
+
+    name: str | None = None
+    description: str | None = None
+    execution_target: str | None = None
+    tech_stack: List[str] | None = None
+
+
 class ValidatePathRequest(BaseModel):
     """Schema for project path validation."""
 
@@ -227,6 +236,48 @@ async def get_project(
         created_at=project.created_at.isoformat() if project.created_at else None,
         updated_at=project.updated_at.isoformat() if project.updated_at else None,
     )
+
+
+@router.patch("/projects/{project_id}", response_model=ProjectResponse)
+async def update_project(
+    project_id: str,
+    data: ProjectUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Update an existing project."""
+    repo = ProjectRepository(db)
+    tech_stack_dict = {t: True for t in data.tech_stack} if data.tech_stack is not None else None
+    project = await repo.update(
+        project_id=project_id,
+        name=data.name,
+        description=data.description,
+        execution_target=data.execution_target,
+        tech_stack=tech_stack_dict,
+    )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return ProjectResponse(
+        id=project.id,
+        name=project.name,
+        description=project.description,
+        execution_target=project.execution_target,
+        tech_stack=project.tech_stack,
+        status="ACTIVE",
+        created_at=project.created_at.isoformat() if project.created_at else None,
+        updated_at=project.updated_at.isoformat() if project.updated_at else None,
+    )
+
+
+@router.delete("/projects/{project_id}")
+async def delete_project(
+    project_id: str, db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Delete a project by ID."""
+    repo = ProjectRepository(db)
+    deleted = await repo.delete(project_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"ok": True, "detail": f"Project {project_id} deleted"}
 
 
 @router.post("/projects/validate-path", response_model=ValidatePathResponse)

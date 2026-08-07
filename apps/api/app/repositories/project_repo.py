@@ -84,3 +84,26 @@ class ProjectRepository:
             await self.db.flush()
             return True
         return False
+
+    async def update(
+        self,
+        project_id: str,
+        name: str | None = None,
+        description: str | None = None,
+        execution_target: str | None = None,
+        tech_stack: dict | None = None,
+    ) -> Project | None:
+        """Update an existing project. Returns updated project or None if not found."""
+        project = await self.get_by_id(project_id)
+        if not project:
+            return None
+        if name is not None:
+            project.name = name
+        if description is not None:
+            project.description = description
+        if execution_target is not None:
+            project.execution_target = execution_target
+        if tech_stack is not None:
+            project.tech_stack = tech_stack
+        await self.db.flush()
+        return project

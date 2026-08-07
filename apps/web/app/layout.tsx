@@ -51,6 +51,12 @@ function Sidebar() {
       <NavItem href="/observability" label="Observability" icon="⌁" />
       <NavItem href="/architecture" label="Architecture" icon="⬡" />
 
+      {/* Infrastructure Section */}
+      <div className="text-[10px] uppercase tracking-[.16em] text-[#677493] my-[18px] mx-3 font-semibold">
+        Infrastructure
+      </div>
+      <NavItem href="/devices" label="Devices" icon="🖥" />
+
       {/* System Section */}
       <div className="text-[10px] uppercase tracking-[.16em] text-[#677493] my-[18px] mx-3 font-semibold">
         System

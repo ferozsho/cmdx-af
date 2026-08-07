@@ -5,6 +5,8 @@ import Link from 'next/link'
 import {
   listProjects,
   listDevices,
+  updateProject,
+  deleteProject,
   type ProjectResponse,
   type DeviceResponse,
 } from '@/lib/api'
@@ -14,6 +16,16 @@ export default function DashboardPage() {
   const [devices, setDevices] = useState<DeviceResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Edit state
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editDesc, setEditDesc] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+
+  // Delete state
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -33,6 +45,52 @@ export default function DashboardPage() {
     }
     load()
   }, [])
+
+  const handleEdit = (project: ProjectResponse) => {
+    setEditingId(project.id)
+    setEditName(project.name)
+    setEditDesc(project.description || '')
+    setDeletingId(null)
+    setDeleteConfirm(false)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingId || !editName.trim()) return
+    setEditSaving(true)
+    try {
+      await updateProject(editingId, { name: editName.trim(), description: editDesc.trim() })
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === editingId
+            ? { ...p, name: editName.trim(), description: editDesc.trim() }
+            : p,
+        ),
+      )
+      setEditingId(null)
+    } catch (err) {
+      console.error('Failed to update project:', err)
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deletingId) return
+    try {
+      await deleteProject(deletingId)
+      setProjects((prev) => prev.filter((p) => p.id !== deletingId))
+      setDeletingId(null)
+      setDeleteConfirm(false)
+    } catch (err) {
+      console.error('Failed to delete project:', err)
+    }
+  }
+
+  const startDelete = (id: string) => {
+    setDeletingId(id)
+    setDeleteConfirm(false)
+    setEditingId(null)
+  }
 
   const onlineDevices = devices.filter((d) => d.status === 'online').length
 
@@ -127,25 +185,53 @@ export default function DashboardPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[18px]">
           {projects.map((project) => (
-            <Link
+            <div
               key={project.id}
-              href={`/projects/${encodeURIComponent(project.id)}?tab=agents`}
-              className="card-af card-af-hover p-5 block"
+              className="card-af card-af-hover p-5 block relative group"
             >
-              <div className="flex items-start justify-between mb-0">
-                <div className="w-11 h-11 rounded-[12px] bg-primary/10 text-primary grid place-items-center text-[21px] flex-shrink-0">
-                  ⚡
-                </div>
-                <span className="inline-flex items-center gap-[6px] rounded-full py-[5px] px-[10px] text-xs font-bold bg-primary/15 text-primary">
-                  ● {project.execution_target}
-                </span>
+              {/* Action buttons — visible on hover */}
+              <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); handleEdit(project) }}
+                  className="btn-secondary-af !p-1.5 !text-xs !rounded-lg"
+                  title="Edit project"
+                  aria-label="Edit project"
+                >
+                  ✏️
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); startDelete(project.id) }}
+                  className="btn-secondary-af !p-1.5 !text-xs !rounded-lg hover:!border-red-500/50 hover:!text-red-500"
+                  title="Delete project"
+                  aria-label="Delete project"
+                >
+                  🗑
+                </button>
               </div>
-              <h3 className="font-bold text-foreground text-[15px] mt-3 mb-0">
-                {project.name}
-              </h3>
-              <p className="text-muted text-[13px] mt-0.5 min-h-[40px] line-clamp-2">
-                {project.description || 'No description provided.'}
-              </p>
+
+              <Link
+                href={`/projects/${encodeURIComponent(project.id)}?tab=agents`}
+                className="block"
+              >
+                <div className="flex items-start justify-between mb-0">
+                  <div className="w-11 h-11 rounded-[12px] bg-primary/10 text-primary grid place-items-center text-[21px] flex-shrink-0">
+                    ⚡
+                  </div>
+                  <span className="inline-flex items-center gap-[6px] rounded-full py-[5px] px-[10px] text-xs font-bold bg-primary/15 text-primary">
+                    ● {project.execution_target}
+                  </span>
+                </div>
+                <h3 className="font-bold text-foreground text-[15px] mt-3 mb-0">
+                  {project.name}
+                </h3>
+                <p className="text-muted text-[13px] mt-0.5 min-h-[40px] line-clamp-2">
+                  {project.description || 'No description provided.'}
+                </p>
+              </Link>
+
+              {/* Tech stack tags */}
               {project.tech_stack && Object.keys(project.tech_stack).length > 0 && (
                 <div className="flex flex-wrap gap-[6px] my-[14px]">
                   {Object.keys(project.tech_stack).map((tech) => (
@@ -164,12 +250,106 @@ export default function DashboardPage() {
                     ? new Date(project.created_at).toLocaleDateString()
                     : '—'}
                 </span>
-                <span className="text-primary font-medium hover:underline">
+                <Link
+                  href={`/projects/${encodeURIComponent(project.id)}?tab=agents`}
+                  className="text-primary font-medium hover:underline"
+                >
                   Open Workspace →
-                </span>
+                </Link>
               </div>
-            </Link>
+            </div>
           ))}
+        </div>
+      )}
+
+      {/* Edit Project Modal */}
+      {editingId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="card-af max-w-[480px] w-full mx-4 p-6 space-y-4 shadow-2xl">
+            <h3 className="text-lg font-bold text-foreground">Edit Project</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[13px] font-bold text-foreground mb-1">
+                  Project Name
+                </label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="input-af"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-[13px] font-bold text-foreground mb-1">
+                  Description
+                </label>
+                <textarea
+                  rows={3}
+                  value={editDesc}
+                  onChange={(e) => setEditDesc(e.target.value)}
+                  className="input-af resize-y"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2.5 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setEditingId(null)}
+                className="btn-secondary-af text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={editSaving || !editName.trim()}
+                className="btn-primary-af text-xs disabled:opacity-50"
+              >
+                {editSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deletingId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="card-af max-w-[400px] w-full mx-4 p-6 space-y-4 shadow-2xl">
+            <h3 className="text-lg font-bold text-foreground">Delete Project</h3>
+            <p className="text-sm text-muted">
+              {deleteConfirm
+                ? 'This action cannot be undone. All project data will be permanently removed.'
+                : 'Are you sure you want to delete this project?'}
+            </p>
+            <div className="flex justify-end gap-2.5 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => { setDeletingId(null); setDeleteConfirm(false) }}
+                className="btn-secondary-af text-xs"
+              >
+                Cancel
+              </button>
+              {!deleteConfirm ? (
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirm(true)}
+                  className="btn-primary-af text-xs !bg-red-600 hover:!bg-red-700"
+                >
+                  Yes, Delete
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="btn-primary-af text-xs !bg-red-600 hover:!bg-red-700"
+                >
+                  Confirm Delete
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

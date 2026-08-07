@@ -118,6 +118,33 @@ export function createProject(data: {
   return request<ProjectResponse>('POST', '/api/v1/projects', data)
 }
 
+/** PATCH /api/v1/projects/:id */
+export function updateProject(
+  id: string,
+  data: {
+    name?: string
+    description?: string
+    execution_target?: string
+    tech_stack?: string[]
+  },
+): Promise<ProjectResponse> {
+  return request<ProjectResponse>(
+    'PATCH',
+    `/api/v1/projects/${encodeURIComponent(id)}`,
+    data,
+  )
+}
+
+/** DELETE /api/v1/projects/:id */
+export function deleteProject(
+  id: string,
+): Promise<{ ok: boolean; detail: string }> {
+  return request<{ ok: boolean; detail: string }>(
+    'DELETE',
+    `/api/v1/projects/${encodeURIComponent(id)}`,
+  )
+}
+
 /** POST /api/v1/projects/validate-path */
 export function validateProjectPath(
   path: string,
