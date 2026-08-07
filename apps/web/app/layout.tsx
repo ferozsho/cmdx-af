@@ -92,8 +92,13 @@ export default function RootLayout({
               (function() {
                 try {
                   var saved = localStorage.getItem('agentforge-theme');
+                  if (saved && saved !== 'light' && saved !== 'dark') {
+                    localStorage.removeItem('agentforge-theme');
+                    saved = null;
+                  }
                   var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                  if (saved === 'dark' || (!saved || saved === 'system') && prefersDark) {
+                  var isDark = saved === 'dark' || (!saved && prefersDark);
+                  if (isDark) {
                     document.documentElement.classList.add('dark');
                     document.documentElement.classList.remove('light');
                     document.documentElement.setAttribute('data-theme', 'dark');

@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
 
-export type ThemeMode = 'light' | 'dark' | 'system'
+export type ThemeMode = 'light' | 'dark'
 export type ResolvedTheme = 'light' | 'dark'
 
 interface ThemeContextType {
@@ -13,20 +13,22 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
+function getSystemPreference(): ThemeMode {
+  if (typeof window === 'undefined') return 'light'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light'
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeMode>('system')
+  const [theme, setThemeState] = useState<ThemeMode>('light')
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('light')
   const [mounted, setMounted] = useState(false)
 
   const applyTheme = (mode: ThemeMode) => {
-    const isDarkSystem = window.matchMedia('(prefers-color-scheme: dark)').matches
-    const activeResolved: ResolvedTheme =
-      mode === 'dark' || (mode === 'system' && isDarkSystem) ? 'dark' : 'light'
-
-    setResolvedTheme(activeResolved)
-
+    setResolvedTheme(mode)
     const root = document.documentElement
-    if (activeResolved === 'dark') {
+    if (mode === 'dark') {
       root.classList.add('dark')
       root.classList.remove('light')
       root.setAttribute('data-theme', 'dark')
@@ -39,21 +41,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setMounted(true)
-    const saved = localStorage.getItem('agentforge-theme') as ThemeMode | null
-    const initial = saved || 'system'
+    const saved = localStorage.getItem('agentforge-theme')
+    const validSaved =
+      saved === 'light' || saved === 'dark' ? saved : null
+    const initial = validSaved || getSystemPreference()
+    // Clean up legacy 'system' value from localStorage
+    if (saved && !validSaved) {
+      localStorage.setItem('agentforge-theme', initial)
+    }
     setThemeState(initial)
     applyTheme(initial)
-
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    const handleChange = () => {
-      const currentStored = (localStorage.getItem('agentforge-theme') as ThemeMode) || 'system'
-      if (currentStored === 'system') {
-        applyTheme('system')
-      }
-    }
-
-    mediaQuery.addEventListener('change', handleChange)
-    return () => mediaQuery.removeEventListener('change', handleChange)
   }, [])
 
   const setTheme = (newTheme: ThemeMode) => {
