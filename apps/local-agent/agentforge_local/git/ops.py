@@ -11,14 +11,52 @@ class GitTools:
 
     @classmethod
     def get_status(cls, workspace_root: str) -> Dict[str, Any]:
-        """Get repository status and branch info."""
+        """Get repository status, branch info, uncommitted and unpushed files."""
         root = PathGuard.validate_path(workspace_root, ".")
         repo = git.Repo(root)
+
+        branch_name = "HEAD"
+        try:
+            branch_name = repo.active_branch.name
+        except Exception:
+            pass
+
+        untracked = repo.untracked_files
+        modified = []
+        try:
+            modified = [item.a_path for item in repo.index.diff(None) if item.a_path]
+        except Exception:
+            pass
+
+        staged = []
+        try:
+            if len(repo.heads) > 0:
+                staged = [item.a_path for item in repo.index.diff("HEAD") if item.a_path]
+        except Exception:
+            pass
+
+        unpushed_files: List[str] = []
+        try:
+            active_branch = repo.active_branch
+            tracking = active_branch.tracking_branch()
+            if tracking:
+                diff_unpushed = active_branch.commit.diff(tracking.commit)
+                for item in diff_unpushed:
+                    if item.a_path:
+                        unpushed_files.append(item.a_path)
+                    if item.b_path:
+                        unpushed_files.append(item.b_path)
+                unpushed_files = sorted(list(set(unpushed_files)))
+        except Exception:
+            pass
+
         return {
-            "branch": repo.active_branch.name,
+            "branch": branch_name,
             "is_dirty": repo.is_dirty(),
-            "untracked_files": repo.untracked_files,
-            "modified_files": [item.a_path for item in repo.index.diff(None)],
+            "untracked_files": untracked,
+            "modified_files": modified,
+            "staged_files": staged,
+            "unpushed_files": unpushed_files,
         }
 
     @classmethod

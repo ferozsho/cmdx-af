@@ -54,16 +54,37 @@ class FilesystemTools:
         raise FileNotFoundError(f"File not found: '{path}'")
 
     @classmethod
-    def get_project_tree(cls, workspace_root: str, max_depth: int = 4) -> Dict[str, Any]:
+    def get_project_tree(cls, workspace_root: str, max_depth: int = 10) -> Dict[str, Any]:
         """Build directory tree representation of the workspace."""
         root = Path(workspace_root).resolve()
+
+        IGNORED_DIRS = {
+            "node_modules",
+            "__pycache__",
+            "venv",
+            ".venv",
+            ".git",
+            ".next",
+            "dist",
+            "build",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+        }
 
         def _build_tree(dir_path: Path, current_depth: int) -> Dict[str, Any]:
             if current_depth > max_depth:
                 return {"type": "dir", "truncated": True}
             children: List[Dict[str, Any]] = []
-            for item in sorted(dir_path.iterdir()):
-                if item.name.startswith(".") or item.name in ("node_modules", "__pycache__", "venv"):
+            try:
+                items = sorted(dir_path.iterdir())
+            except Exception:
+                return {"name": dir_path.name, "type": "dir", "children": []}
+
+            for item in items:
+                if item.name.startswith(".") and item.name not in (".env.example",):
+                    continue
+                if item.name in IGNORED_DIRS:
                     continue
                 if item.is_dir():
                     children.append({
@@ -72,7 +93,11 @@ class FilesystemTools:
                         "children": _build_tree(item, current_depth + 1).get("children", [])
                     })
                 else:
-                    children.append({"name": item.name, "type": "file", "size": item.stat().st_size})
+                    try:
+                        size = item.stat().st_size
+                    except Exception:
+                        size = 0
+                    children.append({"name": item.name, "type": "file", "size": size})
             return {"name": dir_path.name, "type": "dir", "children": children}
 
         return _build_tree(root, 1)

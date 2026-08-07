@@ -5,35 +5,82 @@ import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import DiffViewer from '@/components/diff-viewer'
 
+function formatFileSize(bytes?: number): string {
+  if (bytes === undefined || bytes === null) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+}
+
+function hasChangedChild(dirPath: string, gitStatus?: any): boolean {
+  if (!gitStatus) return false
+  const prefix = dirPath ? `${dirPath}/` : ''
+  const isMatch = (f: string) => f.startsWith(prefix)
+  return (
+    gitStatus.modified_files?.some(isMatch) ||
+    gitStatus.untracked_files?.some(isMatch) ||
+    gitStatus.staged_files?.some(isMatch) ||
+    gitStatus.unpushed_files?.some(isMatch)
+  )
+}
+
 function FileTreeNode({
   node,
   parentPath = '',
   selectedPath,
   onSelectFile,
+  gitStatus,
 }: {
   node: any
   parentPath?: string
   selectedPath: string
   onSelectFile: (path: string) => void
+  gitStatus?: any
 }) {
+  const [isOpen, setIsOpen] = useState(true)
+
   if (node.type === 'dir') {
     const currentPath = parentPath ? `${parentPath}/${node.name}` : node.name
+    const dirHasChanges = hasChangedChild(currentPath, gitStatus)
+
     return (
-      <div className="pl-3 space-y-1">
-        <div className="text-gray-400 font-semibold select-none flex items-center gap-1.5 py-0.5">
-          <span>📁</span> {node.name}/
-        </div>
-        <div className="border-l border-gray-800/80 pl-2 space-y-0.5">
-          {node.children?.map((child: any, idx: number) => (
-            <FileTreeNode
-              key={idx}
-              node={child}
-              parentPath={currentPath}
-              selectedPath={selectedPath}
-              onSelectFile={onSelectFile}
-            />
-          ))}
-        </div>
+      <div className="pl-2 space-y-0.5">
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="w-full text-left font-semibold text-gray-400 hover:text-white select-none flex items-center justify-between gap-1.5 py-1 px-1 rounded hover:bg-gray-800/40 transition-colors cursor-pointer group"
+        >
+          <div className="flex items-center gap-1.5 truncate min-w-0">
+            <span className="text-[10px] text-gray-500 w-3 text-center flex-shrink-0 group-hover:text-blue-400">
+              {isOpen ? '▼' : '▶'}
+            </span>
+            <span className="flex-shrink-0">📁</span>
+            <span className="truncate">{node.name}/</span>
+          </div>
+          {dirHasChanges && (
+            <span
+              className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-amber-950/80 text-amber-400 border border-amber-800/80 flex-shrink-0"
+              title="Contains modified/uncommitted files"
+            >
+              ●
+            </span>
+          )}
+        </button>
+        {isOpen && (
+          <div className="border-l border-gray-800/80 pl-2 space-y-0.5">
+            {node.children?.map((child: any, idx: number) => (
+              <FileTreeNode
+                key={idx}
+                node={child}
+                parentPath={currentPath}
+                selectedPath={selectedPath}
+                onSelectFile={onSelectFile}
+                gitStatus={gitStatus}
+              />
+            ))}
+          </div>
+        )}
       </div>
     )
   }
@@ -41,17 +88,67 @@ function FileTreeNode({
   const filePath = parentPath ? `${parentPath}/${node.name}` : node.name
   const isSelected = selectedPath === filePath
 
+  // Status flags
+  const isModified = gitStatus?.modified_files?.includes(filePath)
+  const isUntracked = gitStatus?.untracked_files?.includes(filePath)
+  const isStaged = gitStatus?.staged_files?.includes(filePath)
+  const isUnpushed = gitStatus?.unpushed_files?.includes(filePath)
+
   return (
     <button
+      type="button"
       onClick={() => onSelectFile(filePath)}
-      className={`w-full text-left font-mono text-xs px-2 py-1 rounded flex items-center gap-2 transition-colors ${
+      className={`w-full text-left font-mono text-xs px-2 py-1.5 rounded flex items-center justify-between gap-2 transition-colors ${
         isSelected
           ? 'bg-blue-900/40 text-blue-300 font-bold border border-blue-700/50'
           : 'text-gray-300 hover:bg-gray-800/60 hover:text-white'
       }`}
     >
-      <span>📄</span>
-      <span className="truncate">{node.name}</span>
+      <div className="flex items-center gap-2 truncate min-w-0">
+        <span className="flex-shrink-0">📄</span>
+        <span className="truncate">{node.name}</span>
+      </div>
+
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        {/* Status Flags */}
+        {isModified && (
+          <span
+            className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-amber-950/90 text-amber-400 border border-amber-800/80"
+            title="Modified locally"
+          >
+            MODIFIED
+          </span>
+        )}
+        {isUntracked && (
+          <span
+            className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-emerald-950/90 text-emerald-400 border border-emerald-800/80"
+            title="Untracked new file"
+          >
+            NEW
+          </span>
+        )}
+        {isStaged && (
+          <span
+            className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-blue-950/90 text-blue-400 border border-blue-800/80"
+            title="Staged in index"
+          >
+            STAGED
+          </span>
+        )}
+        {isUnpushed && (
+          <span
+            className="text-[9px] px-1.5 py-0.2 font-sans font-bold rounded bg-purple-950/90 text-purple-400 border border-purple-800/80"
+            title="Unpushed commit"
+          >
+            UNPUSHED
+          </span>
+        )}
+
+        {/* File Size */}
+        {node.size !== undefined && (
+          <span className="text-[10px] text-gray-500 font-sans font-normal">{formatFileSize(node.size)}</span>
+        )}
+      </div>
     </button>
   )
 }
@@ -209,6 +306,12 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           .then((res) => res.json())
           .then((data) => setFileTree(data))
           .catch((err) => console.error('Failed to load file tree:', err))
+      }
+      if (!gitStatus) {
+        fetch(`http://localhost:8000/api/v1/projects/${projectId}/git/status`)
+          .then((res) => res.json())
+          .then((data) => setGitStatus(data))
+          .catch((err) => console.error('Failed to load git status:', err))
       }
       if (urlFile) {
         handleSelectFile(urlFile)
@@ -375,6 +478,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                     parentPath=""
                     selectedPath={selectedFilePath}
                     onSelectFile={handleSelectFile}
+                    gitStatus={gitStatus}
                   />
                 ))}
               </div>

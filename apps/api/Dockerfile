@@ -8,10 +8,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml .
-RUN pip install --no-cache-dir -e .
+COPY packages/protocol /app/packages/protocol
+RUN pip install --no-cache-dir /app/packages/protocol
 
-COPY app app
+COPY apps/api /app/apps/api
+RUN pip install --no-cache-dir -e /app/apps/api
+
+WORKDIR /app/apps/api
 
 EXPOSE 8000
 
