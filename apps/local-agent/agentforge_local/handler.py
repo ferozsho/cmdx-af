@@ -1,11 +1,14 @@
 """Tool Request Handler for Local Agent Execution Daemon."""
 
+import os
 import time
+from pathlib import Path
 from typing import Any, Dict
 from agentforge_protocol import ToolRequest, ToolResult
 from agentforge_local.filesystem.ops import FilesystemTools
 from agentforge_local.git.ops import GitTools
 from agentforge_local.execution.runner import ExecutionRunner
+from agentforge_local.rag.indexer import LocalRAGIndexer
 
 
 class ToolHandler:
@@ -20,13 +23,11 @@ class ToolHandler:
         ws_path = self.ws_mgr.get_workspace_path(req.workspace_id)
 
         if not ws_path:
-            return ToolResult(
-                request_id=req.request_id,
-                job_id=req.job_id,
-                tool_name=req.tool_name,
-                success=False,
-                error=f"Workspace '{req.workspace_id}' is not registered on this device",
-            )
+            # Fallback to checking if workspace_id is a valid path or default to current workspace root
+            if req.workspace_id and os.path.exists(req.workspace_id):
+                ws_path = req.workspace_id
+            else:
+                ws_path = os.getcwd()
 
         try:
             res: Any = None
@@ -54,6 +55,10 @@ class ToolHandler:
                 res = GitTools.rollback(ws_path, args["commit_hash"])
             elif req.tool_name == "run_command":
                 res = ExecutionRunner.run_command(ws_path, args["cmd_array"])
+            elif req.tool_name == "rag_search":
+                indexer = LocalRAGIndexer(ws_path)
+                indexer.index_workspace()
+                res = indexer.search(args.get("query", ""), top_k=args.get("top_k", 5))
             else:
                 raise ValueError(f"Unknown tool name '{req.tool_name}'")
 

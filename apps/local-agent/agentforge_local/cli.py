@@ -1,9 +1,15 @@
 """Command Line Interface for AgentForge Local Execution Daemon."""
 
 import argparse
+import asyncio
+import logging
 import sys
 from agentforge_local.config import local_settings
+from agentforge_local.connection.wss_client import LocalWSSClient
+from agentforge_local.handler import ToolHandler
 from agentforge_local.workspaces.manager import WorkspaceManager
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
 def main() -> None:
@@ -33,7 +39,13 @@ def main() -> None:
             print(f"  - {ws_id}: {path}")
     elif args.command == "start":
         print("🚀 Starting AgentForge Local Execution Daemon...")
-        print(f"Connecting to Cloud WSS: {local_settings.CLOUD_WSS_URL}")
+        device_id = local_settings.DEVICE_ID or "dev_feroz_pc"
+        handler = ToolHandler(ws_mgr)
+        client = LocalWSSClient(local_settings.CLOUD_WSS_URL, device_id, handler.handle_request)
+        try:
+            asyncio.run(client.start())
+        except KeyboardInterrupt:
+            print("Daemon stopped by user.")
     else:
         parser.print_help()
 

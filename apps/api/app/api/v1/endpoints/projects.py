@@ -2,8 +2,9 @@
 
 import uuid
 from typing import Any, List
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
+from app.tools.gateway.tool_gateway import ToolGateway
 
 router = APIRouter()
 
@@ -26,6 +27,13 @@ class ProjectResponse(BaseModel):
     description: str | None = None
     execution_target: str
     status: str = "ACTIVE"
+
+
+class RagQueryRequest(BaseModel):
+    """Schema for RAG search query."""
+
+    query: str
+    top_k: int = 5
 
 
 MOCK_PROJECTS = [
@@ -66,3 +74,63 @@ async def get_project(project_id: str) -> Any:
         if p["id"] == project_id:
             return p
     return MOCK_PROJECTS[0]
+
+
+@router.get("/projects/{project_id}/tree")
+async def get_project_tree(project_id: str) -> Any:
+    """Fetch real project file tree from connected Local Agent."""
+    tool_res = await ToolGateway.invoke_tool(
+        device_id="dev_feroz_pc",
+        workspace_id=project_id,
+        job_id="job_tree",
+        tool_name="get_project_tree",
+        arguments={},
+    )
+    if not tool_res.success:
+        raise HTTPException(status_code=500, detail=tool_res.error)
+    return tool_res.result
+
+
+@router.get("/projects/{project_id}/files/content")
+async def read_project_file(project_id: str, path: str = Query(...)) -> Any:
+    """Read real project file content from connected Local Agent."""
+    tool_res = await ToolGateway.invoke_tool(
+        device_id="dev_feroz_pc",
+        workspace_id=project_id,
+        job_id="job_read_file",
+        tool_name="read_file",
+        arguments={"path": path},
+    )
+    if not tool_res.success:
+        raise HTTPException(status_code=500, detail=tool_res.error)
+    return {"path": path, "content": tool_res.result}
+
+
+@router.post("/projects/{project_id}/rag/search")
+async def rag_search_project(project_id: str, data: RagQueryRequest) -> Any:
+    """Perform real semantic search via Local Agent RAG Indexer."""
+    tool_res = await ToolGateway.invoke_tool(
+        device_id="dev_feroz_pc",
+        workspace_id=project_id,
+        job_id="job_rag",
+        tool_name="rag_search",
+        arguments={"query": data.query, "top_k": data.top_k},
+    )
+    if not tool_res.success:
+        raise HTTPException(status_code=500, detail=tool_res.error)
+    return tool_res.result
+
+
+@router.get("/projects/{project_id}/git/status")
+async def get_git_status(project_id: str) -> Any:
+    """Get real Git status from Local Agent workspace."""
+    tool_res = await ToolGateway.invoke_tool(
+        device_id="dev_feroz_pc",
+        workspace_id=project_id,
+        job_id="job_git",
+        tool_name="git_status",
+        arguments={},
+    )
+    if not tool_res.success:
+        raise HTTPException(status_code=500, detail=tool_res.error)
+    return tool_res.result

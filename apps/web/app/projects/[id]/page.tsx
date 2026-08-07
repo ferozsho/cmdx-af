@@ -3,6 +3,57 @@
 import React, { useState, useEffect } from 'react'
 import DiffViewer from '@/components/diff-viewer'
 
+function FileTreeNode({
+  node,
+  parentPath = '',
+  selectedPath,
+  onSelectFile,
+}: {
+  node: any
+  parentPath?: string
+  selectedPath: string
+  onSelectFile: (path: string) => void
+}) {
+  if (node.type === 'dir') {
+    const currentPath = parentPath ? `${parentPath}/${node.name}` : ''
+    return (
+      <div className="pl-3 space-y-1">
+        <div className="text-gray-400 font-semibold select-none flex items-center gap-1.5 py-0.5">
+          <span>📁</span> {node.name}/
+        </div>
+        <div className="border-l border-gray-800/80 pl-2 space-y-0.5">
+          {node.children?.map((child: any, idx: number) => (
+            <FileTreeNode
+              key={idx}
+              node={child}
+              parentPath={currentPath ? currentPath : ''}
+              selectedPath={selectedPath}
+              onSelectFile={onSelectFile}
+            />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  const filePath = parentPath ? `${parentPath}/${node.name}` : node.name
+  const isSelected = selectedPath === filePath
+
+  return (
+    <button
+      onClick={() => onSelectFile(filePath)}
+      className={`w-full text-left font-mono text-xs px-2 py-1 rounded flex items-center gap-2 transition-colors ${
+        isSelected
+          ? 'bg-blue-900/40 text-blue-300 font-bold border border-blue-700/50'
+          : 'text-gray-300 hover:bg-gray-800/60 hover:text-white'
+      }`}
+    >
+      <span>📄</span>
+      <span className="truncate">{node.name}</span>
+    </button>
+  )
+}
+
 export default function ProjectWorkspacePage({ params }: { params: { id: string } }) {
   const [activeTab, setActiveTab] = useState<'AGENTS' | 'FILES' | 'RAG' | 'GIT'>('AGENTS')
   const [prompt, setPrompt] = useState('')
@@ -90,24 +141,67 @@ export default function ProjectWorkspacePage({ params }: { params: { id: string 
     }
   }
 
-  const handleRagSearch = (e: React.FormEvent) => {
+  const [fileTree, setFileTree] = useState<any>(null)
+  const [gitStatus, setGitStatus] = useState<any>(null)
+  const [selectedFilePath, setSelectedFilePath] = useState<string>('plan.md')
+  const [selectedFileContent, setSelectedFileContent] = useState<string>('')
+  const [loadingFile, setLoadingFile] = useState<boolean>(false)
+
+  const handleSelectFile = async (path: string) => {
+    setSelectedFilePath(path)
+    setLoadingFile(true)
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/v1/projects/${params.id}/files/content?path=${encodeURIComponent(path)}`
+      )
+      const data = await res.json()
+      if (data.content !== undefined) {
+        setSelectedFileContent(data.content)
+      } else {
+        setSelectedFileContent(`// Unable to load content for ${path}`)
+      }
+    } catch (err) {
+      console.error('Failed to load file content:', err)
+      setSelectedFileContent(`// Error loading file content for ${path}`)
+    } finally {
+      setLoadingFile(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'FILES') {
+      if (!fileTree) {
+        fetch(`http://localhost:8000/api/v1/projects/${params.id}/tree`)
+          .then((res) => res.json())
+          .then((data) => setFileTree(data))
+          .catch((err) => console.error('Failed to load file tree:', err))
+      }
+      if (!selectedFileContent) {
+        handleSelectFile('plan.md')
+      }
+    }
+    if (activeTab === 'GIT' && !gitStatus) {
+      fetch(`http://localhost:8000/api/v1/projects/${params.id}/git/status`)
+        .then((res) => res.json())
+        .then((data) => setGitStatus(data))
+        .catch((err) => console.error('Failed to load git status:', err))
+    }
+  }, [activeTab, params.id, fileTree, gitStatus])
+
+  const handleRagSearch = async (e: React.FormEvent) => {
     e.preventDefault()
-    setRagResults([
-      {
-        file_path: 'src/modules/payment/service.py',
-        start_line: 12,
-        end_line: 45,
-        score: 0.94,
-        content: 'class PaymentService:\n    def process_transaction(self, amount, currency):\n        pass',
-      },
-      {
-        file_path: 'src/models/payment.py',
-        start_line: 1,
-        end_line: 25,
-        score: 0.88,
-        content: 'class PaymentModel(Base):\n    id = Column(String, primary_key=True)',
-      },
-    ])
+    if (!ragQuery.trim()) return
+    try {
+      const res = await fetch(`http://localhost:8000/api/v1/projects/${params.id}/rag/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: ragQuery, top_k: 5 }),
+      })
+      const data = await res.json()
+      setRagResults(data)
+    } catch (err) {
+      console.error('Failed to search RAG:', err)
+    }
   }
 
   return (
@@ -208,29 +302,49 @@ export default function ProjectWorkspacePage({ params }: { params: { id: string 
       )}
 
       {activeTab === 'FILES' && (
-        <div className="space-y-6">
-          <div className="bg-[#111827] border border-gray-800 rounded-xl p-6 text-xs text-gray-300 font-mono space-y-2">
-            <div className="text-sm font-semibold text-white font-sans mb-3">Generated Workspace File Tree</div>
-            <div>📁 app/</div>
-            <div className="pl-4 text-emerald-400">📄 analytics/page.tsx (+ new)</div>
-            <div>📁 src/</div>
-            <div className="pl-4">📁 modules/</div>
-            <div className="pl-8 text-emerald-400">📄 payment/service.py (+ new)</div>
-            <div className="pl-8 text-emerald-400">📄 payment/schema.py (+ new)</div>
-            <div className="pl-4">📄 main.py (modified)</div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* File Tree Panel */}
+          <div className="md:col-span-1 bg-[#111827] border border-gray-800 rounded-xl p-4 text-xs text-gray-300 space-y-2 max-h-[600px] overflow-y-auto">
+            <div className="text-sm font-semibold text-white font-sans mb-3 flex items-center justify-between">
+              <span>Live Workspace File Tree</span>
+              <span className="text-[10px] bg-blue-950 text-blue-400 border border-blue-800 px-2 py-0.5 rounded font-mono">
+                WSS Connected
+              </span>
+            </div>
+            {fileTree ? (
+              <div className="space-y-1 font-mono">
+                <div className="font-bold text-blue-400 flex items-center gap-1.5 pb-1">
+                  <span>📁</span> {fileTree.name}/
+                </div>
+                {fileTree.children?.map((node: any, idx: number) => (
+                  <FileTreeNode
+                    key={idx}
+                    node={node}
+                    parentPath=""
+                    selectedPath={selectedFilePath}
+                    onSelectFile={handleSelectFile}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-gray-500 font-mono animate-pulse">Loading live workspace tree...</div>
+            )}
           </div>
 
-          <DiffViewer
-            filePath="src/modules/payment/service.py"
-            originalCode="# Existing payment module placeholder"
-            modifiedCode={`class PaymentService:
-    def __init__(self, db_session):
-        self.db = db_session
-
-    async def process_payment(self, amount: float, currency: str) -> dict:
-        # Agent generated payment processing implementation
-        return {"status": "SUCCESS", "amount": amount, "currency": currency}`}
-          />
+          {/* File Code / Diff Viewer Panel */}
+          <div className="md:col-span-2 space-y-2">
+            {loadingFile ? (
+              <div className="bg-[#111827] border border-gray-800 rounded-xl p-12 text-center text-xs text-gray-400 font-mono animate-pulse">
+                Fetching file content from local workstation over WSS...
+              </div>
+            ) : (
+              <DiffViewer
+                filePath={selectedFilePath || 'Select a file'}
+                originalCode="// Baseline file snapshot"
+                modifiedCode={selectedFileContent || '// Select a file from the tree to view contents'}
+              />
+            )}
+          </div>
         </div>
       )}
 
@@ -267,19 +381,39 @@ export default function ProjectWorkspacePage({ params }: { params: { id: string 
       )}
 
       {activeTab === 'GIT' && (
-        <div className="bg-[#111827] border border-gray-800 rounded-xl p-6 text-xs space-y-3">
-          <h2 className="text-sm font-semibold text-white">Local Git Isolation History</h2>
-          <div className="border border-gray-800 rounded-lg divide-y divide-gray-800 bg-[#0d121f]">
-            <div className="p-3 flex justify-between items-center">
-              <div>
-                <div className="font-bold text-white">[Release] Payment management module implementation</div>
-                <div className="text-[10px] text-gray-500">Branch: agent/ins_a72841 · Hash: a1b2c3d4</div>
+        <div className="bg-[#111827] border border-gray-800 rounded-xl p-6 text-xs space-y-4">
+          <h2 className="text-sm font-semibold text-white">Local Git Isolation Status</h2>
+          {gitStatus ? (
+            <div className="bg-[#0d121f] border border-gray-800 rounded-lg p-4 font-mono space-y-2 text-gray-300">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-gray-500">Active Branch: </span>
+                  <span className="text-blue-400 font-bold">{gitStatus.branch}</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${gitStatus.is_dirty ? 'bg-amber-950 text-amber-400 border border-amber-800' : 'bg-emerald-950 text-emerald-400'}`}>
+                  {gitStatus.is_dirty ? 'Dirty (Uncommitted Changes)' : 'Clean Working Tree'}
+                </span>
               </div>
-              <button className="bg-red-950 text-red-400 border border-red-800 px-3 py-1 rounded text-[10px]">
-                Rollback
-              </button>
+              {gitStatus.modified_files?.length > 0 && (
+                <div>
+                  <div className="text-gray-500 mt-2 font-sans font-semibold">Modified Files:</div>
+                  {gitStatus.modified_files.map((f: string, i: number) => (
+                    <div key={i} className="text-amber-400 pl-2">~ {f}</div>
+                  ))}
+                </div>
+              )}
+              {gitStatus.untracked_files?.length > 0 && (
+                <div>
+                  <div className="text-gray-500 mt-2 font-sans font-semibold">Untracked Files:</div>
+                  {gitStatus.untracked_files.map((f: string, i: number) => (
+                    <div key={i} className="text-emerald-400 pl-2">+ {f}</div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="text-gray-500 font-mono animate-pulse">Fetching live Git repository status from local agent...</div>
+          )}
         </div>
       )}
     </div>
