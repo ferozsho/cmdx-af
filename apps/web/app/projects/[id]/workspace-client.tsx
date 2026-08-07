@@ -230,7 +230,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     | 'TESTS'
     | 'VALIDATION'
 
-  const urlFile = getParam('file') || 'plan.md'
+  const urlFile = getParam('file') || ''
   const urlQuery = getParam('q') || ''
 
   const [prompt, setPrompt] = useState('')
@@ -240,6 +240,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const [ragResults, setRagResults] = useState<any[]>([])
 
   const [fileTree, setFileTree] = useState<any>(null)
+  const [fileTreeError, setFileTreeError] = useState<string | null>(null)
   const [gitStatus, setGitStatus] = useState<any>(null)
   const [selectedFilePath, setSelectedFilePath] = useState<string>(cleanPath(urlFile))
   const [selectedFileContent, setSelectedFileContent] = useState<string>('')
@@ -373,10 +374,17 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   // Sync state when tab changes
   useEffect(() => {
     if (activeTab === 'FILES') {
-      if (!fileTree) {
+      if (!fileTree && !fileTreeError) {
         getProjectTree(projectId)
-          .then((data) => setFileTree(data))
-          .catch((err) => console.error('Failed to load file tree:', err))
+          .then((data) => {
+            setFileTree(data)
+            setFileTreeError(null)
+          })
+          .catch((err) => {
+            const msg =
+              err instanceof Error ? err.message : 'Failed to load file tree'
+            setFileTreeError(msg)
+          })
       }
       if (!gitStatus) {
         getGitStatus(projectId)
@@ -580,8 +588,14 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
                   />
                 ))}
               </div>
+            ) : fileTreeError ? (
+              <div className="text-red-500 text-xs font-mono">
+                ✗ {fileTreeError}
+              </div>
             ) : (
-              <div className="text-muted font-mono animate-pulse">Loading live workspace tree...</div>
+              <div className="text-muted font-mono animate-pulse">
+                Loading live workspace tree...
+              </div>
             )}
           </div>
 
