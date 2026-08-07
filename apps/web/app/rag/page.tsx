@@ -44,26 +44,29 @@ export default function RagManagerPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+    <div>
+      {/* Page Header — matches prototype .page-title */}
+      <div className="flex items-start justify-between mb-[22px]">
         <div>
-          <h1 className="text-2xl font-bold text-white">RAG Manager</h1>
-          <p className="text-sm text-gray-400 mt-1">
-            Semantic code search and vector index management for your projects.
+          <h2 className="text-[26px] font-bold text-main m-0 mb-[5px]">
+            RAG Manager
+          </h2>
+          <p className="text-sub text-sm m-0">
+            Index coverage, vector retrieval and project context quality.
           </p>
         </div>
         <button
           onClick={() => {
             /* TODO: real re-index */
           }}
-          className="bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs px-4 py-2 rounded-lg transition-colors"
+          className="btn-primary-af text-xs"
         >
           ↻ Re-index Project
         </button>
       </div>
 
       {/* RAG Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-[18px] mb-[18px]">
         {[
           ['Files Indexed', '—'],
           ['Chunks', '—'],
@@ -72,19 +75,19 @@ export default function RagManagerPage() {
         ].map(([label, value]) => (
           <div
             key={label}
-            className="bg-[#111827] border border-gray-800 rounded-xl p-5"
+            className="card-af p-5"
           >
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <div className="text-xs font-semibold text-sub uppercase tracking-wider">
               {label}
             </div>
-            <div className="text-2xl font-bold text-white mt-2">{value}</div>
+            <div className="text-2xl font-bold text-main mt-2">{value}</div>
           </div>
         ))}
       </div>
 
       {/* Search */}
-      <div className="bg-[#111827] border border-gray-800 rounded-xl p-6">
-        <h3 className="text-sm font-semibold text-white mb-4">
+      <div className="card-af p-5 space-y-4">
+        <h3 className="text-sm font-bold text-main m-0">
           Semantic Code Search
         </h3>
         <form onSubmit={handleSearch} className="space-y-3">
@@ -92,7 +95,7 @@ export default function RagManagerPage() {
             <select
               value={selectedProject}
               onChange={(e) => setSelectedProject(e.target.value)}
-              className="bg-[#0d121f] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+              className="input-af max-w-[200px]"
               disabled={loadingProjects}
             >
               {loadingProjects && <option>Loading projects...</option>}
@@ -110,12 +113,12 @@ export default function RagManagerPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="How are database models structured in this project?"
-              className="flex-1 bg-[#0d121f] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+              className="input-af flex-1"
             />
             <button
               type="submit"
               disabled={searching || !query.trim() || !selectedProject}
-              className="bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs px-5 py-2 rounded-lg transition-colors disabled:opacity-50"
+              className="btn-primary-af text-xs disabled:opacity-50"
             >
               {searching ? 'Searching...' : 'Search'}
             </button>
@@ -123,44 +126,44 @@ export default function RagManagerPage() {
         </form>
 
         {searchError && (
-          <div className="mt-3 text-xs text-red-400 bg-red-950/30 border border-red-800 rounded-lg p-3">
+          <div className="text-xs text-[#d6263b] bg-[#fff0f0] border border-[#ffd0d4] rounded-[10px] p-3">
             {searchError}
           </div>
         )}
 
         {/* Results */}
         {results.length > 0 && (
-          <div className="mt-5 space-y-3">
+          <div className="space-y-3 pt-2">
             {results.map((r: any, i: number) => (
               <div
                 key={i}
-                className="bg-[#0d121f] border border-gray-800 rounded-lg p-4 flex gap-3"
+                className="card-af p-4 flex gap-3 text-xs"
               >
-                <div className="w-10 h-10 rounded-lg bg-purple-950/50 border border-purple-800 flex items-center justify-center flex-shrink-0">
-                  <span className="text-purple-300 text-sm">◫</span>
+                <div className="w-9 h-9 rounded-[9px] bg-[#f2edfb] text-[#6734bd] grid place-items-center flex-shrink-0 text-sm">
+                  ◫
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h4 className="text-sm font-semibold text-white truncate">
+                  <h4 className="font-bold text-main text-xs m-0 truncate">
                     {r.file || r.file_path || 'Unknown file'}
                     {r.lines && (
-                      <span className="font-normal text-gray-500 ml-2">
+                      <span className="font-normal text-sub ml-2">
                         lines {r.lines}
                       </span>
                     )}
                   </h4>
-                  <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+                  <p className="text-sub text-xs mt-1 line-clamp-2 m-0">
                     {r.text || r.content || r.snippet || 'No preview available'}
                   </p>
                 </div>
                 <div className="text-right flex-shrink-0">
                   {r.score !== undefined && (
-                    <span className="text-xs font-bold text-emerald-400">
+                    <span className="text-xs font-bold text-[#1f7a35]">
                       {typeof r.score === 'number'
                         ? `${Math.round(r.score * 100)}%`
                         : r.score}
                     </span>
                   )}
-                  <div className="text-[10px] text-gray-500 mt-1">similarity</div>
+                  <div className="text-[10px] text-sub mt-0.5">similarity</div>
                 </div>
               </div>
             ))}
@@ -168,8 +171,8 @@ export default function RagManagerPage() {
         )}
 
         {results.length === 0 && !searching && query && (
-          <div className="mt-5 text-center py-8">
-            <p className="text-sm text-gray-500">
+          <div className="text-center py-8">
+            <p className="text-sm text-sub">
               No results found. Try a different query or select a different project.
             </p>
           </div>

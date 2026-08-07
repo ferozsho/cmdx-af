@@ -45,18 +45,21 @@ export default function GitHistoryPage() {
   const commits: GitCommit[] = gitStatus?.commits || []
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+    <div>
+      {/* Page Header — matches prototype .page-title */}
+      <div className="flex items-start justify-between mb-[22px]">
         <div>
-          <h1 className="text-2xl font-bold text-white">Git History</h1>
-          <p className="text-sm text-gray-400 mt-1">
+          <h2 className="text-[26px] font-bold text-main m-0 mb-[5px]">
+            Git History
+          </h2>
+          <p className="text-sub text-sm m-0">
             Every agent stage is attributable, reviewable, and reversible.
           </p>
         </div>
         <select
           value={selectedProject}
           onChange={(e) => setSelectedProject(e.target.value)}
-          className="bg-[#111827] border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+          className="input-af !w-auto"
           disabled={loading}
         >
           {loading && <option>Loading...</option>}
@@ -70,21 +73,21 @@ export default function GitHistoryPage() {
 
       {/* Current Branch Status */}
       {gitStatus && (
-        <div className="bg-[#111827] border border-gray-800 rounded-xl p-5">
+        <div className="card-af p-5 mb-[18px]">
           <div className="flex items-center gap-4 text-sm">
             <div>
-              <span className="text-gray-400">Branch:</span>{' '}
-              <code className="text-emerald-400 font-mono">
+              <span className="text-sub">Branch:</span>{' '}
+              <code className="text-[#6f35c8] font-mono font-bold">
                 {gitStatus.branch || gitStatus.current_branch || 'main'}
               </code>
             </div>
             <div>
-              <span className="text-gray-400">Status:</span>{' '}
+              <span className="text-sub">Status:</span>{' '}
               <span
                 className={
                   gitStatus.is_dirty || gitStatus.dirty
-                    ? 'text-amber-400'
-                    : 'text-emerald-400'
+                    ? 'text-[#dd7a00] font-bold'
+                    : 'text-[#238636] font-bold'
                 }
               >
                 {gitStatus.is_dirty || gitStatus.dirty
@@ -93,7 +96,7 @@ export default function GitHistoryPage() {
               </span>
             </div>
             {gitStatus.modified_files?.length > 0 && (
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-sub">
                 Modified: {gitStatus.modified_files.length} | Untracked:{' '}
                 {gitStatus.untracked_files?.length || 0}
               </div>
@@ -105,8 +108,8 @@ export default function GitHistoryPage() {
       {/* Commits List */}
       <div className="space-y-3">
         {commits.length === 0 ? (
-          <div className="bg-[#111827] border border-gray-800 rounded-xl p-10 text-center">
-            <p className="text-sm text-gray-500">
+          <div className="card-af p-10 text-center">
+            <p className="text-sm text-sub">
               {gitStatus
                 ? 'No commits found for this branch.'
                 : 'Select a project to view git history.'}
@@ -116,26 +119,26 @@ export default function GitHistoryPage() {
           commits.map((commit) => (
             <div
               key={commit.hash}
-              className="bg-[#111827] border border-gray-800 rounded-xl p-5 flex items-start gap-4"
+              className="card-af p-4 flex items-start gap-3"
             >
-              <div className="w-10 h-10 rounded-lg bg-purple-950/50 border border-purple-800 flex items-center justify-center flex-shrink-0">
-                <span className="text-purple-300 text-sm">⑂</span>
+              <div className="w-9 h-9 rounded-[9px] bg-[#f2edfb] text-[#6734bd] grid place-items-center flex-shrink-0 text-sm">
+                ⑂
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-semibold text-white">
+                <h4 className="text-sm font-bold text-main m-0">
                   {commit.message}
                 </h4>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-sub mt-1 m-0">
                   {commit.agent} · {commit.files} files changed · branch{' '}
                   {commit.branch}
                 </p>
               </div>
               <div className="text-right flex-shrink-0">
-                <div className="text-xs font-mono font-bold text-gray-300">
+                <div className="text-xs font-mono font-bold text-main">
                   {commit.hash.slice(0, 7)}
                 </div>
-                <div className="text-[10px] text-gray-500 mt-1">{commit.time}</div>
-                <button className="text-[10px] text-red-400 hover:underline mt-1">
+                <div className="text-[10px] text-sub mt-0.5">{commit.time}</div>
+                <button className="btn-secondary-af text-[10px] !px-2 !py-1 mt-1">
                   Rollback
                 </button>
               </div>
@@ -145,11 +148,11 @@ export default function GitHistoryPage() {
       </div>
 
       {/* Agent Git Commits (from pipeline) */}
-      <div className="bg-[#111827] border border-gray-800 rounded-xl p-6">
-        <h3 className="text-sm font-semibold text-white mb-3">
+      <div className="card-af p-6 mt-[18px]">
+        <h3 className="text-sm font-bold text-main m-0 mb-2">
           Git History by Agent Pipeline
         </h3>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-sub m-0">
           Agent-generated commits appear here after each pipeline run. Run an
           instruction from the workspace to see commits.
         </p>

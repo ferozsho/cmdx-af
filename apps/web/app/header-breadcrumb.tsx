@@ -24,6 +24,6 @@ export function HeaderBreadcrumb() {
       : 'AgentForge')
 
   return (
-    <div className="font-bold text-sm text-[#121827]">{label}</div>
+    <div className="font-bold text-sm text-main">{label}</div>
   )
 }

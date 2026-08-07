@@ -85,30 +85,35 @@ export default function ArchitecturePage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white">System Architecture</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          End-to-end platform stack for the AgentForge AI Agent Framework.
-        </p>
+    <div>
+      {/* Page Header — matches prototype .page-title */}
+      <div className="flex items-start justify-between mb-[22px]">
+        <div>
+          <h2 className="text-[26px] font-bold text-main m-0 mb-[5px]">
+            System Architecture
+          </h2>
+          <p className="text-sub text-sm m-0">
+            End-to-end platform stack for the AgentForge AI Agent Framework.
+          </p>
+        </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="card-af p-[18px]">
         {layers.map((layer, i) => (
           <React.Fragment key={layer.title}>
             <div
-              className={`border rounded-xl p-5 ${colorMap[layer.color] || 'border-gray-800 bg-[#111827]'}`}
+              className={`border border-[1.5px] rounded-[13px] p-[14px] my-[10px] text-center ${colorMap[layer.color] || 'border-[#e3e8f1] bg-white'}`}
             >
               <div
-                className={`text-xs font-bold uppercase tracking-wider mb-3 ${textColorMap[layer.color] || 'text-gray-300'}`}
+                className={`font-black mb-2 text-xs uppercase tracking-wider ${textColorMap[layer.color] || 'text-main'}`}
               >
                 {layer.title}
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-[8px]">
                 {layer.items.map((item) => (
                   <div
                     key={item}
-                    className="bg-[#0d121f] border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-300"
+                    className="bg-white dark:bg-[#1f2937] border border-[#dfe4ee] dark:border-[#374151] rounded-[9px] p-[9px] text-xs text-main font-medium"
                   >
                     {item}
                   </div>
@@ -116,7 +121,9 @@ export default function ArchitecturePage() {
               </div>
             </div>
             {i < layers.length - 1 && (
-              <div className="text-center text-gray-600 text-lg">↓</div>
+              <div className="text-center text-[#778198] text-[22px] h-[18px] leading-none my-1">
+                ↓
+              </div>
             )}
           </React.Fragment>
         ))}

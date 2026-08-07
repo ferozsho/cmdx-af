@@ -1,8 +1,10 @@
 import './globals.css'
 import React from 'react'
-import Link from 'next/link'
 import type { Metadata } from 'next'
 import { HeaderBreadcrumb } from './header-breadcrumb'
+import { ThemeToggle } from './theme-toggle'
+import { LiveWorkspaceLink } from './live-workspace-link'
+import { NavItem } from './nav-item'
 
 export const metadata: Metadata = {
   title: {
@@ -35,8 +37,9 @@ function Sidebar() {
       <div className="text-[10px] uppercase tracking-[.16em] text-[#677493] my-[18px] mx-3">
         Workspace
       </div>
-      <NavItem href="/" label="Dashboard" icon="▦" active />
+      <NavItem href="/" label="Dashboard" icon="▦" />
       <NavItem href="/projects/new" label="New Project" icon="＋" />
+      <LiveWorkspaceLink />
 
       {/* Operations Section */}
       <div className="text-[10px] uppercase tracking-[.16em] text-[#677493] my-[18px] mx-3">
@@ -67,39 +70,6 @@ function Sidebar() {
   )
 }
 
-function NavItem({
-  href,
-  label,
-  icon,
-  active,
-  badge,
-}: {
-  href: string
-  label: string
-  icon: string
-  active?: boolean
-  badge?: string
-}) {
-  return (
-    <Link
-      href={href}
-      className={`flex items-center gap-[10px] py-[11px] px-3 rounded-[10px] my-1 transition-colors ${
-        active
-          ? 'bg-[#202d4f] text-white'
-          : 'text-[#b8c1d9] hover:bg-[#202d4f] hover:text-white'
-      }`}
-    >
-      <span className="w-[22px] text-center">{icon}</span>
-      <span className="text-[13px]">{label}</span>
-      {badge && (
-        <span className="ml-auto bg-[#3b4a6b] text-[#dfe6fa] rounded-[10px] px-[7px] py-[2px] text-[11px]">
-          {badge}
-        </span>
-      )}
-    </Link>
-  )
-}
-
 export default function RootLayout({
   children,
 }: {
@@ -107,17 +77,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-[#f6f8fc] text-[#121827] flex font-sans antialiased">
+      <body className="min-h-screen flex font-sans antialiased">
         <Sidebar />
 
         <main className="flex-1 flex flex-col min-w-0">
           {/* Top Header Bar */}
-          <header className="h-[74px] bg-white border-b border-[#e3e8f1] flex items-center justify-between px-7 sticky top-0 z-20">
-            <div className="font-bold text-sm text-[#121827]">
-              <HeaderBreadcrumb />
-            </div>
+          <header className="h-[74px] header-af flex items-center justify-between px-7 sticky top-0 z-20">
+            <HeaderBreadcrumb />
             <div className="flex items-center gap-[10px]">
-              <button className="border border-[#e3e8f1] bg-white rounded-[10px] px-[11px] py-[9px] text-sm hover:bg-gray-50 transition-colors">
+              <ThemeToggle />
+              <button className="btn-secondary-af !px-[11px] !py-[9px] text-sm">
                 🔔
               </button>
               <div className="w-9 h-9 rounded-full bg-[#111a33] text-white grid place-items-center font-bold text-xs">

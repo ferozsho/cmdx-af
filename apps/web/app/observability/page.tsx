@@ -13,19 +13,24 @@ export default function ObservabilityPage() {
   }, [])
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Observability</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          Operational metrics for pipelines, agents, RAG, and LLM usage.
-        </p>
+    <div>
+      {/* Page Header — matches prototype .page-title */}
+      <div className="flex items-start justify-between mb-[22px]">
+        <div>
+          <h2 className="text-[26px] font-bold text-main m-0 mb-[5px]">
+            Observability
+          </h2>
+          <p className="text-sub text-sm m-0">
+            Operational metrics for pipelines, agents, RAG, and LLM usage.
+          </p>
+        </div>
       </div>
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-[18px]">
         {/* Agent Duration */}
-        <div className="bg-[#111827] border border-gray-800 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-white mb-4">
+        <div className="card-af p-[18px]">
+          <h3 className="text-sm font-bold text-main m-0 mb-4">
             Agent Duration (avg)
           </h3>
           {[
@@ -36,15 +41,15 @@ export default function ObservabilityPage() {
             ['Validation', 48],
             ['Git', 22],
           ].map(([name, pct]) => (
-            <div key={name} className="flex items-center gap-3 mb-3 text-xs">
-              <span className="w-28 text-gray-400">{name}</span>
-              <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
+            <div key={name} className="grid grid-cols-[120px_1fr_48px] gap-[10px] items-center my-3 text-xs">
+              <span className="text-main truncate">{name}</span>
+              <div className="h-2 bg-[#edf0f5] dark:bg-[#1f2937] rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-blue-600 to-purple-600 rounded-full"
+                  className="h-full bg-gradient-to-r from-[#1b78d2] to-[#6e38c7] rounded-full"
                   style={{ width: `${pct}%` }}
                 />
               </div>
-              <span className="text-gray-300 font-mono w-8 text-right">
+              <span className="text-main font-mono text-right font-bold">
                 {pct}s
               </span>
             </div>
@@ -52,11 +57,11 @@ export default function ObservabilityPage() {
         </div>
 
         {/* Pipeline Health */}
-        <div className="bg-[#111827] border border-gray-800 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-white mb-4">
+        <div className="card-af p-[18px]">
+          <h3 className="text-sm font-bold text-main m-0 mb-4">
             Pipeline Health
           </h3>
-          <div className="space-y-3 text-xs">
+          <div className="space-y-1 text-xs">
             {[
               ['Success rate', '—'],
               ['Avg pipeline duration', '—'],
@@ -66,21 +71,21 @@ export default function ObservabilityPage() {
             ].map(([label, value]) => (
               <div
                 key={label}
-                className="flex justify-between py-2 border-b border-gray-800 last:border-0"
+                className="flex justify-between py-[11px] border-b border-[#e3e8f1] dark:border-[#1f2937] last:border-0"
               >
-                <span className="text-gray-400">{label}</span>
-                <span className="text-gray-200 font-mono">{value}</span>
+                <span className="text-sub">{label}</span>
+                <span className="text-main font-bold">{value}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* LLM Usage */}
-        <div className="bg-[#111827] border border-gray-800 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-white mb-4">
+        <div className="card-af p-[18px]">
+          <h3 className="text-sm font-bold text-main m-0 mb-4">
             DeepSeek Usage
           </h3>
-          <div className="space-y-3 text-xs">
+          <div className="space-y-1 text-xs">
             {[
               ['Prompt tokens (today)', '—'],
               ['Completion tokens', '—'],
@@ -89,21 +94,21 @@ export default function ObservabilityPage() {
             ].map(([label, value]) => (
               <div
                 key={label}
-                className="flex justify-between py-2 border-b border-gray-800 last:border-0"
+                className="flex justify-between py-[11px] border-b border-[#e3e8f1] dark:border-[#1f2937] last:border-0"
               >
-                <span className="text-gray-400">{label}</span>
-                <span className="text-gray-200 font-mono">{value}</span>
+                <span className="text-sub">{label}</span>
+                <span className="text-main font-bold">{value}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Infrastructure Health */}
-        <div className="bg-[#111827] border border-gray-800 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-white mb-4">
+        <div className="card-af p-[18px]">
+          <h3 className="text-sm font-bold text-main m-0 mb-4">
             Infrastructure
           </h3>
-          <div className="space-y-3 text-xs">
+          <div className="space-y-1 text-xs">
             {[
               ['FastAPI', health ? 'Healthy' : '—'],
               ['PostgreSQL', '—'],
@@ -113,16 +118,16 @@ export default function ObservabilityPage() {
             ].map(([name, status]) => (
               <div
                 key={name}
-                className="flex justify-between py-2 border-b border-gray-800 last:border-0"
+                className="flex justify-between py-[11px] border-b border-[#e3e8f1] dark:border-[#1f2937] last:border-0"
               >
-                <span className="text-gray-400">{name}</span>
+                <span className="text-sub">{name}</span>
                 <span
-                  className={`font-mono ${
+                  className={`font-bold ${
                     status === 'Healthy'
-                      ? 'text-emerald-400'
+                      ? 'text-[#238636]'
                       : status === '—'
-                        ? 'text-gray-600'
-                        : 'text-red-400'
+                        ? 'text-sub'
+                        : 'text-[#d6263b]'
                   }`}
                 >
                   {status === 'Healthy' && '● '}

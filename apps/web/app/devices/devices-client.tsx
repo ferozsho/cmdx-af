@@ -43,32 +43,38 @@ export default function DevicesClient() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-[26px] font-bold text-[#121827]">Workstation Devices</h1>
-        <p className="text-sm text-[#687386] mt-1">
-          Connect your local developer PC via AgentForge Local Execution Daemon.
-        </p>
-      </div>
-
-      {/* Pairing Banner */}
-      <div className="card-af p-6 flex items-center justify-between">
+    <div>
+      {/* Page Header — matches prototype .page-title */}
+      <div className="flex items-start justify-between mb-[22px]">
         <div>
-          <h3 className="text-base font-semibold text-[#121827]">
-            Connect New Workstation
-          </h3>
-          <p className="text-xs text-gray-400 mt-1">
-            Install <code className="text-blue-300">agentforge</code> on your PC
-            and pair using temporary code.
+          <h2 className="text-[26px] font-bold text-main m-0 mb-[5px]">
+            Workstation Devices
+          </h2>
+          <p className="text-sub text-sm m-0">
+            Connect your local developer PC via AgentForge Local Execution Daemon.
           </p>
         </div>
-        <button
-          onClick={handleGenerateCode}
-          className="btn-primary-af text-xs"
-        >
-          Generate Pairing Code
-        </button>
       </div>
+
+      <div className="space-y-6">
+        {/* Pairing Banner */}
+        <div className="card-af p-6 flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-main">
+              Connect New Workstation
+            </h3>
+            <p className="text-xs text-sub mt-1">
+              Install <code className="text-[#6f35c8] font-mono">agentforge</code> on your PC
+              and pair using temporary code.
+            </p>
+          </div>
+          <button
+            onClick={handleGenerateCode}
+            className="btn-primary-af text-xs"
+          >
+            Generate Pairing Code
+          </button>
+        </div>
 
       {pairingCode && (
         <div className="bg-blue-950/40 border border-blue-800 rounded-xl p-6 text-center space-y-2">

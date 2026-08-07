@@ -81,21 +81,26 @@ export default function NewProjectClient() {
   }
 
   return (
-    <div className="max-w-[920px] mx-auto space-y-6">
-      <div>
-        <h1 className="text-[26px] font-bold text-[#121827]">Create New Project</h1>
-        <p className="text-sm text-[#687386] mt-1">
-          Connect a project directory and let the agent pipeline understand it.
-        </p>
+    <div>
+      {/* Page Header — matches prototype .page-title */}
+      <div className="flex items-start justify-between mb-[22px]">
+        <div>
+          <h2 className="text-[26px] font-bold text-main m-0 mb-[5px]">
+            Create New Project
+          </h2>
+          <p className="text-sub text-sm m-0">
+            Connect a project directory and let the agent pipeline understand it.
+          </p>
+        </div>
       </div>
 
       <form
         onSubmit={handleSubmit}
-        className="card-af p-6 space-y-5"
+        className="card-af max-w-[920px] p-6 space-y-5"
       >
         {/* Execution Target */}
         <div>
-          <label className="block text-[13px] font-bold text-[#121827] mb-2">
+          <label className="block text-[13px] font-bold text-main mb-2">
             Execution Target
           </label>
           <div className="grid grid-cols-2 gap-3">
@@ -105,7 +110,7 @@ export default function NewProjectClient() {
               className={`p-4 border rounded-xl text-left transition-colors ${
                 target === 'LOCAL'
                   ? 'border-[#7846cb] bg-[#f3edff] text-[#6532b7]'
-                  : 'border-[#dce2ec] bg-white text-[#687386]'
+                  : 'btn-secondary-af !font-normal'
               }`}
             >
               <div className="font-bold text-sm">Local Machine</div>
@@ -119,7 +124,7 @@ export default function NewProjectClient() {
               className={`p-4 border rounded-xl text-left transition-colors ${
                 target === 'CLOUD'
                   ? 'border-[#7846cb] bg-[#f3edff] text-[#6532b7]'
-                  : 'border-[#dce2ec] bg-white text-[#687386]'
+                  : 'btn-secondary-af !font-normal'
               }`}
             >
               <div className="font-bold text-sm">Cloud Workspace</div>
