@@ -46,6 +46,7 @@ function Sidebar() {
       <div className="text-[10px] uppercase tracking-[.16em] text-[#677493] my-[18px] mx-3 font-semibold">
         Operations
       </div>
+      <NavItem href="/agents" label="Agent Templates" icon="⚙" />
       <NavItem href="/rag" label="RAG Manager" icon="◫" />
       <NavItem href="/git" label="Git History" icon="⑂" />
       <NavItem href="/observability" label="Observability" icon="⌁" />

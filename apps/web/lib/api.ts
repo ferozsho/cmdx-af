@@ -217,3 +217,122 @@ export function generatePairingCode(): Promise<{
 export function buildSSEUrl(projectId: string): string {
   return `${API_BASE}/api/v1/projects/${encodeURIComponent(projectId)}/stream`
 }
+
+// ── Agent Template Types & API ────────────────────────────────────────────
+
+export interface AgentTemplateResponse {
+  id: string
+  name: string
+  description: string | null
+  capability: string
+  system_prompt: string | null
+  tools: string[]
+  version: number
+  is_active: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface AgentVersionResponse {
+  id: string
+  template_id: string
+  version: number
+  snapshot: Record<string, unknown>
+  created_at: string | null
+}
+
+export interface ProjectAgentResponse {
+  id: string
+  project_id: string
+  template_id: string
+  template_name: string
+  enabled: boolean
+  sort_order: number
+  custom_config: Record<string, unknown> | null
+}
+
+/** GET /api/v1/agents */
+export function listAgents(activeOnly = false): Promise<AgentTemplateResponse[]> {
+  const qs = activeOnly ? '?active_only=true' : ''
+  return request<AgentTemplateResponse[]>('GET', `/api/v1/agents${qs}`)
+}
+
+/** POST /api/v1/agents */
+export function createAgent(data: {
+  name: string
+  description?: string
+  capability?: string
+  system_prompt?: string
+  tools?: string[]
+}): Promise<AgentTemplateResponse> {
+  return request<AgentTemplateResponse>('POST', '/api/v1/agents', data)
+}
+
+/** PATCH /api/v1/agents/:id */
+export function updateAgent(
+  id: string,
+  data: {
+    name?: string
+    description?: string
+    capability?: string
+    system_prompt?: string
+    tools?: string[]
+  },
+): Promise<AgentTemplateResponse> {
+  return request<AgentTemplateResponse>(
+    'PATCH',
+    `/api/v1/agents/${encodeURIComponent(id)}`,
+    data,
+  )
+}
+
+/** DELETE /api/v1/agents/:id */
+export function deleteAgent(id: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('DELETE', `/api/v1/agents/${encodeURIComponent(id)}`)
+}
+
+/** GET /api/v1/agents/:id/versions */
+export function listAgentVersions(id: string): Promise<AgentVersionResponse[]> {
+  return request<AgentVersionResponse[]>(
+    'GET',
+    `/api/v1/agents/${encodeURIComponent(id)}/versions`,
+  )
+}
+
+/** GET /api/v1/projects/:id/agents */
+export function listProjectAgents(
+  projectId: string,
+): Promise<ProjectAgentResponse[]> {
+  return request<ProjectAgentResponse[]>(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(projectId)}/agents`,
+  )
+}
+
+/** POST /api/v1/projects/:id/agents */
+export function configureProjectAgent(
+  projectId: string,
+  data: {
+    template_id: string
+    enabled?: boolean
+    sort_order?: number
+    custom_config?: Record<string, unknown>
+  },
+): Promise<ProjectAgentResponse> {
+  return request<ProjectAgentResponse>(
+    'POST',
+    `/api/v1/projects/${encodeURIComponent(projectId)}/agents`,
+    data,
+  )
+}
+
+/** DELETE /api/v1/projects/:id/agents/:templateId */
+export function removeProjectAgent(
+  projectId: string,
+  templateId: string,
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    'DELETE',
+    `/api/v1/projects/${encodeURIComponent(projectId)}/agents/${encodeURIComponent(templateId)}`,
+  )
+}
