@@ -200,6 +200,3 @@ function StatCard({
     </div>
   )
 }
-    </div>
-  )
-}
