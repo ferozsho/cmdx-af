@@ -368,10 +368,14 @@ export default function DashboardPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[18px]">
-          {projects.map((project) => (
+          {projects.map((project) => {
+            const isOnline = devices.some((d) => d.status === 'online')
+            return (
             <div
               key={project.id}
-              className="card-af card-af-hover p-5 block"
+              className={`card-af p-5 block transition-all ${
+                isOnline ? 'card-af-hover' : 'opacity-60 grayscale-[30%]'
+              }`}
             >
               {/* Header row: icon + execution badge + action buttons.
                   Buttons are in-flow (not absolute) so they never overlap
@@ -381,8 +385,12 @@ export default function DashboardPage() {
                   ⚡
                 </div>
                 <div className="flex items-center gap-[8px] flex-shrink-0">
-                  <span className="inline-flex items-center gap-[6px] rounded-full py-[5px] px-[10px] text-xs font-bold bg-primary/15 text-primary">
-                    ● {project.execution_target}
+                  <span className={`inline-flex items-center gap-[6px] rounded-full py-[5px] px-[10px] text-xs font-bold ${
+                    isOnline
+                      ? 'bg-primary/15 text-primary'
+                      : 'bg-red-500/15 text-red-500'
+                  }`}>
+                    ● {isOnline ? project.execution_target : 'OFFLINE'}
                   </span>
                   <div className="flex gap-1.5">
                     <button
@@ -408,8 +416,9 @@ export default function DashboardPage() {
               </div>
 
               <Link
-                href={`/projects/${encodeURIComponent(project.id)}/agents`}
-                className="block"
+                href={isOnline ? `/projects/${encodeURIComponent(project.id)}/agents` : '#'}
+                className={`block ${!isOnline ? 'pointer-events-none' : ''}`}
+                onClick={(e) => { if (!isOnline) e.preventDefault() }}
               >
                 <h3 className="font-bold text-foreground text-[15px] mt-3 mb-0">
                   {project.name}
@@ -468,21 +477,32 @@ export default function DashboardPage() {
                   )}
                 </div>
               )}
+              {!isOnline && (
+                <div className="mb-[10px] rounded-[8px] bg-red-500/10 border border-red-500/20 px-3 py-2 text-[11px] text-red-600 dark:text-red-400 leading-relaxed">
+                  ✗ Local agent workstation is offline — connect a device to browse files.
+                </div>
+              )}
               <div className="flex justify-between pt-[14px] border-t border-border text-xs text-muted">
                 <span>
                   {project.created_at
                     ? new Date(project.created_at).toLocaleDateString()
                     : '—'}
                 </span>
-                <Link
-                  href={`/projects/${encodeURIComponent(project.id)}/agents`}
-                  className="text-primary font-medium hover:underline"
-                >
-                  Open Workspace →
-                </Link>
+                {isOnline ? (
+                  <Link
+                    href={`/projects/${encodeURIComponent(project.id)}/agents`}
+                    className="text-primary font-medium hover:underline"
+                  >
+                    Open Workspace →
+                  </Link>
+                ) : (
+                  <span className="text-muted italic text-[11px]">
+                    Workspace offline
+                  </span>
+                )}
               </div>
             </div>
-          ))}
+          )})}
         </div>
       )}
 
