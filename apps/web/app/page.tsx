@@ -338,42 +338,46 @@ export default function DashboardPage() {
           {projects.map((project) => (
             <div
               key={project.id}
-              className="card-af card-af-hover p-5 block relative group"
+              className="card-af card-af-hover p-5 block"
             >
-              {/* Action buttons — visible on hover */}
-              <div className="absolute top-3 right-3 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                <button
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); handleEdit(project) }}
-                  className="btn-secondary-af !p-1.5 !text-xs !rounded-lg"
-                  title="Edit project"
-                  aria-label="Edit project"
-                >
-                  ✏️
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); startDelete(project.id) }}
-                  className="btn-secondary-af !p-1.5 !text-xs !rounded-lg hover:!border-red-500/50 hover:!text-red-500"
-                  title="Delete project"
-                  aria-label="Delete project"
-                >
-                  🗑
-                </button>
+              {/* Header row: icon + execution badge + action buttons.
+                  Buttons are in-flow (not absolute) so they never overlap
+                  the badge, and they live outside the Link below. */}
+              <div className="flex items-start justify-between gap-2 mb-0">
+                <div className="w-11 h-11 rounded-[12px] bg-primary/10 text-primary grid place-items-center text-[21px] flex-shrink-0">
+                  ⚡
+                </div>
+                <div className="flex items-center gap-[8px] flex-shrink-0">
+                  <span className="inline-flex items-center gap-[6px] rounded-full py-[5px] px-[10px] text-xs font-bold bg-primary/15 text-primary">
+                    ● {project.execution_target}
+                  </span>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); handleEdit(project) }}
+                      className="btn-secondary-af !p-1.5 !text-xs !rounded-lg"
+                      title="Edit project"
+                      aria-label="Edit project"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); startDelete(project.id) }}
+                      className="btn-secondary-af !p-1.5 !text-xs !rounded-lg hover:!border-red-500/50 hover:!text-red-500"
+                      title="Delete project"
+                      aria-label="Delete project"
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <Link
                 href={`/projects/${encodeURIComponent(project.id)}?tab=agents`}
                 className="block"
               >
-                <div className="flex items-start justify-between mb-0">
-                  <div className="w-11 h-11 rounded-[12px] bg-primary/10 text-primary grid place-items-center text-[21px] flex-shrink-0">
-                    ⚡
-                  </div>
-                  <span className="inline-flex items-center gap-[6px] rounded-full py-[5px] px-[10px] text-xs font-bold bg-primary/15 text-primary">
-                    ● {project.execution_target}
-                  </span>
-                </div>
                 <h3 className="font-bold text-foreground text-[15px] mt-3 mb-0">
                   {project.name}
                 </h3>
