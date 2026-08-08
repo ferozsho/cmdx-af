@@ -70,6 +70,7 @@ export default function NewProjectClient() {
         execution_target: target,
         local_path: localPath,
         tech_stack: techStack,
+        initial_instruction: initialInstruction,
       })
       window.location.href = '/'
     } catch (err) {

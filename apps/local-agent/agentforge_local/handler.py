@@ -55,12 +55,25 @@ class ToolHandler:
                 res = GitTools.get_log(ws_path, max_count=args.get("max_count", 20))
             elif req.tool_name == "git_rollback":
                 res = GitTools.rollback(ws_path, args["commit_hash"])
+            elif req.tool_name == "git_show_file":
+                res = GitTools.show_file(ws_path, args["path"])
             elif req.tool_name == "run_command":
                 res = ExecutionRunner.run_command(ws_path, args["cmd_array"])
             elif req.tool_name == "rag_search":
                 indexer = LocalRAGIndexer(ws_path)
                 indexer.index_workspace()
                 res = indexer.search(args.get("query", ""), top_k=args.get("top_k", 5))
+            elif req.tool_name == "rag_reindex":
+                indexer = LocalRAGIndexer(ws_path)
+                indexer.index_workspace()
+                files_indexed = len(
+                    {c["file_path"] for c in indexer.indexed_chunks}
+                )
+                res = {
+                    "files_indexed": files_indexed,
+                    "chunks": len(indexer.indexed_chunks),
+                    "last_index": time.strftime("%Y-%m-%d %H:%M:%S"),
+                }
             else:
                 raise ValueError(f"Unknown tool name '{req.tool_name}'")
 

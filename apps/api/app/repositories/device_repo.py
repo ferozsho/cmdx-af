@@ -90,3 +90,12 @@ class DeviceRepository:
             select(Device).where(Device.status == "online")
         )
         return len(list(result.scalars().all()))
+
+    async def delete(self, device_id: str) -> bool:
+        """Delete a device by ID. Returns True if deleted."""
+        device = await self.get_by_id(device_id)
+        if device:
+            await self.db.delete(device)
+            await self.db.flush()
+            return True
+        return False

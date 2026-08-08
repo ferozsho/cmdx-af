@@ -6,6 +6,7 @@ import {
   listProjects,
   ragSearch,
   getRagStats,
+  reindexRag,
   type ProjectResponse,
 } from '@/lib/api'
 
@@ -22,6 +23,8 @@ export default function RagManagerPage() {
     chunks: number
     last_index: string | null
   } | null>(null)
+  const [reindexing, setReindexing] = useState(false)
+  const [reindexMessage, setReindexMessage] = useState<string | null>(null)
 
   // Load projects on mount
   React.useEffect(() => {
@@ -41,6 +44,25 @@ export default function RagManagerPage() {
       .then((data) => setRagStats(data))
       .catch(() => setRagStats(null))
   }, [selectedProject])
+
+  const handleReindex = async () => {
+    if (!selectedProject) return
+    setReindexing(true)
+    setReindexMessage(null)
+    try {
+      const result = await reindexRag(selectedProject)
+      setReindexMessage(
+        `Re-index complete: ${result.files_indexed} files, ${result.chunks} chunks.`,
+      )
+      setRagStats(result)
+    } catch (err) {
+      setReindexMessage(
+        `Re-index failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      )
+    } finally {
+      setReindexing(false)
+    }
+  }
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -70,14 +92,25 @@ export default function RagManagerPage() {
           </p>
         </div>
         <button
-          onClick={() => {
-            /* TODO: real re-index */
-          }}
-          className="btn-primary-af text-xs"
+          onClick={handleReindex}
+          disabled={reindexing || !selectedProject}
+          className="btn-primary-af text-xs disabled:opacity-50"
         >
-          ↻ Re-index Project
+          {reindexing ? 'Re-indexing...' : '↻ Re-index Project'}
         </button>
       </div>
+
+      {reindexMessage && (
+        <div
+          className={`mb-[18px] rounded-[10px] p-3 text-xs font-medium ${
+            reindexMessage.startsWith('Re-index failed')
+              ? 'bg-red-500/10 text-red-500 border border-red-500/30'
+              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+          }`}
+        >
+          {reindexMessage}
+        </div>
+      )}
 
       {/* RAG Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-[18px] mb-[18px]">

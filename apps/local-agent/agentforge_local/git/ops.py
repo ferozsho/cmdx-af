@@ -87,6 +87,19 @@ class GitTools:
         return repo.git.diff("HEAD~1") if len(repo.heads) > 0 else repo.git.diff()
 
     @classmethod
+    def show_file(cls, workspace_root: str, file_path: str) -> str:
+        """Get file content as it exists in HEAD (diff baseline)."""
+        root = PathGuard.validate_path(workspace_root, ".")
+        if ":" in file_path or ".." in file_path:
+            raise ValueError("Invalid file path for git baseline lookup")
+        repo = git.Repo(root)
+        try:
+            return repo.git.show(f"HEAD:{file_path}")
+        except git.exc.GitCommandError:
+            # Untracked/new file — no baseline exists
+            return ""
+
+    @classmethod
     def get_log(cls, workspace_root: str, max_count: int = 20) -> list:
         """Get recent commit log."""
         root = PathGuard.validate_path(workspace_root, ".")

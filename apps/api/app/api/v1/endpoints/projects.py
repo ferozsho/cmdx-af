@@ -1,5 +1,6 @@
 """Projects and Workspaces API Endpoints."""
 
+import asyncio
 import os
 import uuid
 from pathlib import Path
@@ -26,6 +27,7 @@ class ProjectCreate(BaseModel):
     device_id: str | None = None
     local_path: str | None = None
     tech_stack: List[str] | None = None
+    initial_instruction: str | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -234,6 +236,61 @@ async def create_project(
         execution_target=data.execution_target,
         tech_stack={t: True for t in tech_stack_list},
     )
+    await db.commit()
+    await db.refresh(project)
+
+    # Persist and kick off the initial instruction pipeline if provided
+    initial_prompt = (
+        data.initial_instruction.strip() if data.initial_instruction else ""
+    )
+    if initial_prompt:
+        from app.agents.pipeline import PipelineOrchestrator
+        from app.models.instruction import Instruction
+        from app.services.sse_broadcaster import broadcaster
+
+        ins_id = f"ins_{uuid.uuid4().hex[:8]}"
+        db.add(
+            Instruction(
+                id=ins_id,
+                project_id=project.id,
+                prompt=initial_prompt,
+                status="RUNNING",
+            )
+        )
+        await db.commit()
+
+        device_id = data.device_id or _DEFAULT_DEVICE
+        workspace_id = _DEFAULT_WORKSPACE
+
+        async def _run_initial_pipeline() -> None:
+            orchestrator = PipelineOrchestrator()
+
+            async def _event_cb(
+                agent_name: str,
+                status: str,
+                msg: str,
+                data: dict | None = None,
+            ) -> None:
+                payload: dict = {
+                    "instruction_id": ins_id,
+                    "agent_name": agent_name,
+                    "status": status,
+                    "message": msg,
+                }
+                if data:
+                    payload["data"] = data
+                await broadcaster.broadcast(project.id, payload)
+
+            await orchestrator.run_pipeline(
+                ins_id,
+                initial_prompt,
+                event_callback=_event_cb,
+                device_id=device_id,
+                workspace_id=workspace_id,
+            )
+
+        asyncio.create_task(_run_initial_pipeline())
+
     return ProjectResponse(
         id=project.id,
         name=project.name,
@@ -468,3 +525,58 @@ async def get_rag_stats(project_id: str) -> Any:
         }
     except Exception:
         return {"files_indexed": 0, "chunks": 0, "last_index": None}
+
+
+@router.post("/projects/{project_id}/rag/reindex")
+async def reindex_project_rag(project_id: str) -> Any:
+    """Re-index the project workspace into the RAG vector store."""
+    tool_res = await ToolGateway.invoke_tool(
+        device_id=_DEFAULT_DEVICE,
+        workspace_id=_DEFAULT_WORKSPACE,
+        job_id="job_rag_reindex",
+        tool_name="rag_reindex",
+        arguments={},
+    )
+    if not tool_res.success:
+        raise HTTPException(status_code=500, detail=tool_res.error)
+    return tool_res.result
+
+
+@router.get("/projects/{project_id}/files/original")
+async def get_file_original(
+    project_id: str, path: str = Query(...)
+) -> Any:
+    """Get the original (git HEAD) version of a file for diff baseline."""
+    tool_res = await ToolGateway.invoke_tool(
+        device_id=_DEFAULT_DEVICE,
+        workspace_id=_DEFAULT_WORKSPACE,
+        job_id="job_file_original",
+        tool_name="git_show_file",
+        arguments={"path": path},
+    )
+    if not tool_res.success:
+        raise HTTPException(status_code=500, detail=tool_res.error)
+    return {"path": path, "content": tool_res.result}
+
+
+@router.get("/projects/{project_id}/artifacts")
+async def list_project_artifacts(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """List all generated artifacts for a project."""
+    from app.repositories.artifact_repo import ArtifactRepository
+
+    repo = ArtifactRepository(db)
+    artifacts = await repo.list_for_project(project_id)
+    return [
+        {
+            "id": a.id,
+            "instruction_id": a.instruction_id,
+            "title": a.title,
+            "artifact_type": a.artifact_type,
+            "content": a.content,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in artifacts
+    ]

@@ -58,9 +58,9 @@ class BaseAgent(ABC):
     async def _run_command(
         self,
         context: Dict[str, Any],
-        command: str,
+        cmd_array: List[str],
     ) -> Dict[str, Any]:
-        """Run a shell command via ToolGateway."""
+        """Run a shell command array via ToolGateway."""
         device = self._get_device_id(context)
         workspace = self._get_workspace_id(context)
         job = self._get_job_id(context)
@@ -70,8 +70,28 @@ class BaseAgent(ABC):
                 workspace_id=workspace,
                 job_id=job,
                 tool_name="run_command",
-                arguments={"command": command},
+                arguments={"cmd_array": cmd_array},
             )
-            return {"success": res.success, "output": res.result, "error": res.error}
+            if not res.success:
+                return {"success": False, "output": "", "error": res.error}
+            result = res.result
+            if isinstance(result, dict):
+                return {
+                    "success": result.get("exit_code", 0) == 0,
+                    "exit_code": result.get("exit_code", 0),
+                    "output": (
+                        str(result.get("stdout", ""))
+                        + "\n"
+                        + str(result.get("stderr", ""))
+                    ).strip(),
+                    "duration_seconds": result.get("duration_seconds", 0),
+                    "error": None,
+                }
+            return {
+                "success": True,
+                "output": str(result),
+                "exit_code": 0,
+                "error": None,
+            }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "output": "", "error": str(e)}

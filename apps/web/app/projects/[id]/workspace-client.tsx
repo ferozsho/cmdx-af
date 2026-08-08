@@ -8,6 +8,8 @@ import {
   getProject,
   getProjectTree,
   getFileContent,
+  getFileOriginal,
+  listArtifacts,
   ragSearch,
   getGitStatus,
   submitInstruction,
@@ -244,7 +246,20 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const [gitStatus, setGitStatus] = useState<any>(null)
   const [selectedFilePath, setSelectedFilePath] = useState<string>(cleanPath(urlFile))
   const [selectedFileContent, setSelectedFileContent] = useState<string>('')
+  const [selectedFileOriginal, setSelectedFileOriginal] = useState<string>('')
   const [loadingFile, setLoadingFile] = useState<boolean>(false)
+
+  const [artifacts, setArtifacts] = useState<
+    {
+      id: string
+      instruction_id: string
+      title: string
+      artifact_type: string
+      content: string
+      created_at: string | null
+    }[]
+  >([])
+  const [artifactsLoading, setArtifactsLoading] = useState(false)
 
   const [agentsState, setAgentsState] = useState<any[]>([
     { name: 'Planning Agent', status: 'PENDING', duration: '-' },
@@ -317,6 +332,16 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       setSelectedFileContent(`// Error loading file content for ${targetPath}`)
     } finally {
       setLoadingFile(false)
+    }
+
+    // Fetch git HEAD baseline for the diff view (best-effort)
+    setSelectedFileOriginal('')
+    try {
+      const orig = await getFileOriginal(projectId, targetPath)
+      setSelectedFileOriginal(orig.content || '')
+    } catch (err) {
+      console.error('Failed to load file baseline:', err)
+      setSelectedFileOriginal('')
     }
   }
 
@@ -415,6 +440,13 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       getGitStatus(projectId)
         .then((data) => setGitStatus(data))
         .catch((err) => console.error('Failed to load git status:', err))
+    }
+    if (activeTab === 'ARTIFACTS' && artifacts.length === 0 && !artifactsLoading) {
+      setArtifactsLoading(true)
+      listArtifacts(projectId)
+        .then((data) => setArtifacts(data))
+        .catch((err) => console.error('Failed to load artifacts:', err))
+        .finally(() => setArtifactsLoading(false))
     }
   }, [activeTab, projectId])
 
@@ -664,7 +696,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             ) : (
               <DiffViewer
                 filePath={selectedFilePath || 'Select a file'}
-                originalCode="// Baseline snapshot"
+                originalCode={selectedFileOriginal}
                 modifiedCode={selectedFileContent || '// Select a file from the tree to view contents'}
               />
             )}
@@ -824,44 +856,50 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             Implementation plans, architecture documents, UI specs, test reports,
             and validation reports appear here after each pipeline run.
           </p>
-          <div className="space-y-3">
-            {events
-              .filter((ev: any) =>
-                ev.text?.includes('plan') ||
-                ev.text?.includes('artifact') ||
-                ev.text?.includes('document'),
-              )
-              .map((ev: any, i: number) => (
-                <div
-                  key={i}
-                  className="bg-surface-secondary border border-border rounded-lg p-4 flex gap-3"
+          {artifactsLoading ? (
+            <div className="text-xs text-muted animate-pulse">
+              Loading artifacts...
+            </div>
+          ) : artifacts.length > 0 ? (
+            <div className="space-y-3">
+              {artifacts.map((art) => (
+                <details
+                  key={art.id}
+                  className="bg-surface-secondary border border-border rounded-lg p-4"
                 >
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
-                    <span className="text-primary text-sm">📋</span>
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="text-xs font-semibold text-foreground">
-                      {ev.text?.split(']')[1] || ev.text}
-                    </h4>
-                    <p className="text-[10px] text-muted mt-1">
-                      Generated during pipeline execution
-                    </p>
-                  </div>
-                </div>
+                  <summary className="flex items-center gap-3 cursor-pointer list-none">
+                    <div className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                      <span className="text-primary text-sm">📋</span>
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-xs font-semibold text-foreground">
+                        {art.title}
+                      </h4>
+                      <p className="text-[10px] text-muted mt-0.5">
+                        {art.artifact_type}
+                        {art.created_at
+                          ? ` · ${new Date(art.created_at).toLocaleString()}`
+                          : ''}
+                      </p>
+                    </div>
+                    <span className="text-[10px] text-muted font-mono">
+                      {art.content.length} chars
+                    </span>
+                  </summary>
+                  <pre className="mt-3 bg-[#0d121f] border border-border/60 rounded-lg p-3 text-[11px] text-foreground-secondary font-mono whitespace-pre-wrap overflow-x-auto">
+                    {art.content}
+                  </pre>
+                </details>
               ))}
-            {events.filter((ev: any) =>
-              ev.text?.includes('plan') ||
-              ev.text?.includes('artifact') ||
-              ev.text?.includes('document'),
-            ).length === 0 && (
-              <div className="text-center py-8">
-                <p className="text-xs text-muted">
-                  No artifacts yet. Run a pipeline to generate implementation
-                  artifacts.
-                </p>
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-xs text-muted">
+                No artifacts yet. Run a pipeline to generate implementation
+                artifacts.
+              </p>
+            </div>
+          )}
         </section>
       )}
 

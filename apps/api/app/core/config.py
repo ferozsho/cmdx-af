@@ -1,6 +1,8 @@
 """Application Configuration Settings."""
 
+import json
 import os
+from pathlib import Path
 from typing import Dict
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -8,10 +10,41 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Runtime-overridable settings (set by Settings page via API)
 runtime_settings: Dict[str, str] = {}
 
+# Persist runtime settings across restarts (JSON file on disk)
+_SETTINGS_FILE = Path(
+    os.environ.get(
+        "AGENTFORGE_SETTINGS_FILE",
+        str(Path(__file__).resolve().parent.parent / "data" / "runtime_settings.json"),
+    )
+)
+
+
+def _load_runtime_settings() -> None:
+    """Load persisted runtime settings from disk on startup."""
+    try:
+        if _SETTINGS_FILE.exists():
+            runtime_settings.update(json.loads(_SETTINGS_FILE.read_text()))
+    except Exception:
+        pass
+
+
+def save_runtime_settings() -> None:
+    """Persist current runtime settings to disk."""
+    try:
+        _SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _SETTINGS_FILE.write_text(
+            json.dumps(runtime_settings, indent=2, sort_keys=True)
+        )
+    except Exception:
+        pass
+
 
 def get_setting(key: str, default: str = "") -> str:
     """Get a setting value — runtime override takes precedence over env."""
     return runtime_settings.get(key) or default
+
+
+_load_runtime_settings()
 
 
 class Settings(BaseSettings):

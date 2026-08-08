@@ -3,7 +3,7 @@
 import uuid
 from typing import Any, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,3 +51,21 @@ async def generate_pairing_code() -> Any:
         "pairing_code": f"AGF-{uuid.uuid4().hex[:4].upper()}",
         "expires_in_seconds": 600,
     }
+
+
+@router.delete("/devices/{device_id}")
+async def revoke_device(
+    device_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Revoke a registered device: disconnect WSS and remove from DB."""
+    from app.wss.connection_manager import wss_manager
+
+    if wss_manager.is_device_online(device_id):
+        await wss_manager.disconnect(device_id, db)
+
+    repo = DeviceRepository(db)
+    deleted = await repo.delete(device_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return {"ok": True, "detail": f"Device {device_id} revoked"}

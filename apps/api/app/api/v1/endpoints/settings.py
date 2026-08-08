@@ -3,7 +3,11 @@
 from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel
-from app.core.config import runtime_settings, settings
+from app.core.config import (
+    runtime_settings,
+    save_runtime_settings,
+    settings,
+)
 
 router = APIRouter()
 
@@ -92,5 +96,8 @@ async def update_settings(data: SettingsPayload) -> Any:
 
     if runtime_settings.get("DEEPSEEK_API_KEY") or settings.DEEPSEEK_API_KEY:
         settings.APP_MODE = "production"
+
+    # Persist across restarts
+    save_runtime_settings()
 
     return {"ok": True, "detail": "Settings updated"}

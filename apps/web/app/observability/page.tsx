@@ -1,11 +1,39 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { getFullHealth, type FullHealthResponse } from '@/lib/api'
+import {
+  getAgentMetrics,
+  getFullHealth,
+  type FullHealthResponse,
+} from '@/lib/api'
+
+const AGENT_ORDER = [
+  'Planning Agent',
+  'Architecture Agent',
+  'Visual Analysis Agent',
+  'UI/UX Agent',
+  'Documentation Agent',
+  'Frontend Agent',
+  'Backend Agent',
+  'Database Agent',
+  'Test Agent',
+  'Validation Agent',
+  'Git Agent',
+]
 
 export default function ObservabilityPage() {
   const [health, setHealth] = useState<FullHealthResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [agentMetrics, setAgentMetrics] = useState<{
+    agents: {
+      name: string
+      runs: number
+      avg_duration_seconds: number
+      last_run: string | null
+    }[]
+    total_runs: number
+    avg_duration_seconds: number
+  } | null>(null)
 
   useEffect(() => {
     getFullHealth()
@@ -13,6 +41,9 @@ export default function ObservabilityPage() {
       .catch((err) =>
         setError(err instanceof Error ? err.message : 'Failed to load metrics'),
       )
+    getAgentMetrics()
+      .then((data) => setAgentMetrics(data))
+      .catch(() => setAgentMetrics(null))
   }, [])
 
   const statusColor = (status: string) =>
@@ -101,7 +132,7 @@ export default function ObservabilityPage() {
           </div>
         </div>
 
-        {/* Agent Duration */}
+        {/* Agent Duration — real data from /observability/agent-metrics */}
         <div className="card-af p-[18px]">
           <h3 className="text-sm font-bold text-foreground m-0 mb-4">
             Agent Pipeline (11 Agents)
@@ -111,38 +142,42 @@ export default function ObservabilityPage() {
             UI/UX → Documentation → Frontend → Backend → Database → Test →
             Validation → Git
           </p>
-          {[
-            ['Planning', 85],
-            ['Architecture', 70],
-            ['Visual Analysis', 45],
-            ['UI/UX', 55],
-            ['Documentation', 50],
-            ['Frontend', 75],
-            ['Backend', 80],
-            ['Database', 60],
-            ['Test', 65],
-            ['Validation', 55],
-            ['Git', 30],
-          ].map(([name, pct]) => (
-            <div
-              key={name}
-              className="grid grid-cols-[110px_1fr_40px] gap-[10px] items-center my-[10px] text-[11px]"
-            >
-              <span className="text-foreground truncate">{name}</span>
-              <div className="h-1.5 bg-surface-secondary rounded-full overflow-hidden border border-border/50">
-                <div
-                  className="h-full bg-gradient-to-r from-[#1b78d2] to-[#6e38c7] rounded-full"
-                  style={{ width: `${pct}%` }}
-                />
+          {AGENT_ORDER.map((name) => {
+            const metric = agentMetrics?.agents.find((a) => a.name === name)
+            const dur = metric?.avg_duration_seconds
+            const pct =
+              dur !== undefined
+                ? Math.min(100, Math.max(3, Math.round((dur / 120) * 100)))
+                : 0
+            return (
+              <div
+                key={name}
+                className="grid grid-cols-[110px_1fr_40px] gap-[10px] items-center my-[10px] text-[11px]"
+              >
+                <span className="text-foreground truncate">{name}</span>
+                <div className="h-1.5 bg-surface-secondary rounded-full overflow-hidden border border-border/50">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#1b78d2] to-[#6e38c7] rounded-full transition-all duration-500"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <span className="text-muted font-mono text-right">
+                  {dur !== undefined
+                    ? `${dur.toFixed(1)}s`
+                    : '—'}
+                </span>
               </div>
-              <span className="text-muted font-mono text-right">
-                ~{pct}s
-              </span>
-            </div>
-          ))}
+            )
+          })}
+          {agentMetrics && agentMetrics.total_runs === 0 && (
+            <p className="text-[11px] text-muted mt-2">
+              No pipeline runs recorded yet — durations appear after the first
+              run.
+            </p>
+          )}
         </div>
 
-        {/* Pipeline Stats */}
+        {/* Pipeline Stats — real totals from agent-metrics */}
         <div className="card-af p-[18px]">
           <h3 className="text-sm font-bold text-foreground m-0 mb-4">
             Pipeline Stats
@@ -150,8 +185,14 @@ export default function ObservabilityPage() {
           <div className="space-y-1 text-xs">
             {[
               ['Total Agents', '11'],
+              ['Total Runs', String(agentMetrics?.total_runs ?? '—')],
               ['Parallel Execution', 'Sequential'],
-              ['Avg Pipeline Duration', '~12 min'],
+              [
+                'Avg Agent Duration',
+                agentMetrics?.avg_duration_seconds
+                  ? `~${agentMetrics.avg_duration_seconds.toFixed(1)}s`
+                  : '—',
+              ],
               ['Tool Timeout', '120s'],
               [
                 'WSS Status',

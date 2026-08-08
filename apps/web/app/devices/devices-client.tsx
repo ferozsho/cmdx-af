@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react'
 import {
   generatePairingCode,
   listDevices,
+  revokeDevice,
   type DeviceResponse,
 } from '@/lib/api'
 
@@ -13,6 +14,8 @@ export default function DevicesClient() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pairingError, setPairingError] = useState<string | null>(null)
+  const [revokingId, setRevokingId] = useState<string | null>(null)
+  const [revokeError, setRevokeError] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -39,6 +42,29 @@ export default function DevicesClient() {
       setPairingError(
         err instanceof Error ? err.message : 'Failed to generate pairing code',
       )
+    }
+  }
+
+  const handleRevoke = async (device: DeviceResponse) => {
+    if (
+      !window.confirm(
+        `Revoke device "${device.name}" (${device.hostname})?\n\n` +
+          'It will be disconnected and removed from this platform.',
+      )
+    ) {
+      return
+    }
+    setRevokingId(device.id)
+    setRevokeError(null)
+    try {
+      await revokeDevice(device.id)
+      setDevices((prev) => prev.filter((d) => d.id !== device.id))
+    } catch (err) {
+      setRevokeError(
+        err instanceof Error ? err.message : 'Failed to revoke device',
+      )
+    } finally {
+      setRevokingId(null)
     }
   }
 
@@ -93,6 +119,12 @@ export default function DevicesClient() {
         {pairingError && (
           <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded-[10px] p-3">
             {pairingError}
+          </div>
+        )}
+
+        {revokeError && (
+          <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded-[10px] p-3">
+            {revokeError}
           </div>
         )}
 
@@ -169,8 +201,12 @@ export default function DevicesClient() {
                     </td>
                     <td className="px-6 py-4 font-mono text-muted">{device.agent_version}</td>
                     <td className="px-6 py-4">
-                      <button className="text-red-500 hover:underline text-[10px] font-bold">
-                        Revoke
+                      <button
+                        onClick={() => handleRevoke(device)}
+                        disabled={revokingId === device.id}
+                        className="text-red-500 hover:underline text-[10px] font-bold disabled:opacity-50"
+                      >
+                        {revokingId === device.id ? 'Revoking...' : 'Revoke'}
                       </button>
                     </td>
                   </tr>

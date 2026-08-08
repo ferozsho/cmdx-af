@@ -177,6 +177,7 @@ export function createProject(data: {
   execution_target?: string
   local_path?: string
   tech_stack?: string[]
+  initial_instruction?: string
 }): Promise<ProjectResponse> {
   return request<ProjectResponse>('POST', '/api/v1/projects', data)
 }
@@ -243,6 +244,13 @@ export function ragSearch(
   })
 }
 
+/** POST /api/v1/projects/:id/rag/reindex */
+export function reindexRag(
+  id: string,
+): Promise<{ files_indexed: number; chunks: number; last_index: string | null }> {
+  return request('POST', `/api/v1/projects/${encodeURIComponent(id)}/rag/reindex`)
+}
+
 /** GET /api/v1/projects/:id/git/status */
 export function getGitStatus(id: string): Promise<unknown> {
   return request<unknown>('GET', `/api/v1/projects/${encodeURIComponent(id)}/git/status`)
@@ -256,6 +264,47 @@ export function getGitLog(id: string, maxCount = 20): Promise<unknown[]> {
 /** GET /api/v1/projects/:id/rag/stats */
 export function getRagStats(id: string): Promise<{ files_indexed: number; chunks: number; last_index: string | null }> {
   return request('GET', `/api/v1/projects/${encodeURIComponent(id)}/rag/stats`)
+}
+
+/** GET /api/v1/projects/:id/files/original */
+export function getFileOriginal(
+  id: string,
+  filePath: string,
+): Promise<{ path: string; content: string }> {
+  return request<{ path: string; content: string }>(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(id)}/files/original?path=${encodeURIComponent(filePath)}`,
+  )
+}
+
+/** GET /api/v1/projects/:id/artifacts */
+export function listArtifacts(
+  id: string,
+): Promise<
+  {
+    id: string
+    instruction_id: string
+    title: string
+    artifact_type: string
+    content: string
+    created_at: string | null
+  }[]
+> {
+  return request('GET', `/api/v1/projects/${encodeURIComponent(id)}/artifacts`)
+}
+
+/** GET /api/v1/observability/agent-metrics */
+export function getAgentMetrics(): Promise<{
+  agents: {
+    name: string
+    runs: number
+    avg_duration_seconds: number
+    last_run: string | null
+  }[]
+  total_runs: number
+  avg_duration_seconds: number
+}> {
+  return request('GET', '/api/v1/observability/agent-metrics')
 }
 
 /** POST /api/v1/projects/:id/instructions */
@@ -273,6 +322,16 @@ export function submitInstruction(
 /** GET /api/v1/devices */
 export function listDevices(): Promise<DeviceResponse[]> {
   return request<DeviceResponse[]>('GET', '/api/v1/devices')
+}
+
+/** DELETE /api/v1/devices/:id */
+export function revokeDevice(
+  id: string,
+): Promise<{ ok: boolean; detail: string }> {
+  return request<{ ok: boolean; detail: string }>(
+    'DELETE',
+    `/api/v1/devices/${encodeURIComponent(id)}`,
+  )
 }
 
 /** POST /api/v1/devices/pairing-code */
