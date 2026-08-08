@@ -41,9 +41,9 @@ The 2026-08-07 gap list has been worked through. Status of each original gap:
 | Auth | No auth endpoints/middleware | ✅ register/login/JWT + `get_current_user` + per-user scoping |
 | Auth depth | No refresh tokens / revocation / RBAC | ✅ token revocation (password change bumps `token_version`, JWT `ver` checked), `role` column + admin-gated Settings (`get_current_admin`), **all** project sub-endpoints (rag/files/git/validate-path/reindex) now require auth |
 | Frontend auth | No logout / change-password UI | ✅ header ⏻ Sign out + Settings "Change Password" card (revokes all sessions) |
-| Local agent chunker | hardcoded chunk_size/overlap | ✅ `rag_reindex` now receives `chunk_size`/`chunk_overlap` from Settings; indexer caches them for watcher/startup indexes (native agent needs a restart to pick up) |
+| Local agent chunker | hardcoded chunk_size/overlap | ✅ `rag_reindex` now receives `chunk_size`/`chunk_overlap` from Settings; indexer caches them for watcher/startup indexes (agent restarted with this code) |
 | Dockerized local agent | untested | ✅ smoke-tested live (WSS connect, Qdrant, watcher, index) |
-| Test coverage | sparse | ✅ 24 API tests (auth guards, RBAC, offline degradation, JWT, hashing) + 9 local-agent tests |
+| Test coverage | sparse | ✅ **27 API tests** (auth guards, RBAC, offline degradation, JWT, hashing) + **10 local-agent tests** (incl. index concurrency guard) |
 | Rollback / confirmation modal | missing | ✅ `POST /projects/{id}/git/rollback` + UI |
 | Path validation + stack detection | missing | ✅ `validate-path` via local agent + auto-detection |
 | Dashboard / workspace real data | mock | ✅ real API-backed |
@@ -56,11 +56,18 @@ The 2026-08-07 gap list has been worked through. Status of each original gap:
 
 | Area | Gap |
 |------|-----|
-| Refresh tokens | JWT access tokens only (24h) — no refresh-token rotation endpoint yet |
-| Native agent restart | The running native `agentforge start` daemon predates the chunk-settings wiring; restart it to activate (watcher/startup index then uses Settings chunk size/overlap) |
-| Frontend auth polish | No "forgot password" / email verification; role is admin/user only |
-| Chunker parity | Local agent defaults (50/10) differ from cloud defaults (500/50) until the first Settings-driven reindex sets them |
-| Prototype visual parity | Dark theme design system differs from the static `docs/index.html` light prototype — informational only |
+| Prototype visual parity | Dark theme design system differs from the static `docs/index.html` light prototype — now labeled as a historical mock |
+
+DONE since this table was written (2026-08-08): native agent **restarted** with
+the chunk-settings + concurrency-guard code (index stable at 630 chunks, no
+re-index loop, per-thread CPU ~4.5%), an **index concurrency guard**
+(`_index_lock` in `LocalRAGIndexer.index_workspace`), **refresh tokens**
+(`refresh_tokens` table, single-use rotation via `POST /auth/refresh`, real
+`POST /auth/logout`, web single-flight auto-refresh on 401), **forgot/reset
+password** (`POST /auth/forgot-password` dev-token + `/auth/reset-password` +
+`/forgot-password` page), and **chunker parity** (chunker defaults now 500/50,
+matching cloud Settings defaults; takes effect on next agent restart for
+watcher/startup indexes).
 
 ---
 

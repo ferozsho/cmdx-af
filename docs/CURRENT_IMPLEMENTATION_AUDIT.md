@@ -15,7 +15,7 @@ data sources remain in the cloud API path (MockLLMProvider exists only for
 tests / APP_MODE=mock). The 2026-08-07 audit claimed mock CRUD, stub agents,
 hardcoded dashboards, no Qdrant, no watcher wiring, no validate-path, no
 settings persistence, no observability, no auth — **all of those have since
-been implemented and verified.** See sections 3–7 below for the current gaps.
+been implemented and verified.** See sections 3–5 below for the current gaps.
 
 ---
 
@@ -105,14 +105,13 @@ verified. Remaining gaps (2026-08-08):
 
 | Area | Gap |
 |------|-----|
-| Refresh tokens | Access-only JWTs (24h); no refresh-token rotation endpoint yet |
-| Native agent restart | The running `agentforge start` daemon predates the chunk-settings wiring — restart to activate |
-| Frontend auth polish | No forgot-password / email verification; role is admin/user only |
-| Chunker parity | Local defaults (50/10) differ from cloud defaults (500/50) until a Settings-driven reindex sets them |
-| Prototype doc | `docs/index.html` is a static mock — informational only, not wired |
+| Prototype doc | `docs/index.html` is a static mock — informational only, now labeled with a legacy-prototype banner |
 
 Auth depth (token revocation, RBAC, all-project-endpoint guards), chunker
-settings wiring, Dockerized agent smoke test, and endpoint tests are all DONE
+settings wiring, Dockerized agent smoke test, endpoint tests, native agent
+restart, **refresh tokens** (single-use rotation + server-side logout + web
+auto-refresh on 401), **forgot/reset password** (dev-mode token flow + web
+page), and **chunker parity** (local defaults = cloud 500/50) are all DONE
 (2026-08-08) — see `docs/IMPLEMENTATION_GAP_ANALYSIS.md`.
 
 ---
@@ -145,49 +144,14 @@ settings wiring, Dockerized agent smoke test, and endpoint tests are all DONE
 │  watcher  embedder  secret-redactor  path-guard            │
 └─────────────────────────────────────────────────────────────┘
 ```
-┌──────────────────────▼──────────────────────────────────────┐
-│              LOCAL AGENT (Python Daemon)                     │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐ │
-│  │File Ops  │  │ Git Ops  │  │   RAG    │  │ Execution  │ │
-│  │ (real)   │  │ (real)   │  │(partial) │  │  (real)    │ │
-│  └──────────┘  └──────────┘  └──────────┘  └────────────┘ │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                 │
-│  │PathGuard │  │SecretRed │  │ Watcher  │                 │
-│  │ (real)   │  │ (real)   │  │(not wired)│                │
-│  └──────────┘  └──────────┘  └──────────┘                 │
-└─────────────────────────────────────────────────────────────┘
-```
 
 ---
 
-## 8. Reuse Plan
+## 5. Superseded: Reuse Plan (historical 2026-08-07)
 
-### MUST PRESERVE:
-1. **All database models** — complete and well-structured
-2. **Database engine + session** — fully functional
-3. **SSE Broadcaster** — clean pub/sub, works well
-4. **WSS Connection Manager** — robust request-response over WebSocket
-5. **Tool Gateway** — clean abstraction over WSS
-6. **LLM layer** — DeepSeekProvider, MockLLMProvider, ModelRouter all work
-7. **PipelineOrchestrator** — sequential execution pattern is correct
-8. **PlanningAgent** — only agent that actually works
-9. **Local Agent (ALL modules)** — 100% real, nothing to replace
-10. **DiffViewer component** — works correctly
-11. **Workspace client SSE + file tree + RAG + Git** — real API integration works
-12. **New Project form** — real API submission works
-
-### MUST EXTEND (not replace):
-1. Projects endpoint → add database persistence, keep ToolGateway calls
-2. Devices endpoint → add database persistence
-3. Dashboard page → add API data fetching, keep layout
-4. Workspace header → fetch project details from API
-5. Agent list → fetch from pipeline config
-6. Stub agents → add real LLM calls + tool invocations
-
-### MUST ADD:
-1. Project path validation endpoint + UI
-2. Technology stack detection
-3. Settings CRUD endpoint
-4. Observability aggregation endpoint
-5. Real health check endpoint
-6. Error handling on all frontend API calls
+The original “Reuse Plan” (MUST PRESERVE / MUST EXTEND / MUST ADD) listed
+projects/devices DB persistence, real agents, dashboard/workspace API data,
+path validation, stack detection, Settings CRUD, observability, and health
+checks as pending work. **Every item is now implemented and verified** — see
+`docs/NEXT_PLAN.md` and `docs/IMPLEMENTATION_GAP_ANALYSIS.md` for the current
+state.

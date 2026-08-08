@@ -8,10 +8,16 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 const AUTH_TOKEN_KEY = 'agentforge_token'
+const AUTH_REFRESH_KEY = 'agentforge_refresh_token'
 
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null
   return window.localStorage.getItem(AUTH_TOKEN_KEY)
+}
+
+export function getRefreshToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage.getItem(AUTH_REFRESH_KEY)
 }
 
 export function setToken(token: string): void {
@@ -20,9 +26,17 @@ export function setToken(token: string): void {
   }
 }
 
+export function setTokens(access: string, refresh?: string | null): void {
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(AUTH_TOKEN_KEY, access)
+    if (refresh) window.localStorage.setItem(AUTH_REFRESH_KEY, refresh)
+  }
+}
+
 export function clearToken(): void {
   if (typeof window !== 'undefined') {
     window.localStorage.removeItem(AUTH_TOKEN_KEY)
+    window.localStorage.removeItem(AUTH_REFRESH_KEY)
   }
 }
 
@@ -37,15 +51,15 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(
+async function rawFetch(
   method: string,
   path: string,
   body?: unknown,
   options?: RequestInit,
-): Promise<T> {
+): Promise<Response> {
   const url = `${API_BASE}${path}`
   const token = getToken()
-  const res = await fetch(url, {
+  return fetch(url, {
     method,
     headers: {
       'Content-Type': 'application/json',
@@ -55,6 +69,29 @@ async function request<T>(
     body: body ? JSON.stringify(body) : undefined,
     ...options,
   })
+}
+
+async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  options?: RequestInit,
+): Promise<T> {
+  let res = await rawFetch(method, path, body, options)
+
+  // One-shot access-token refresh on 401 (skip the refresh endpoint itself
+  // to avoid recursion). getMe/change-password etc. DO auto-refresh, so an
+  // expired access token is silently replaced on page load.
+  if (
+    res.status === 401 &&
+    getRefreshToken() &&
+    !path.includes('/api/v1/auth/refresh')
+  ) {
+    const refreshed = await tryRefresh()
+    if (refreshed) {
+      res = await rawFetch(method, path, body, options)
+    }
+  }
 
   if (!res.ok) {
     let detail = `HTTP ${res.status}`
@@ -70,6 +107,43 @@ async function request<T>(
   return res.json() as Promise<T>
 }
 
+// Single-flight refresh: concurrent 401s share one refresh request (refresh
+// tokens are single-use/rotating, so parallel refreshes would race and
+// revoke each other).
+let refreshInFlight: Promise<boolean> | null = null
+
+/** Exchange the stored refresh token for a fresh pair. Returns true on success. */
+async function tryRefresh(): Promise<boolean> {
+  if (!getRefreshToken()) return false
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => {
+      refreshInFlight = null
+    })
+  }
+  return refreshInFlight
+}
+
+async function doRefresh(): Promise<boolean> {
+  const refresh = getRefreshToken()
+  if (!refresh) return false
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refresh }),
+    })
+    if (!res.ok) {
+      clearToken()
+      return false
+    }
+    const data = (await res.json()) as AuthResponse
+    setTokens(data.access_token, data.refresh_token)
+    return true
+  } catch {
+    return false
+  }
+}
+
 // ── Auth ───────────────────────────────────────────────────────────────────
 
 export interface AuthUser {
@@ -82,6 +156,7 @@ export interface AuthUser {
 
 export interface AuthResponse {
   access_token: string
+  refresh_token?: string | null
   token_type: string
   user: AuthUser
 }
@@ -120,7 +195,25 @@ export function changePassword(
   })
 }
 
-/** Client-side logout — clears the stored JWT. */
+/** POST /api/v1/auth/forgot-password — request a reset token (dev: returned) */
+export function forgotPassword(
+  email: string,
+): Promise<{ ok: boolean; detail: string; reset_token?: string }> {
+  return request('POST', '/api/v1/auth/forgot-password', { email })
+}
+
+/** POST /api/v1/auth/reset-password — set a new password with a token */
+export function resetPassword(
+  token: string,
+  newPassword: string,
+): Promise<{ ok: boolean; detail: string }> {
+  return request('POST', '/api/v1/auth/reset-password', {
+    token,
+    new_password: newPassword,
+  })
+}
+
+/** Client-side logout — clears stored tokens. */
 export function logout(): void {
   clearToken()
 }

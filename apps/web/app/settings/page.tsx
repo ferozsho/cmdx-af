@@ -5,7 +5,7 @@ import {
   changePassword,
   getFullHealth,
   getSettings,
-  setToken,
+  setTokens,
   updateSettings,
   type ComponentHealth,
 } from '@/lib/api'
@@ -70,7 +70,7 @@ export default function SettingsPage() {
     setPwMessage(null)
     try {
       const res = await changePassword(current, next)
-      setToken(res.access_token)
+      setTokens(res.access_token, res.refresh_token)
       setPwMessage('Password updated — you have been re-authenticated.')
       if (pwCurrentRef.current) pwCurrentRef.current.value = ''
       if (pwNewRef.current) pwNewRef.current.value = ''

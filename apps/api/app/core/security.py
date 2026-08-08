@@ -1,5 +1,7 @@
 """Authentication & authorization helpers (password hashing, JWT, deps)."""
 
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -34,6 +36,27 @@ def verify_password(plain: str, hashed: str) -> bool:
         )
     except (ValueError, TypeError):
         return False
+
+
+# ── Refresh tokens ─────────────────────────────────────────────────────────
+
+
+def generate_refresh_token() -> str:
+    """Generate a cryptographically random refresh token (opaque)."""
+    return secrets.token_urlsafe(48)
+
+
+def hash_refresh_token(token: str) -> str:
+    """Hash a refresh token for storage (SHA-256)."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def refresh_token_expiry() -> datetime:
+    """UTC expiry for a new refresh token (from settings). Naive UTC to
+    match the codebase's DateTime columns."""
+    return datetime.utcnow() + timedelta(
+        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+    )
 
 
 # ── JWT ─────────────────────────────────────────────────────────────────────

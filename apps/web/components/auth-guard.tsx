@@ -25,14 +25,15 @@ export default function AuthGuard({
     }
 
     const token = getToken()
-    const isLogin = pathname?.startsWith('/login')
+    const isPublic =
+      pathname?.startsWith('/login') || pathname?.startsWith('/forgot-password')
 
     if (!token) {
-      if (!isLogin) router.replace('/login')
+      if (!isPublic) router.replace('/login')
       finish(true)
       return
     }
-    if (isLogin) {
+    if (isPublic) {
       router.replace('/')
       finish(true)
       return

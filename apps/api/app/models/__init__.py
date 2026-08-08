@@ -10,6 +10,7 @@ from app.models.artifact import Artifact
 from app.models.file_operation import FileOperation
 from app.models.git_commit import GitCommit
 from app.models.llm_usage import LLMUsage
+from app.models.refresh_token import RefreshToken
 
 __all__ = [
     "User",
@@ -22,4 +23,5 @@ __all__ = [
     "FileOperation",
     "GitCommit",
     "LLMUsage",
+    "RefreshToken",
 ]

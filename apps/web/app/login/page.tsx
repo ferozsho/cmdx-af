@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { login, register, setToken } from '@/lib/api'
+import { login, register, setTokens } from '@/lib/api'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -23,7 +24,7 @@ export default function LoginPage() {
         mode === 'login'
           ? await login(email.trim(), password)
           : await register(email.trim(), password, fullName.trim() || undefined)
-      setToken(res.access_token)
+      setTokens(res.access_token, res.refresh_token)
       router.replace('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed')
@@ -112,6 +113,17 @@ export default function LoginPage() {
                 : 'Create Account'}
           </button>
         </form>
+
+        {mode === 'login' && (
+          <div className="text-center text-xs text-muted">
+            <Link
+              href="/forgot-password"
+              className="text-primary hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
+        )}
       </div>
     </main>
   )

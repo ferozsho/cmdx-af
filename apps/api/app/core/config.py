@@ -82,6 +82,7 @@ class Settings(BaseSettings):
 
     SECRET_KEY: str = "agentforge-super-secret-key-change-in-production-2026"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     DATABASE_URL: str = (
         "postgresql+asyncpg://agentforge:agentforge123@localhost:5432/agentforge_db"

@@ -12,8 +12,19 @@ class CodeChunker:
     }
 
     @classmethod
-    def chunk_file(cls, file_path: Path, chunk_size: int = 50, overlap: int = 10) -> List[Dict[str, Any]]:
-        """Chunk a single file into overlapping line segments."""
+    def chunk_file(
+        cls,
+        file_path: Path,
+        chunk_size: int = 500,
+        overlap: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Chunk a single file into overlapping line segments.
+
+        Defaults match the cloud Settings-page defaults
+        (``RAG_CHUNK_SIZE=500``, ``RAG_CHUNK_OVERLAP=50``) so the local
+        agent's watcher/startup indexes produce the same chunks as an
+        explicit Settings-driven reindex.
+        """
         if file_path.suffix not in cls.SUPPORTED_EXTENSIONS or not file_path.is_file():
             return []
 

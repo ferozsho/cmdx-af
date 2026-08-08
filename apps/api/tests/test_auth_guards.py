@@ -138,3 +138,88 @@ def test_rag_search_returns_offline_not_500() -> None:
             f"/api/v1/projects/{pid}",
             headers={"Authorization": f"Bearer {token}"},
         )
+
+
+# ── Refresh token rotation ─────────────────────────────────────────────────
+def test_login_returns_refresh_token() -> None:
+    """Login returns both an access and a refresh token."""
+    _, _, email, password = _register_user()
+    res = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["access_token"]
+    assert data["refresh_token"]
+
+
+def test_refresh_rotates_and_revokes_old() -> None:
+    """A refresh token is single-use: rotation revokes the old one."""
+    _, _, email, password = _register_user()
+    login_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    ).json()
+    rt = login_res["refresh_token"]
+
+    rot = client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": rt}
+    )
+    assert rot.status_code == 200, rot.text
+    new_rt = rot.json()["refresh_token"]
+    assert new_rt and new_rt != rt
+
+    # Old refresh token must now be rejected
+    reuse = client.post("/api/v1/auth/refresh", json={"refresh_token": rt})
+    assert reuse.status_code == 401
+
+
+def test_logout_revokes_refresh_token() -> None:
+    """Server-side logout revokes the refresh token."""
+    _, _, email, password = _register_user()
+    rt = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    ).json()["refresh_token"]
+
+    out = client.post("/api/v1/auth/logout", json={"refresh_token": rt})
+    assert out.status_code == 200
+
+    reuse = client.post("/api/v1/auth/refresh", json={"refresh_token": rt})
+    assert reuse.status_code == 401
+
+
+# ── Forgot / reset password ────────────────────────────────────────────────
+def test_forgot_and_reset_password_flow() -> None:
+    """Request a reset token, reset the password, then log in with it."""
+    _, _, email, _ = _register_user()
+
+    fp = client.post("/api/v1/auth/forgot-password", json={"email": email})
+    assert fp.status_code == 200, fp.text
+    token = fp.json().get("reset_token")
+    assert token
+
+    new_password = "brandnewpass456"
+    rp = client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": token, "new_password": new_password},
+    )
+    assert rp.status_code == 200, rp.text
+
+    # Old password no longer works; new one does
+    assert (
+        client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": "testpass123"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/api/v1/auth/login",
+            json={"email": email, "password": new_password},
+        ).status_code
+        == 200
+    )
+
