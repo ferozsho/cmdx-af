@@ -186,8 +186,36 @@ _DEFAULT_DEVICE = "dev_feroz_pc"
 _DEFAULT_WORKSPACE = "ws-test"
 
 
-def _resolve_workspace(project_id: str) -> str:
-    """Map project_id to a registered workspace_id (sync-safe fallback)."""
+async def _resolve_workspace(project_id: str, db: AsyncSession) -> str:
+    """Resolve the workspace path/id used for a project's tool calls.
+
+    Priority: project.local_path (the folder set on the project) → a
+    workspace registered in the DB for this project → the default id. Passing
+    a real path as workspace_id lets the local agent treat it as a path
+    directly (its handler falls back to path-based resolution).
+    """
+    try:
+        repo = ProjectRepository(db)
+        project = await repo.get_by_id(project_id)
+        if project and project.local_path:
+            return project.local_path
+    except Exception:
+        pass
+    try:
+        from app.models.workspace import Workspace
+
+        result = await db.execute(
+            select(Workspace)
+            .where(Workspace.project_id == project_id)
+            .limit(1)
+        )
+        ws = result.scalar_one_or_none()
+        if ws and ws.local_path:
+            return ws.local_path
+        if ws:
+            return ws.id
+    except Exception:
+        pass
     return _DEFAULT_WORKSPACE
 
 
@@ -495,11 +523,15 @@ async def validate_project_path(data: ValidatePathRequest) -> Any:
 
 
 @router.get("/projects/{project_id}/tree")
-async def get_project_tree(project_id: str) -> Any:
+async def get_project_tree(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
     """Fetch real project file tree from connected Local Agent."""
+    workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,
-        workspace_id=_DEFAULT_WORKSPACE,
+        workspace_id=workspace,
         job_id="job_tree",
         tool_name="get_project_tree",
         arguments={},
@@ -512,11 +544,16 @@ async def get_project_tree(project_id: str) -> Any:
 
 
 @router.get("/projects/{project_id}/files/content")
-async def read_project_file(project_id: str, path: str = Query(...)) -> Any:
+async def read_project_file(
+    project_id: str,
+    path: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
     """Read real project file content from connected Local Agent."""
+    workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,
-        workspace_id=_DEFAULT_WORKSPACE,
+        workspace_id=workspace,
         job_id="job_read_file",
         tool_name="read_file",
         arguments={"path": path},
@@ -529,11 +566,16 @@ async def read_project_file(project_id: str, path: str = Query(...)) -> Any:
 
 
 @router.post("/projects/{project_id}/rag/search")
-async def rag_search_project(project_id: str, data: RagQueryRequest) -> Any:
+async def rag_search_project(
+    project_id: str,
+    data: RagQueryRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
     """Perform real semantic search via Local Agent RAG Indexer."""
+    workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,
-        workspace_id=_DEFAULT_WORKSPACE,
+        workspace_id=workspace,
         job_id="job_rag",
         tool_name="rag_search",
         arguments={"query": data.query, "top_k": data.top_k},
@@ -546,11 +588,15 @@ async def rag_search_project(project_id: str, data: RagQueryRequest) -> Any:
 
 
 @router.get("/projects/{project_id}/git/status")
-async def get_git_status(project_id: str) -> Any:
+async def get_git_status(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
     """Get real Git status from Local Agent workspace."""
+    workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,
-        workspace_id=_DEFAULT_WORKSPACE,
+        workspace_id=workspace,
         job_id="job_git",
         tool_name="git_status",
         arguments={},
@@ -563,11 +609,16 @@ async def get_git_status(project_id: str) -> Any:
 
 
 @router.get("/projects/{project_id}/git/log")
-async def get_git_log(project_id: str, max_count: int = 20) -> Any:
+async def get_git_log(
+    project_id: str,
+    max_count: int = 20,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
     """Get recent git commit log from Local Agent workspace."""
+    workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,
-        workspace_id=_DEFAULT_WORKSPACE,
+        workspace_id=workspace,
         job_id="job_git_log",
         tool_name="git_log",
         arguments={"max_count": max_count},
@@ -589,13 +640,15 @@ class GitRollbackRequest(BaseModel):
 async def rollback_git_commit(
     project_id: str,
     data: GitRollbackRequest,
+    db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Hard-reset the workspace to a specified commit hash."""
     if not data.commit_hash:
         raise HTTPException(status_code=400, detail="commit_hash is required")
+    workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,
-        workspace_id=_DEFAULT_WORKSPACE,
+        workspace_id=workspace,
         job_id="job_git_rollback",
         tool_name="git_rollback",
         arguments={"commit_hash": data.commit_hash},
@@ -612,12 +665,16 @@ async def rollback_git_commit(
 
 
 @router.get("/projects/{project_id}/rag/stats")
-async def get_rag_stats(project_id: str) -> Any:
+async def get_rag_stats(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
     """Get RAG indexing stats by searching with empty query."""
     try:
+        workspace = await _resolve_workspace(project_id, db)
         tool_res = await ToolGateway.invoke_tool(
             device_id=_DEFAULT_DEVICE,
-            workspace_id=_DEFAULT_WORKSPACE,
+            workspace_id=workspace,
             job_id="job_rag_stats",
             tool_name="rag_search",
             arguments={"query": ".", "top_k": 1},
@@ -646,12 +703,16 @@ async def get_rag_stats(project_id: str) -> Any:
 
 
 @router.post("/projects/{project_id}/rag/reindex")
-async def reindex_project_rag(project_id: str) -> Any:
+async def reindex_project_rag(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
     """Kick off a background RAG re-index (click-and-forget) and return."""
     existing = _reindex_jobs.get(project_id)
     if existing and existing.get("status") == "running":
         return {"status": "running", "job": _reindex_job_payload(existing)}
 
+    workspace = await _resolve_workspace(project_id, db)
     job: Dict[str, Any] = {
         "status": "running",
         "files_indexed": 0,
@@ -662,16 +723,20 @@ async def reindex_project_rag(project_id: str) -> Any:
         "finished_at": None,
     }
     _reindex_jobs[project_id] = job
-    asyncio.create_task(_run_reindex_job(project_id, job))
+    asyncio.create_task(_run_reindex_job(project_id, workspace, job))
     return {"status": "started", "job": _reindex_job_payload(job)}
 
 
-async def _run_reindex_job(project_id: str, job: Dict[str, Any]) -> None:
+async def _run_reindex_job(
+    project_id: str,
+    workspace: str,
+    job: Dict[str, Any],
+) -> None:
     """Run the RAG re-index tool in the background and update the job."""
     try:
         tool_res = await ToolGateway.invoke_tool(
             device_id=_DEFAULT_DEVICE,
-            workspace_id=_DEFAULT_WORKSPACE,
+            workspace_id=workspace,
             job_id="job_rag_reindex",
             tool_name="rag_reindex",
             arguments={},
@@ -703,12 +768,15 @@ async def get_reindex_status(project_id: str) -> Any:
 
 @router.get("/projects/{project_id}/files/original")
 async def get_file_original(
-    project_id: str, path: str = Query(...)
+    project_id: str,
+    path: str = Query(...),
+    db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Get the original (git HEAD) version of a file for diff baseline."""
+    workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,
-        workspace_id=_DEFAULT_WORKSPACE,
+        workspace_id=workspace,
         job_id="job_file_original",
         tool_name="git_show_file",
         arguments={"path": path},

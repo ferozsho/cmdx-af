@@ -14,7 +14,19 @@ class LocalRAGIndexer:
 
     Indexes into a persistent Qdrant vector store when reachable, and
     transparently falls back to an in-memory keyword index otherwise.
+    Instances are cached per workspace so the file watcher, rag_search, and
+    rag_reindex share the same in-memory index state.
     """
+
+    _instances: Dict[str, "LocalRAGIndexer"] = {}
+
+    @classmethod
+    def get(cls, workspace_path: str) -> "LocalRAGIndexer":
+        """Return the shared indexer instance for a workspace."""
+        path = str(Path(workspace_path).resolve())
+        if path not in cls._instances:
+            cls._instances[path] = cls(path)
+        return cls._instances[path]
 
     def __init__(self, workspace_path: str) -> None:
         self.workspace_path = Path(workspace_path).resolve()

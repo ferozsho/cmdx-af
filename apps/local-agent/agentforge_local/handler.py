@@ -60,11 +60,14 @@ class ToolHandler:
             elif req.tool_name == "run_command":
                 res = ExecutionRunner.run_command(ws_path, args["cmd_array"])
             elif req.tool_name == "rag_search":
-                indexer = LocalRAGIndexer(ws_path)
-                indexer.index_workspace()
-                res = indexer.search(args.get("query", ""), top_k=args.get("top_k", 5))
+                # Search only — indexing is done by the file watcher or an
+                # explicit rag_reindex, so searches stay fast on large repos.
+                indexer = LocalRAGIndexer.get(ws_path)
+                res = indexer.search(
+                    args.get("query", ""), top_k=args.get("top_k", 5)
+                )
             elif req.tool_name == "rag_reindex":
-                indexer = LocalRAGIndexer(ws_path)
+                indexer = LocalRAGIndexer.get(ws_path)
                 indexer.index_workspace()
                 files_indexed = len(
                     {c["file_path"] for c in indexer.indexed_chunks}

@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import logging
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List
@@ -35,7 +36,8 @@ def _start_watchers(ws_mgr: WorkspaceManager) -> List[Any]:
                 return
             debounce[ws_id] = now
             try:
-                indexer = LocalRAGIndexer(ws_path)
+                # Use the shared indexer so rag_search sees fresh data
+                indexer = LocalRAGIndexer.get(ws_path)
                 count = indexer.index_workspace()
                 watcher_logger.info(
                     "Re-indexed workspace %s (%d chunks) after %s",
@@ -52,7 +54,26 @@ def _start_watchers(ws_mgr: WorkspaceManager) -> List[Any]:
         watcher = WorkspaceWatcher(ws_path, make_callback(ws_id, ws_path))
         watcher.start()
         watchers.append(watcher)
+        # One-time background index so searches return results immediately
+        _index_in_background(ws_id, ws_path)
     return watchers
+
+
+def _index_in_background(ws_id: str, ws_path: str) -> None:
+    """Kick off an initial workspace index without blocking the daemon."""
+    from agentforge_local.rag.indexer import LocalRAGIndexer
+
+    def _run() -> None:
+        try:
+            indexer = LocalRAGIndexer.get(ws_path)
+            count = indexer.index_workspace()
+            watcher_logger.info(
+                "Initial index of %s complete (%d chunks)", ws_id, count
+            )
+        except Exception as e:
+            watcher_logger.warning("Initial index failed: %s", e)
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def main() -> None:

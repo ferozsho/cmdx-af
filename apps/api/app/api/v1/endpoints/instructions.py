@@ -62,8 +62,11 @@ async def list_instructions(
 
 def _resolve_device_and_workspace(
     project_id: str,
+    project_local_path: str | None = None,
 ) -> tuple[str, str]:
     """Resolve device/workspace IDs from project context (sync-safe defaults)."""
+    if project_local_path:
+        return ("dev_feroz_pc", project_local_path)
     return ("dev_feroz_pc", "ws-test")
 
 
@@ -85,7 +88,9 @@ async def submit_instruction(
     try:
         repo = ProjectRepository(db)
         project = await repo.get_by_id(project_id)
-        if project:
+        if project and project.local_path:
+            workspace_id = project.local_path
+        elif project:
             # Look up the first workspace for this project
             from sqlalchemy import select
             from app.models.workspace import Workspace
@@ -94,7 +99,7 @@ async def submit_instruction(
             )
             ws = result.scalar_one_or_none()
             if ws:
-                workspace_id = ws.id
+                workspace_id = ws.local_path or ws.id
                 if ws.device_id:
                     device_id = ws.device_id
     except Exception:
