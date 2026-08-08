@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.pipeline import PipelineOrchestrator
 from app.core.database import get_db
+from app.core.security import get_current_user
+from app.models.user import User
 from app.repositories.project_repo import ProjectRepository
 from app.repositories.device_repo import DeviceRepository
 from app.services.sse_broadcaster import broadcaster
@@ -37,6 +39,7 @@ class InstructionResponse(BaseModel):
 async def list_instructions(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """List recent instructions for a project with their status."""
     from sqlalchemy import select
@@ -78,6 +81,7 @@ async def submit_instruction(
     project_id: str,
     data: InstructionSubmit,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Submit natural language development instruction and trigger Agent Pipeline."""
     ins_id = f"ins_{uuid.uuid4().hex[:8]}"

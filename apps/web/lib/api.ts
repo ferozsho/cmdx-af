@@ -76,6 +76,7 @@ export interface AuthUser {
   id: string
   email: string
   full_name: string | null
+  role: string
   created_at?: string | null
 }
 
@@ -106,6 +107,22 @@ export function login(email: string, password: string): Promise<AuthResponse> {
 /** GET /api/v1/auth/me — current authenticated user (throws 401 if not authed) */
 export function getMe(): Promise<AuthUser> {
   return request<AuthUser>('GET', '/api/v1/auth/me')
+}
+
+/** POST /api/v1/auth/change-password — verifies current, revokes old tokens */
+export function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<AuthResponse> {
+  return request<AuthResponse>('POST', '/api/v1/auth/change-password', {
+    current_password: currentPassword,
+    new_password: newPassword,
+  })
+}
+
+/** Client-side logout — clears the stored JWT. */
+export function logout(): void {
+  clearToken()
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────

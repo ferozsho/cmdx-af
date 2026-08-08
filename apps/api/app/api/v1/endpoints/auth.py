@@ -47,6 +47,7 @@ class UserResponse(BaseModel):
     id: str
     email: str
     full_name: str | None = None
+    role: str = "user"
     created_at: str | None = None
 
 
@@ -58,11 +59,19 @@ class AuthResponse(BaseModel):
     user: UserResponse
 
 
+class ChangePasswordRequest(BaseModel):
+    """Password change payload."""
+
+    current_password: str
+    new_password: str = Field(min_length=6, max_length=128)
+
+
 def _user_response(user: User) -> UserResponse:
     return UserResponse(
         id=user.id,
         email=user.email,
         full_name=user.full_name,
+        role=user.role or "user",
         created_at=user.created_at.isoformat() if user.created_at else None,
     )
 
@@ -85,14 +94,19 @@ async def register(
             raise HTTPException(
                 status_code=409, detail="Email already registered"
             )
-        # Upgrade legacy placeholder user with a real password
+        # Upgrade legacy placeholder user with a real password. The seeded
+        # admin account becomes role=admin (RBAC for Settings/Observability).
         user.hashed_password = hash_password(data.password)
         if data.full_name and not user.full_name:
             user.full_name = data.full_name
+        if email == "admin@agentforge.ai" and user.role != "admin":
+            user.role = "admin"
         await db.commit()
         await db.refresh(user)
         return AuthResponse(
-            access_token=create_access_token(user.id),
+            access_token=create_access_token(
+                user.id, token_version=user.token_version or 0
+            ),
             user=_user_response(user),
         )
 
@@ -100,12 +114,16 @@ async def register(
         email=email,
         hashed_password=hash_password(data.password),
         full_name=data.full_name,
+        role="user",
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
     return AuthResponse(
-        access_token=create_access_token(user.id), user=_user_response(user)
+        access_token=create_access_token(
+            user.id, token_version=user.token_version or 0
+        ),
+        user=_user_response(user),
     )
 
 
@@ -122,7 +140,37 @@ async def login(
             status_code=401, detail="Invalid email or password"
         )
     return AuthResponse(
-        access_token=create_access_token(user.id), user=_user_response(user)
+        access_token=create_access_token(
+            user.id, token_version=user.token_version or 0
+        ),
+        user=_user_response(user),
+    )
+
+
+@router.post("/auth/change-password", response_model=AuthResponse)
+async def change_password(
+    data: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Change the current user's password.
+
+    Bumps ``token_version`` so every previously issued JWT is revoked
+    immediately; a fresh token is returned for the new password.
+    """
+    if not verify_password(data.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=400, detail="Current password is incorrect"
+        )
+    current_user.hashed_password = hash_password(data.new_password)
+    current_user.token_version = (current_user.token_version or 0) + 1
+    await db.commit()
+    await db.refresh(current_user)
+    return AuthResponse(
+        access_token=create_access_token(
+            current_user.id, token_version=current_user.token_version
+        ),
+        user=_user_response(current_user),
     )
 
 

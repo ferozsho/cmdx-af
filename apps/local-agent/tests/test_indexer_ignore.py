@@ -57,3 +57,30 @@ def test_iter_files_includes_nested_ignored(tmp_path: Path) -> None:
 
     assert "apps/web/page.tsx" in rel
     assert "apps/web/.next/bundle.js" not in rel
+
+
+def test_index_workspace_skips_when_busy(tmp_path: Path) -> None:
+    """Concurrent watcher bursts must not spawn parallel index passes.
+
+    When an index is already running, index_workspace returns the last
+    known chunk count immediately instead of starting a second pass.
+    """
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("x = 1\n")
+
+    indexer = LocalRAGIndexer(str(tmp_path))
+    # Simulate an in-flight index by holding the internal lock
+    assert indexer._index_lock.acquire(blocking=False)
+    try:
+        result = indexer.index_workspace(chunk_size=50, chunk_overlap=10)
+        assert result == 0  # skipped — last known chunks is 0
+        assert indexer.index_state["state"] != "indexing"
+        assert len(indexer.indexed_chunks) == 0
+    finally:
+        indexer._index_lock.release()
+
+    # After release, a normal index runs to completion
+    count = indexer.index_workspace(chunk_size=50, chunk_overlap=10)
+    assert count >= 1
+    assert indexer.index_state["state"] == "complete"
+

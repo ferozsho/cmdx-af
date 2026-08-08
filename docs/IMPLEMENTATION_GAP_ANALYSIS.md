@@ -32,73 +32,44 @@ row below was ⬜/🔴 at that time; they are now **implemented and verified**:
   watcher wired with ignore list, silent embedding, `_IGNORED_PARTS` covers
   venv/caches.
 
-## Remaining Gaps (2026-08-08)
+## Remaining Gaps (2026-08-08 — all previous gaps now closed)
+
+The 2026-08-07 gap list has been worked through. Status of each original gap:
+
+| Area | 2026-08-07 gap | Status |
+|------|----------------|--------|
+| Auth | No auth endpoints/middleware | ✅ register/login/JWT + `get_current_user` + per-user scoping |
+| Auth depth | No refresh tokens / revocation / RBAC | ✅ token revocation (password change bumps `token_version`, JWT `ver` checked), `role` column + admin-gated Settings (`get_current_admin`), **all** project sub-endpoints (rag/files/git/validate-path/reindex) now require auth |
+| Frontend auth | No logout / change-password UI | ✅ header ⏻ Sign out + Settings "Change Password" card (revokes all sessions) |
+| Local agent chunker | hardcoded chunk_size/overlap | ✅ `rag_reindex` now receives `chunk_size`/`chunk_overlap` from Settings; indexer caches them for watcher/startup indexes (native agent needs a restart to pick up) |
+| Dockerized local agent | untested | ✅ smoke-tested live (WSS connect, Qdrant, watcher, index) |
+| Test coverage | sparse | ✅ 24 API tests (auth guards, RBAC, offline degradation, JWT, hashing) + 9 local-agent tests |
+| Rollback / confirmation modal | missing | ✅ `POST /projects/{id}/git/rollback` + UI |
+| Path validation + stack detection | missing | ✅ `validate-path` via local agent + auto-detection |
+| Dashboard / workspace real data | mock | ✅ real API-backed |
+| DB usage | dormant | ✅ all tables read/written, alembic-managed |
+| Agents | stubs | ✅ all 11 real LLM |
+| RAG vector search | keyword-only | ✅ Qdrant |
+| Watcher wiring | not started | ✅ wired + ignore list |
+
+## Known Remaining Work (2026-08-08)
 
 | Area | Gap |
 |------|-----|
-| Auth depth | No refresh tokens / token revocation UI / RBAC beyond projects+devices |
-| Local agent chunker | `chunker.py` hardcodes chunk_size/overlap — not wired to Settings RAG fields |
-| Dockerized local agent | Image + compose exist; native flow is what's exercised |
-| Test coverage | Add endpoint tests (auth, RAG, settings, validate-path, rollback) |
-| Frontend auth | Login page + AuthGuard done; no "change password"/"logout" UI yet |
+| Refresh tokens | JWT access tokens only (24h) — no refresh-token rotation endpoint yet |
+| Native agent restart | The running native `agentforge start` daemon predates the chunk-settings wiring; restart it to activate (watcher/startup index then uses Settings chunk size/overlap) |
+| Frontend auth polish | No "forgot password" / email verification; role is admin/user only |
+| Chunker parity | Local agent defaults (50/10) differ from cloud defaults (500/50) until the first Settings-driven reindex sets them |
+| Prototype visual parity | Dark theme design system differs from the static `docs/index.html` light prototype — informational only |
 
 ---
 
 ## Superseded Detail (historical — 2026-08-07)
 
-The per-page tables below (Dashboard, New Project, Live Workspace, RAG Manager,
-Git History, Observability, Architecture, Settings, API endpoints, DB usage,
-agents, local agent, frontend) all predate Batches A–E. Treat them as the
-"before" snapshot; the current state is summarized above and in
-`docs/NEXT_PLAN.md` + `docs/CURRENT_IMPLEMENTATION_AUDIT.md`.
+The original per-page tables (Dashboard, New Project, Live Workspace, RAG
+Manager, Git History, Observability, Architecture, Settings, API endpoints,
+DB usage, agents, local agent, frontend) and the P0–P3 priority summary all
+predate Batches A–E. Every row they listed has since been implemented and
+verified. The current state is summarized above and in `docs/NEXT_PLAN.md` +
+`docs/CURRENT_IMPLEMENTATION_AUDIT.md`.
 
-| Rollback button | ⬜ | Missing |
-| Confirmation modal | ⬜ | Missing |
-| Visual design vs prototype | 🔴 | Different layout entirely |
-
----
-
-## 4–13. Superseded per-page tables (2026-08-07)
-
-The original document's sections 4–13 (RAG Manager, Git History, Observability,
-Architecture, Settings, API endpoints, Database usage, Agents, Local Agent,
-Frontend general) are intentionally removed — every row is now implemented and
-verified. See the "Status: 2026-08-08" summary at the top of this file and
-`docs/NEXT_PLAN.md` for the authoritative record.
-
-| Empty states | ⬜ | No "no projects" messages |
-| TypeScript types for API | ⬜ | No shared types |
-| Environment config | ⬜ | API URL hardcoded |
-| Responsive design | 🟡 | Basic responsive, not matching prototype breakpoints |
-| Visual design system | 🔴 | Dark theme vs prototype's light theme |
-| Prototype visual parity | 🔴 | Different colors, spacing, components |
-
-## 14. Priority Summary
-
-### P0 (Blocking — Fix Immediately)
-1. Project path validation endpoint + UI
-2. Database-backed project CRUD
-3. Database migrations setup (Alembic)
-
-### P1 (Core Functionality)
-4. Real dashboard data from API
-5. Real workspace header from API
-6. Database-backed device CRUD
-7. All frontend pages matching prototype layout
-
-### P2 (Agent Pipeline)
-8. Stub agents → real LLM implementations
-9. Real test execution via local agent
-10. Real validation via local agent
-11. Real git operations via local agent
-12. RAG vector search (Qdrant integration)
-
-### P3 (Polish)
-13. Observability page + metrics aggregation
-14. Settings page + CRUD
-15. Architecture page
-16. RAG Manager page
-17. Git History page
-18. Pixel-perfect visual matching to prototype
-19. Loading/empty/error states everywhere
-20. Responsive design polish

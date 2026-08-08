@@ -479,7 +479,10 @@ async def delete_project(
 
 
 @router.post("/projects/validate-path", response_model=ValidatePathResponse)
-async def validate_project_path(data: ValidatePathRequest) -> Any:
+async def validate_project_path(
+    data: ValidatePathRequest,
+    current_user: User = Depends(get_current_user),
+) -> Any:
     """Validate a project directory path via the connected Local Agent.
 
     The folder lives on the developer's host machine, so the check is
@@ -531,6 +534,7 @@ async def validate_project_path(data: ValidatePathRequest) -> Any:
 async def get_project_tree(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Fetch real project file tree from connected Local Agent."""
     workspace = await _resolve_workspace(project_id, db)
@@ -553,6 +557,7 @@ async def read_project_file(
     project_id: str,
     path: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Read real project file content from connected Local Agent."""
     workspace = await _resolve_workspace(project_id, db)
@@ -575,6 +580,7 @@ async def rag_search_project(
     project_id: str,
     data: RagQueryRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Perform real semantic search via Local Agent RAG Indexer."""
     workspace = await _resolve_workspace(project_id, db)
@@ -596,6 +602,7 @@ async def rag_search_project(
 async def get_git_status(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get real Git status from Local Agent workspace."""
     workspace = await _resolve_workspace(project_id, db)
@@ -618,6 +625,7 @@ async def get_git_log(
     project_id: str,
     max_count: int = 20,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get recent git commit log from Local Agent workspace."""
     workspace = await _resolve_workspace(project_id, db)
@@ -646,6 +654,7 @@ async def rollback_git_commit(
     project_id: str,
     data: GitRollbackRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Hard-reset the workspace to a specified commit hash."""
     if not data.commit_hash:
@@ -673,6 +682,7 @@ async def rollback_git_commit(
 async def get_rag_stats(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get live RAG indexing stats + progress from the Local Agent."""
     try:
@@ -724,6 +734,7 @@ async def get_rag_stats(
 async def reindex_project_rag(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Kick off a background RAG re-index (click-and-forget) and return."""
     existing = _reindex_jobs.get(project_id)
@@ -751,13 +762,27 @@ async def _run_reindex_job(
     job: Dict[str, Any],
 ) -> None:
     """Run the RAG re-index tool in the background and update the job."""
+    from app.core.config import (
+        DEFAULT_RAG_CHUNK_OVERLAP,
+        DEFAULT_RAG_CHUNK_SIZE,
+        get_setting,
+    )
+
     try:
         tool_res = await ToolGateway.invoke_tool(
             device_id=_DEFAULT_DEVICE,
             workspace_id=workspace,
             job_id="job_rag_reindex",
             tool_name="rag_reindex",
-            arguments={},
+            arguments={
+                # Settings-page RAG chunking drives the local chunker
+                "chunk_size": int(
+                    get_setting("RAG_CHUNK_SIZE", DEFAULT_RAG_CHUNK_SIZE)
+                ),
+                "chunk_overlap": int(
+                    get_setting("RAG_CHUNK_OVERLAP", DEFAULT_RAG_CHUNK_OVERLAP)
+                ),
+            },
         )
         if not tool_res.success:
             job["status"] = "failed"
@@ -776,7 +801,10 @@ async def _run_reindex_job(
 
 
 @router.get("/projects/{project_id}/rag/reindex-status")
-async def get_reindex_status(project_id: str) -> Any:
+async def get_reindex_status(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+) -> Any:
     """Return the status of the background RAG re-index job."""
     job = _reindex_jobs.get(project_id)
     if not job:
@@ -789,6 +817,7 @@ async def get_file_original(
     project_id: str,
     path: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get the original (git HEAD) version of a file for diff baseline."""
     workspace = await _resolve_workspace(project_id, db)

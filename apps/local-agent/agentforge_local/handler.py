@@ -70,7 +70,10 @@ class ToolHandler:
                 )
             elif req.tool_name == "rag_reindex":
                 indexer = LocalRAGIndexer.get(ws_path)
-                indexer.index_workspace()
+                indexer.index_workspace(
+                    chunk_size=args.get("chunk_size"),
+                    chunk_overlap=args.get("chunk_overlap"),
+                )
                 files_indexed = len(
                     {c["file_path"] for c in indexer.indexed_chunks}
                 )

@@ -1,9 +1,10 @@
 """Local RAG Vector Indexer & Search Engine."""
 
 import hashlib
+import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from agentforge_local.config import local_settings
 from agentforge_local.rag.chunker import CodeChunker
@@ -49,6 +50,11 @@ class LocalRAGIndexer:
     def __init__(self, workspace_path: str) -> None:
         self.workspace_path = Path(workspace_path).resolve()
         self.indexed_chunks: List[Dict[str, Any]] = []
+        # Chunking settings — set from the API Settings page via rag_reindex
+        # args; cached on the instance so watcher/startup indexes use the
+        # same values afterwards.
+        self.chunk_size: Optional[int] = None
+        self.chunk_overlap: Optional[int] = None
         # Live progress shared with rag_status / watcher / UI polling
         self.index_state: Dict[str, Any] = {
             "state": "idle",  # idle | indexing | complete | failed
@@ -64,6 +70,10 @@ class LocalRAGIndexer:
             url=local_settings.QDRANT_URL,
             api_key=local_settings.QDRANT_API_KEY,
         )
+        # Serializes index_workspace: the file watcher can burst many events
+        # while an index is running; without this guard each event spawns a
+        # parallel full index (multi-embedder CPU churn, interleaved state).
+        self._index_lock = threading.Lock()
 
     def _iter_files(self):
         """Yield indexable files under the workspace (noise dirs skipped)."""
@@ -71,8 +81,33 @@ class LocalRAGIndexer:
             if item.is_file() and not (set(item.parts) & _IGNORED_PARTS):
                 yield item
 
-    def index_workspace(self) -> int:
-        """Scan workspace, generate chunks, and index into vector storage."""
+    def index_workspace(
+        self, chunk_size: Optional[int] = None, chunk_overlap: Optional[int] = None
+    ) -> int:
+        """Scan workspace, generate chunks, and index into vector storage.
+
+        ``chunk_size``/``chunk_overlap`` (from the cloud Settings page) are
+        cached on the instance when provided, so later watcher-triggered
+        indexes reuse them. If an index is already running, the call is
+        skipped (returns the last known chunk count) instead of starting a
+        second concurrent pass.
+        """
+        if not self._index_lock.acquire(blocking=False):
+            return int(self.index_state.get("chunks") or 0)
+        try:
+            return self._index_workspace_locked(chunk_size, chunk_overlap)
+        finally:
+            self._index_lock.release()
+
+    def _index_workspace_locked(
+        self, chunk_size: Optional[int] = None, chunk_overlap: Optional[int] = None
+    ) -> int:
+        if chunk_size is not None:
+            self.chunk_size = chunk_size
+        if chunk_overlap is not None:
+            self.chunk_overlap = chunk_overlap
+        cs = self.chunk_size
+        ov = self.chunk_overlap
         self.indexed_chunks.clear()
         files = list(self._iter_files())
         self.index_state.update(
@@ -97,7 +132,12 @@ class LocalRAGIndexer:
                 except ValueError:
                     self.index_state["current_file"] = str(item)
                 try:
-                    chunked = CodeChunker.chunk_file(item)
+                    if cs is not None and ov is not None:
+                        chunked = CodeChunker.chunk_file(
+                            item, chunk_size=cs, overlap=ov
+                        )
+                    else:
+                        chunked = CodeChunker.chunk_file(item)
                 except Exception:
                     chunked = []
                 rel_path = str(item.relative_to(self.workspace_path))

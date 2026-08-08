@@ -42,24 +42,33 @@ ALGORITHM = "HS256"
 _bearer = HTTPBearer(auto_error=False)
 
 
-def create_access_token(user_id: str, expires_minutes: Optional[int] = None) -> str:
-    """Create a signed JWT access token for a user."""
+def create_access_token(
+    user_id: str,
+    token_version: int = 0,
+    expires_minutes: Optional[int] = None,
+) -> str:
+    """Create a signed JWT access token for a user.
+
+    ``token_version`` is embedded so a password change (which bumps
+    ``users.token_version``) instantly revokes previously issued tokens.
+    """
     minutes = expires_minutes or settings.ACCESS_TOKEN_EXPIRE_MINUTES
     now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
+        "ver": token_version,
         "iat": now,
         "exp": now + timedelta(minutes=minutes),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
-def decode_access_token(token: str) -> Optional[str]:
-    """Decode a JWT and return the subject (user id), or None if invalid."""
+def decode_access_token(token: str) -> Optional[tuple]:
+    """Decode a JWT and return ``(user_id, token_version)`` or None."""
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
-        return payload.get("sub")
-    except JWTError:
+        return payload.get("sub"), int(payload.get("ver", 0))
+    except (JWTError, TypeError, ValueError):
         return None
 
 
@@ -74,13 +83,14 @@ async def get_current_user(
             detail="Not authenticated — missing bearer token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    user_id = decode_access_token(credentials.credentials)
-    if not user_id:
+    decoded = decode_access_token(credentials.credentials)
+    if not decoded:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    user_id, token_version = decoded
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -89,4 +99,22 @@ async def get_current_user(
             detail="User no longer exists",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if user.token_version != token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token revoked — please sign in again",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
+
+
+async def get_current_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """FastAPI dependency requiring an admin role."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
+    return current_user

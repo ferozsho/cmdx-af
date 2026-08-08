@@ -8,6 +8,7 @@ import { SidebarHealth } from './sidebar-health'
 import { NavItem } from './nav-item'
 import { ThemeProvider } from '@/components/theme-provider'
 import AuthGuard from '@/components/auth-guard'
+import LogoutButton from '@/components/logout-button'
 
 export const metadata: Metadata = {
   title: {
@@ -124,6 +125,7 @@ export default function RootLayout({
                 >
                   🔔
                 </button>
+                <LogoutButton />
                 <div className="w-9 h-9 rounded-full bg-[#6e37c9] text-white grid place-items-center font-bold text-xs shadow-sm">
                   AF
                 </div>

@@ -1,7 +1,7 @@
 """Platform Settings API Endpoint."""
 
 from typing import Any
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from app.core.config import (
     DEFAULT_DEEPSEEK_BASE_URL,
@@ -14,6 +14,7 @@ from app.core.config import (
     save_runtime_settings,
     settings,
 )
+from app.core.security import get_current_admin
 
 router = APIRouter()
 
@@ -36,8 +37,10 @@ class SettingsPayload(BaseModel):
 
 
 @router.get("/settings")
-async def get_settings() -> Any:
-    """Return current platform settings (masked API key)."""
+async def get_settings(
+    current_user: Any = Depends(get_current_admin),
+) -> Any:
+    """Return current platform settings (masked API key). Admin only."""
     api_key = runtime_settings.get("DEEPSEEK_API_KEY", "")
     masked = ""
     if api_key:
@@ -89,8 +92,11 @@ async def get_settings() -> Any:
 
 
 @router.put("/settings")
-async def update_settings(data: SettingsPayload) -> Any:
-    """Update platform settings at runtime."""
+async def update_settings(
+    data: SettingsPayload,
+    current_user: Any = Depends(get_current_admin),
+) -> Any:
+    """Update platform settings at runtime. Admin only."""
     if data.deepseek_api_key:
         runtime_settings["DEEPSEEK_API_KEY"] = data.deepseek_api_key
     if data.deepseek_base_url:

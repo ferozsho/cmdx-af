@@ -33,9 +33,9 @@ def test_password_hash_is_randomized() -> None:
 
 
 def test_jwt_roundtrip() -> None:
-    """create_access_token → decode_access_token returns the subject."""
-    token = create_access_token("user-123", expires_minutes=30)
-    assert decode_access_token(token) == "user-123"
+    """create_access_token → decode_access_token returns (subject, version)."""
+    token = create_access_token("user-123", token_version=2, expires_minutes=30)
+    assert decode_access_token(token) == ("user-123", 2)
 
 
 def test_jwt_rejects_garbage() -> None:

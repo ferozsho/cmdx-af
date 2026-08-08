@@ -101,15 +101,19 @@ been implemented and verified.** See sections 3–7 below for the current gaps.
 The former “Existing but Partial / Mock / Missing / Broken” sections are obsolete —
 the rows they listed (DB CRUD, real agents, Qdrant, watcher, validate-path, settings
 persistence, observability, auth, rollback, error handling) are implemented and
-verified. Remaining gaps:
+verified. Remaining gaps (2026-08-08):
 
 | Area | Gap |
 |------|-----|
-| Auth depth | No refresh tokens, no token-revocation UI, no per-route RBAC beyond projects/devices |
-| Local agent chunker | `chunker.py` still hardcodes chunk_size/overlap (not wired to Settings page RAG fields) |
-| Dockerized local agent | Image + compose exist; the native `agentforge start` flow is what's exercised |
-| Test coverage | Endpoint tests for RAG/settings/validate-path/rollback/auth would close gaps |
+| Refresh tokens | Access-only JWTs (24h); no refresh-token rotation endpoint yet |
+| Native agent restart | The running `agentforge start` daemon predates the chunk-settings wiring — restart to activate |
+| Frontend auth polish | No forgot-password / email verification; role is admin/user only |
+| Chunker parity | Local defaults (50/10) differ from cloud defaults (500/50) until a Settings-driven reindex sets them |
 | Prototype doc | `docs/index.html` is a static mock — informational only, not wired |
+
+Auth depth (token revocation, RBAC, all-project-endpoint guards), chunker
+settings wiring, Dockerized agent smoke test, and endpoint tests are all DONE
+(2026-08-08) — see `docs/IMPLEMENTATION_GAP_ANALYSIS.md`.
 
 ---
 

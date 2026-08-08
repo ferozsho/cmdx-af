@@ -1,7 +1,14 @@
 'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { getFullHealth, getSettings, updateSettings, type ComponentHealth } from '@/lib/api'
+import {
+  changePassword,
+  getFullHealth,
+  getSettings,
+  setToken,
+  updateSettings,
+  type ComponentHealth,
+} from '@/lib/api'
 
 type TestStatus = 'idle' | 'testing' | 'success' | 'error'
 
@@ -35,6 +42,47 @@ export default function SettingsPage() {
     status: 'idle',
     message: '',
   })
+
+  // Change-password card state
+  const [pwBusy, setPwBusy] = useState(false)
+  const [pwError, setPwError] = useState<string | null>(null)
+  const [pwMessage, setPwMessage] = useState<string | null>(null)
+  const pwCurrentRef = useRef<HTMLInputElement>(null)
+  const pwNewRef = useRef<HTMLInputElement>(null)
+  const pwConfirmRef = useRef<HTMLInputElement>(null)
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const current = pwCurrentRef.current?.value || ''
+    const next = pwNewRef.current?.value || ''
+    const confirm = pwConfirmRef.current?.value || ''
+    if (!current || !next) return
+    if (next.length < 6) {
+      setPwError('New password must be at least 6 characters.')
+      return
+    }
+    if (next !== confirm) {
+      setPwError('New passwords do not match.')
+      return
+    }
+    setPwBusy(true)
+    setPwError(null)
+    setPwMessage(null)
+    try {
+      const res = await changePassword(current, next)
+      setToken(res.access_token)
+      setPwMessage('Password updated — you have been re-authenticated.')
+      if (pwCurrentRef.current) pwCurrentRef.current.value = ''
+      if (pwNewRef.current) pwNewRef.current.value = ''
+      if (pwConfirmRef.current) pwConfirmRef.current.value = ''
+    } catch (err) {
+      setPwError(
+        err instanceof Error ? err.message : 'Failed to change password',
+      )
+    } finally {
+      setPwBusy(false)
+    }
+  }
 
   // Load current settings from API on mount
   useEffect(() => {
@@ -283,6 +331,74 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+      </form>
+
+      {/* Change Password — admin account security */}
+      <form
+        onSubmit={handleChangePassword}
+        className="card-af max-w-[920px] p-6 space-y-4 mt-[18px]"
+      >
+        <div>
+          <h3 className="text-sm font-bold text-foreground m-0">
+            Change Password
+          </h3>
+          <p className="text-xs text-muted mt-1 m-0">
+            Changing your password revokes all existing sessions immediately.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-[18px]">
+          <div>
+            <label className="block font-bold text-[13px] text-foreground mb-[7px]">
+              Current Password
+            </label>
+            <input
+              ref={pwCurrentRef}
+              type="password"
+              required
+              className="input-af"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-[13px] text-foreground mb-[7px]">
+              New Password
+            </label>
+            <input
+              ref={pwNewRef}
+              type="password"
+              required
+              minLength={6}
+              className="input-af"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-[13px] text-foreground mb-[7px]">
+              Confirm New Password
+            </label>
+            <input
+              ref={pwConfirmRef}
+              type="password"
+              required
+              className="input-af"
+            />
+          </div>
+        </div>
+        {pwError && (
+          <div className="rounded-[10px] p-3 text-xs font-medium bg-red-500/10 text-red-500 border border-red-500/30">
+            ⚠ {pwError}
+          </div>
+        )}
+        {pwMessage && (
+          <div className="rounded-[10px] p-3 text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+            ✓ {pwMessage}
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={pwBusy}
+          className="btn-secondary-af text-xs !px-[15px] !py-[10px] disabled:opacity-50"
+        >
+          {pwBusy ? 'Updating...' : 'Update Password'}
+        </button>
       </form>
     </div>
   )
