@@ -2,7 +2,11 @@
 
 import httpx
 from typing import Optional
-from app.core.config import settings
+from app.core.config import (
+    DEFAULT_DEEPSEEK_BASE_URL,
+    DEFAULT_DEEPSEEK_CHAT_MODEL,
+    get_setting,
+)
 from app.llm.base import BaseLLMProvider, LLMResponse
 
 
@@ -14,8 +18,10 @@ class DeepSeekProvider(BaseLLMProvider):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
     ) -> None:
-        self.api_key = api_key or settings.DEEPSEEK_API_KEY
-        self.base_url = base_url or settings.DEEPSEEK_BASE_URL
+        self.api_key = api_key or get_setting("DEEPSEEK_API_KEY", "")
+        self.base_url = base_url or get_setting(
+            "DEEPSEEK_BASE_URL", DEFAULT_DEEPSEEK_BASE_URL
+        )
 
     async def generate(
         self,
@@ -26,7 +32,9 @@ class DeepSeekProvider(BaseLLMProvider):
         json_mode: bool = False,
     ) -> LLMResponse:
         """Execute chat completion request to DeepSeek API."""
-        target_model = model or settings.DEEPSEEK_CHAT_MODEL
+        target_model = model or get_setting(
+            "DEEPSEEK_CHAT_MODEL", DEFAULT_DEEPSEEK_CHAT_MODEL
+        )
         messages = []
 
         if system_prompt:

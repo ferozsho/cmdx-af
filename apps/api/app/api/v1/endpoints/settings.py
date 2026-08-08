@@ -4,6 +4,12 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel
 from app.core.config import (
+    DEFAULT_DEEPSEEK_BASE_URL,
+    DEFAULT_DEEPSEEK_CHAT_MODEL,
+    DEFAULT_DEEPSEEK_CODER_MODEL,
+    DEFAULT_RAG_CHUNK_OVERLAP,
+    DEFAULT_RAG_CHUNK_SIZE,
+    DEFAULT_RAG_TOP_K,
     runtime_settings,
     save_runtime_settings,
     settings,
@@ -22,6 +28,8 @@ class SettingsPayload(BaseModel):
     max_agent_steps: int = 10
     agent_timeout: int = 600
     rag_top_k: int = 5
+    rag_chunk_size: int = 500
+    rag_chunk_overlap: int = 50
     rag_similarity_threshold: float = 0.65
     context_window_budget: str = "30%"
     allowed_commands: str = ""
@@ -30,9 +38,7 @@ class SettingsPayload(BaseModel):
 @router.get("/settings")
 async def get_settings() -> Any:
     """Return current platform settings (masked API key)."""
-    api_key = runtime_settings.get(
-        "DEEPSEEK_API_KEY", settings.DEEPSEEK_API_KEY
-    )
+    api_key = runtime_settings.get("DEEPSEEK_API_KEY", "")
     masked = ""
     if api_key:
         masked = (
@@ -43,13 +49,13 @@ async def get_settings() -> Any:
     return {
         "deepseek_api_key_masked": masked,
         "deepseek_base_url": runtime_settings.get(
-            "DEEPSEEK_BASE_URL", settings.DEEPSEEK_BASE_URL
+            "DEEPSEEK_BASE_URL", DEFAULT_DEEPSEEK_BASE_URL
         ),
         "chat_model": runtime_settings.get(
-            "DEEPSEEK_CHAT_MODEL", settings.DEEPSEEK_CHAT_MODEL
+            "DEEPSEEK_CHAT_MODEL", DEFAULT_DEEPSEEK_CHAT_MODEL
         ),
         "coder_model": runtime_settings.get(
-            "DEEPSEEK_CODER_MODEL", settings.DEEPSEEK_CODER_MODEL
+            "DEEPSEEK_CODER_MODEL", DEFAULT_DEEPSEEK_CODER_MODEL
         ),
         "max_agent_steps": int(
             runtime_settings.get("MAX_AGENT_STEPS", "10")
@@ -58,7 +64,15 @@ async def get_settings() -> Any:
             runtime_settings.get("AGENT_TIMEOUT", "600")
         ),
         "rag_top_k": int(
-            runtime_settings.get("RAG_TOP_K", "5")
+            runtime_settings.get("RAG_TOP_K", DEFAULT_RAG_TOP_K)
+        ),
+        "rag_chunk_size": int(
+            runtime_settings.get("RAG_CHUNK_SIZE", DEFAULT_RAG_CHUNK_SIZE)
+        ),
+        "rag_chunk_overlap": int(
+            runtime_settings.get(
+                "RAG_CHUNK_OVERLAP", DEFAULT_RAG_CHUNK_OVERLAP
+            )
         ),
         "rag_similarity_threshold": float(
             runtime_settings.get("RAG_SIMILARITY_THRESHOLD", "0.65")
@@ -88,13 +102,15 @@ async def update_settings(data: SettingsPayload) -> Any:
     runtime_settings["MAX_AGENT_STEPS"] = str(data.max_agent_steps)
     runtime_settings["AGENT_TIMEOUT"] = str(data.agent_timeout)
     runtime_settings["RAG_TOP_K"] = str(data.rag_top_k)
+    runtime_settings["RAG_CHUNK_SIZE"] = str(data.rag_chunk_size)
+    runtime_settings["RAG_CHUNK_OVERLAP"] = str(data.rag_chunk_overlap)
     runtime_settings["RAG_SIMILARITY_THRESHOLD"] = str(
         data.rag_similarity_threshold
     )
     runtime_settings["CONTEXT_WINDOW_BUDGET"] = data.context_window_budget
     runtime_settings["ALLOWED_COMMANDS"] = data.allowed_commands
 
-    if runtime_settings.get("DEEPSEEK_API_KEY") or settings.DEEPSEEK_API_KEY:
+    if runtime_settings.get("DEEPSEEK_API_KEY"):
         settings.APP_MODE = "production"
 
     # Persist across restarts

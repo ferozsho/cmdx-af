@@ -47,13 +47,14 @@ services:
     container_name: agentforge-api
     ports:
       - "8000:8000"
+    env_file:
+      - ../.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://agentforge:agentforge123@postgres:5432/agentforge_db
       - REDIS_URL=redis://redis:6379/0
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - APP_MODE=production
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
     volumes:
       - api_data:/app/apps/api/data
     depends_on:

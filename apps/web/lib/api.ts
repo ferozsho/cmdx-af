@@ -126,6 +126,8 @@ export function getSettings(): Promise<{
   max_agent_steps: number
   agent_timeout: number
   rag_top_k: number
+  rag_chunk_size: number
+  rag_chunk_overlap: number
   rag_similarity_threshold: number
   context_window_budget: string
   allowed_commands: string
@@ -143,6 +145,8 @@ export function updateSettings(data: {
   max_agent_steps?: number
   agent_timeout?: number
   rag_top_k?: number
+  rag_chunk_size?: number
+  rag_chunk_overlap?: number
   rag_similarity_threshold?: number
   context_window_budget?: string
   allowed_commands?: string

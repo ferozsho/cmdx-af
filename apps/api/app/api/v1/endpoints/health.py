@@ -86,9 +86,9 @@ async def _check_qdrant() -> ComponentHealth:
 
 async def _check_llm() -> ComponentHealth:
     """Check LLM provider connectivity."""
-    from app.core.config import get_setting
-    api_key = get_setting("DEEPSEEK_API_KEY", settings.DEEPSEEK_API_KEY)
-    base_url = get_setting("DEEPSEEK_BASE_URL", settings.DEEPSEEK_BASE_URL)
+    from app.core.config import get_setting, DEFAULT_DEEPSEEK_BASE_URL
+    api_key = get_setting("DEEPSEEK_API_KEY", "")
+    base_url = get_setting("DEEPSEEK_BASE_URL", DEFAULT_DEEPSEEK_BASE_URL)
 
     if not api_key:
         return ComponentHealth(status="not_configured", message="No API key set")

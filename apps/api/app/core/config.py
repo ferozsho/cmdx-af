@@ -50,6 +50,19 @@ def get_setting(key: str, default: str = "") -> str:
     return runtime_settings.get(key) or default
 
 
+# DeepSeek defaults — actual values are managed via the Settings page
+# (runtime_settings), never from environment variables.
+DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+DEFAULT_DEEPSEEK_CHAT_MODEL = "deepseek-chat"
+DEFAULT_DEEPSEEK_CODER_MODEL = "deepseek-coder"
+
+# RAG defaults — actual values are managed via the Settings page
+# (runtime_settings), never from environment variables.
+DEFAULT_RAG_TOP_K = "5"
+DEFAULT_RAG_CHUNK_SIZE = "500"
+DEFAULT_RAG_CHUNK_OVERLAP = "50"
+
+
 _load_runtime_settings()
 
 
@@ -78,15 +91,6 @@ class Settings(BaseSettings):
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
     QDRANT_API_KEY: str | None = None
-
-    DEEPSEEK_API_KEY: str = ""
-    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
-    DEEPSEEK_CHAT_MODEL: str = "deepseek-chat"
-    DEEPSEEK_CODER_MODEL: str = "deepseek-coder"
-
-    RAG_TOP_K: int = 5
-    RAG_CHUNK_SIZE: int = 500
-    RAG_CHUNK_OVERLAP: int = 50
 
     ENABLE_CONFIRMATION_BEFORE_DELETE: bool = True
     GIT_AUTHOR_NAME: str = "AgentForge AI"

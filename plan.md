@@ -1521,19 +1521,16 @@ QDRANT_HOST=
 QDRANT_PORT=
 QDRANT_API_KEY=
 
-DEEPSEEK_API_KEY=
-DEEPSEEK_BASE_URL=
-DEEPSEEK_CHAT_MODEL=
-DEEPSEEK_CODER_MODEL=
+# DeepSeek settings (API key / base URL / models) are managed via
+# the Settings page → saved to runtime_settings.json, NOT .env.
 
 PROJECT_ROOT_BASE=
 
 MAX_AGENT_STEPS=
 AGENT_TIMEOUT_SECONDS=
 
-RAG_TOP_K=
-RAG_CHUNK_SIZE=
-RAG_CHUNK_OVERLAP=
+# RAG settings (top K / chunk size / overlap) are managed via the
+# Settings page → saved to runtime_settings.json, NOT .env.
 
 ENABLE_CONFIRMATION_BEFORE_DELETE=
 

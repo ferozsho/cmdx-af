@@ -22,6 +22,8 @@ export default function SettingsPage() {
   const timeoutRef = useRef<HTMLInputElement>(null)
   const ragTopKRef = useRef<HTMLInputElement>(null)
   const ragThresholdRef = useRef<HTMLInputElement>(null)
+  const ragChunkSizeRef = useRef<HTMLInputElement>(null)
+  const ragChunkOverlapRef = useRef<HTMLInputElement>(null)
   const contextBudgetRef = useRef<HTMLInputElement>(null)
   const allowedCommandsRef = useRef<HTMLTextAreaElement>(null)
 
@@ -50,6 +52,14 @@ export default function SettingsPage() {
           timeoutRef.current.value = String(s.agent_timeout ?? 600)
         if (ragTopKRef.current)
           ragTopKRef.current.value = String(s.rag_top_k ?? 5)
+        if (ragChunkSizeRef.current)
+          ragChunkSizeRef.current.value = String(
+            s.rag_chunk_size ?? 500,
+          )
+        if (ragChunkOverlapRef.current)
+          ragChunkOverlapRef.current.value = String(
+            s.rag_chunk_overlap ?? 50,
+          )
         if (ragThresholdRef.current)
           ragThresholdRef.current.value = String(
             s.rag_similarity_threshold ?? 0.65,
@@ -75,6 +85,14 @@ export default function SettingsPage() {
         max_agent_steps: parseInt(maxStepsRef.current?.value || '10', 10),
         agent_timeout: parseInt(timeoutRef.current?.value || '600', 10),
         rag_top_k: parseInt(ragTopKRef.current?.value || '5', 10),
+        rag_chunk_size: parseInt(
+          ragChunkSizeRef.current?.value || '500',
+          10,
+        ),
+        rag_chunk_overlap: parseInt(
+          ragChunkOverlapRef.current?.value || '50',
+          10,
+        ),
         rag_similarity_threshold: parseFloat(
           ragThresholdRef.current?.value || '0.65',
         ),
@@ -196,6 +214,8 @@ export default function SettingsPage() {
           <Field label="Max Agent Steps" inputRef={maxStepsRef} defaultValue="10" type="number" />
           <Field label="Agent Timeout (seconds)" inputRef={timeoutRef} defaultValue="600" type="number" />
           <Field label="RAG Top K" inputRef={ragTopKRef} defaultValue="5" type="number" />
+          <Field label="RAG Chunk Size" inputRef={ragChunkSizeRef} defaultValue="500" type="number" />
+          <Field label="RAG Chunk Overlap" inputRef={ragChunkOverlapRef} defaultValue="50" type="number" />
           <Field label="RAG Similarity Threshold" inputRef={ragThresholdRef} defaultValue="0.65" type="number" step="0.01" />
           <Field label="Context Window Budget" inputRef={contextBudgetRef} defaultValue="30%" />
         </div>
