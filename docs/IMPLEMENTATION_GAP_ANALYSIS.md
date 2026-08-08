@@ -43,7 +43,7 @@ The 2026-08-07 gap list has been worked through. Status of each original gap:
 | Frontend auth | No logout / change-password UI | ✅ header ⏻ Sign out + Settings "Change Password" card (revokes all sessions) |
 | Local agent chunker | hardcoded chunk_size/overlap | ✅ `rag_reindex` now receives `chunk_size`/`chunk_overlap` from Settings; indexer caches them for watcher/startup indexes (agent restarted with this code) |
 | Dockerized local agent | untested | ✅ smoke-tested live (WSS connect, Qdrant, watcher, index) |
-| Test coverage | sparse | ✅ **27 API tests** (auth guards, RBAC, offline degradation, JWT, hashing) + **10 local-agent tests** (incl. index concurrency guard) |
+| Test coverage | sparse | ✅ **31 API tests** (auth guards, RBAC, offline degradation, JWT, hashing, refresh rotation, forgot/reset) + **10 local-agent tests** (incl. index concurrency guard) |
 | Rollback / confirmation modal | missing | ✅ `POST /projects/{id}/git/rollback` + UI |
 | Path validation + stack detection | missing | ✅ `validate-path` via local agent + auto-detection |
 | Dashboard / workspace real data | mock | ✅ real API-backed |

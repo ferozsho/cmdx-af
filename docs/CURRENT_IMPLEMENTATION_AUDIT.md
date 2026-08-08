@@ -27,7 +27,7 @@ been implemented and verified.** See sections 3–5 below for the current gaps.
 | FastAPI app factory | ✅ Real | CORS, router aggregation at `/api/v1` |
 | Config (Pydantic Settings) | ✅ Real | `.env` loading, all keys present |
 | Database engine + session | ✅ Real | SQLAlchemy async, session factory, `get_db` dependency |
-| DB Models (10 tables) | ✅ Real | User, Device, Workspace, Project, Instruction, AgentRun, Artifact, FileOperation, GitCommit, LLMUsage |
+| DB Models (11 tables) | ✅ Real | User, Device, Workspace, Project, Instruction, AgentRun, Artifact, FileOperation, GitCommit, LLMUsage, RefreshToken |
 | Health endpoint | ✅ Real | `GET /health` returns config values |
 | SSE Broadcaster | ✅ Real | In-memory pub/sub via asyncio.Queue |
 | WSS Connection Manager | ✅ Real | Device socket registry, request→response futures, 120s timeout |
@@ -87,12 +87,8 @@ been implemented and verified.** See sections 3–5 below for the current gaps.
 ### 2.7 Tests
 | Component | Status | Details |
 |-----------|--------|---------|
-| API health test | ✅ Real | Tests health endpoint |
-| API LLM test | ✅ Real | Tests ModelRouter |
-| API pipeline test | ✅ Real | Tests PipelineOrchestrator (mock mode) |
-| Local agent path guard tests | ✅ Real | 3 tests |
-| Local agent embedder tests | ✅ Real | 1 test |
-| Local agent redactor tests | ✅ Real | 2 tests |
+| API suite | ✅ Real | **31 tests** — health, LLM router, pipeline, auth (hashing/JWT/guards/RBAC/offline), refresh rotation, forgot/reset |
+| Local agent suite | ✅ Real | **10 tests** — path guard, embedder, redactor, indexer ignore + concurrency guard |
 
 ---
 
