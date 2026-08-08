@@ -137,13 +137,17 @@ async def full_health_check() -> Any:
         "deepseek_api": llm_health,
     }
 
-    all_healthy = all(
-        c.status == "healthy"
-        for c in components.values()
-    )
+    statuses = [c.status for c in components.values()]
+    if "unhealthy" in statuses:
+        overall = "unhealthy"
+    elif "degraded" in statuses:
+        overall = "degraded"
+    else:
+        # healthy + not_configured (e.g. no DeepSeek key yet) is NOT a degradation
+        overall = "ok"
 
     return FullHealthResponse(
-        status="ok" if all_healthy else "degraded",
+        status=overall,
         app_name=settings.APP_NAME,
         environment=settings.APP_ENV,
         mode=settings.APP_MODE,

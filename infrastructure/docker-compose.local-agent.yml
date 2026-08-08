@@ -1,0 +1,54 @@
+# AgentForge — Local Execution Daemon (Docker)
+# ---------------------------------------------------------------------------
+# Runs the local agent inside a container instead of on the host. It connects
+# OUTBOUND to the cloud API over the shared `infrastructure_default` network,
+# so start the main stack first:
+#
+#   docker compose -f infrastructure/docker-compose.yml up -d
+#
+# Then start the local agent (mounting your project folder):
+#
+#   AGENT_WORKSPACE=/path/to/your/project \
+#     docker compose -f infrastructure/docker-compose.local-agent.yml up -d --build
+#
+# Register the mounted folder as the workspace the API targets (ws-test):
+#
+#   docker exec agentforge-local agentforge workspace-add ws-test /workspace
+#
+# Optional: pair this container as a real device instead of the default id:
+#
+#   docker exec -it agentforge-local agentforge connect AGF-XXXX
+# ---------------------------------------------------------------------------
+
+services:
+  local-agent:
+    build:
+      context: ..
+      dockerfile: apps/local-agent/Dockerfile
+    image: agentforge-local:latest
+    container_name: agentforge-local
+    restart: unless-stopped
+    environment:
+      - CLOUD_WSS_URL=ws://api:8000/api/v1/ws/devices
+      - CLOUD_API_URL=http://api:8000/api/v1
+      - QDRANT_URL=http://qdrant:6333
+      - DEVICE_ID=${AGENTFORGE_DEVICE_ID:-dev_feroz_pc}
+      - DEVICE_TOKEN=${AGENTFORGE_DEVICE_TOKEN:-}
+    volumes:
+      # Your project folder(s), mounted read-write so the agent can work on them.
+      - ${AGENT_WORKSPACE:-./workspace}:/workspace
+      # Persist pairing credentials + workspace registry across restarts.
+      - agentforge_config:/root/.agentforge
+      # Persist the sentence-transformers model cache (avoids re-downloads).
+      - hf_cache:/root/.cache/huggingface
+    networks:
+      - default
+
+networks:
+  default:
+    name: infrastructure_default
+    external: true
+
+volumes:
+  agentforge_config:
+  hf_cache:

@@ -38,11 +38,8 @@ To run the entire platform (PostgreSQL, Redis, Qdrant, FastAPI API, and Next.js 
    docker compose up -d --build
    ```
 
-3. **Start the Local Execution Agent on Your PC**:
-   In a local terminal (outside Docker), start the workstation daemon:
-   ```bash
-   python -m agentforge_local start
-   ```
+3. **Start the Local Execution Agent** — see [💻 Running the Local Agent](#-running-the-local-agent) below
+   (native on your PC, or as a separate Docker container).
 
 4. **Access the Web Dashboard**:
    Open [http://localhost:3000](http://localhost:3000) in your web browser.
@@ -66,14 +63,9 @@ To run backend services and frontend directly on your host machine for active de
    uvicorn app.main:app --reload --port 8000
    ```
 
-3. **Start Local Agent Daemon**:
-   In a separate terminal window:
-   ```bash
-   python -m agentforge_local start
-   ```
+3. **Start Local Agent Daemon** — see [💻 Running the Local Agent](#-running-the-local-agent) below.
 
 4. **Start Next.js Frontend Control Plane**:
-   In a separate terminal window:
    ```bash
    cd apps/web
    npm install
@@ -82,18 +74,78 @@ To run backend services and frontend directly on your host machine for active de
 
 ---
 
-## 💻 Local Agent CLI Commands
+## 💻 Running the Local Agent
 
-The Local Agent daemon (`agentforge_local`) manages authorized project paths on your PC:
+The Local Execution Daemon (`agentforge_local`) is the piece that runs **on your
+workstation** and actually touches files, runs tests, and executes git. It connects
+**outbound** to the cloud via WebSocket — no inbound ports or port forwarding needed.
+
+### 1. Pair the workstation (one time)
+
+Generate a pairing code in the UI (**Devices → Generate Pairing Code**), then on
+your PC:
 
 ```bash
+# Native install (if not already done)
+pip install -e packages/protocol -e apps/local-agent
+
+# Exchange the code for device credentials (saved to ~/.agentforge/device.json)
+agentforge connect AGF-XXXX
+```
+
+### 2. Register a project workspace
+
+```bash
+# Map a workspace id (the API targets "ws-test" by default) to a local folder
+agentforge workspace-add ws-test "D:\Projects\my-app"
+agentforge workspace-list
+```
+
+### 3. Start the daemon
+
+**Option A — Native (recommended for development):**
+```bash
+cd apps/local-agent
+agentforge start
+```
+This also starts a file watcher that auto re-indexes RAG on file changes.
+
+**Option B — Docker (no Python setup on the host):**
+```bash
+# Mount your project folder and start the container (joins the infra network)
+AGENT_WORKSPACE="/home/you/projects/my-app" \
+  docker compose -f infrastructure/docker-compose.local-agent.yml up -d --build
+
+# Register the mounted folder as the API's default workspace
+docker exec agentforge-local agentforge workspace-add ws-test /workspace
+
+# Optional: pair as a real device
+docker exec -it agentforge-local agentforge connect AGF-XXXX
+
+# Check logs / stop
+docker compose -f infrastructure/docker-compose.local-agent.yml logs -f
+docker compose -f infrastructure/docker-compose.local-agent.yml down
+```
+
+**Verify it connected:** the Devices page should show the workstation as
+**Online (WSS Connected)**, and RAG / Files / Git tabs will use live data. If the
+daemon is not running, those tabs degrade gracefully with an "offline" notice.
+
+---
+
+## 💻 Local Agent CLI Commands
+
+```bash
+# Pair this workstation with the cloud using a code from the Devices page
+agentforge connect AGF-XXXX
+
 # Register an authorized local project workspace path
 agentforge workspace-add prj_demo_001 "D:\Projects\my-app"
 
 # List registered local project workspaces
 agentforge workspace-list
 
-# Start outbound WSS daemon
+# Start outbound WSS daemon (+ file watcher for auto RAG re-indexing)
 agentforge start
 ```
 
