@@ -927,7 +927,7 @@ export default function WorkspaceClient({
                       onClick={() => toggleAgent(ag.template_id, !ag.enabled)}
                       disabled={isRunning}
                       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 ${
-                        ag.enabled ? 'bg-emerald-500' : 'bg-surface-secondary border border-border'
+                        ag.enabled ? 'bg-emerald-500' : 'bg-border'
                       } ${isRunning ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                     >
                       <span
@@ -1912,7 +1912,7 @@ function SettingsPanel({
               aria-checked={gitEnabled}
               onClick={() => setGitEnabled(!gitEnabled)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary ${
-                gitEnabled ? 'bg-emerald-500' : 'bg-surface-secondary border border-border'
+                gitEnabled ? 'bg-emerald-500' : 'bg-border'
               }`}
             >
               <span
@@ -1958,7 +1958,7 @@ function SettingsPanel({
               onClick={() => setGitRequirePr(!gitRequirePr)}
               disabled={!gitEnabled}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary ${
-                gitRequirePr ? 'bg-amber-500' : 'bg-surface-secondary border border-border'
+                gitRequirePr ? 'bg-amber-500' : 'bg-border'
               } ${!gitEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <span
@@ -2013,7 +2013,7 @@ function SettingsPanel({
                   aria-checked={value}
                   onClick={() => setter(!value)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary ${
-                    value ? 'bg-emerald-500' : 'bg-surface-secondary border border-border'
+                    value ? 'bg-emerald-500' : 'bg-border'
                   }`}
                 >
                   <span

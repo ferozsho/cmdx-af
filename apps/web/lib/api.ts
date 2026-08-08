@@ -788,3 +788,31 @@ export function removeProjectAgent(
     `/api/v1/projects/${encodeURIComponent(projectId)}/agents/${encodeURIComponent(templateId)}`,
   )
 }
+
+// ── Users (admin-only) ──────────────────────────────────────────────────────
+
+export interface UserResponse {
+  id: string
+  email: string
+  full_name: string | null
+  role: string
+  created_at: string | null
+}
+
+/** GET /api/v1/users */
+export function listUsers(): Promise<UserResponse[]> {
+  return request<UserResponse[]>('GET', '/api/v1/users')
+}
+
+/** PATCH /api/v1/users/:id */
+export function updateUser(
+  id: string,
+  data: { full_name?: string; role?: string },
+): Promise<UserResponse> {
+  return request<UserResponse>('PATCH', `/api/v1/users/${encodeURIComponent(id)}`, data)
+}
+
+/** DELETE /api/v1/users/:id */
+export function deleteUser(id: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('DELETE', `/api/v1/users/${encodeURIComponent(id)}`)
+}

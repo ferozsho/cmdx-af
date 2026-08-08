@@ -11,6 +11,7 @@ from app.api.v1.endpoints import (
     agents,
     settings,
     observability,
+    users,
 )
 from app.wss import router as wss_router
 
@@ -24,5 +25,6 @@ api_router.include_router(sse.router, tags=["Events"])
 api_router.include_router(agents.router, tags=["Agents"])
 api_router.include_router(settings.router, tags=["Settings"])
 api_router.include_router(observability.router, tags=["Observability"])
+api_router.include_router(users.router, tags=["Users"])
 api_router.include_router(wss_router.router, tags=["WebSocket"])
 
