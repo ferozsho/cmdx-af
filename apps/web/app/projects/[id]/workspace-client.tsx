@@ -565,25 +565,28 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         </nav>
       </header>
 
-      {/* Instruction Form */}
-      <section className="card-af p-4">
-        <form onSubmit={handleStartPipeline} className="flex gap-3">
-          <input
-            type="text"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="e.g. Create payment management module with FastAPI endpoints, React admin table, unit tests, and git commit..."
-            className="input-af flex-1"
-          />
-          <button
-            type="submit"
-            disabled={isRunning}
-            className="btn-primary-af text-xs disabled:opacity-50 whitespace-nowrap"
-          >
-            {isRunning ? 'Running Pipeline...' : 'Run Instruction'}
-          </button>
-        </form>
-      </section>
+      {/* Instruction Form — only on the Agents tab (pipeline launcher belongs
+          with the agent sequence; other tabs are for browsing/reviewing) */}
+      {activeTab === 'AGENTS' && (
+        <section className="card-af p-4">
+          <form onSubmit={handleStartPipeline} className="flex gap-3">
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="e.g. Create payment management module with FastAPI endpoints, React admin table, unit tests, and git commit..."
+              className="input-af flex-1"
+            />
+            <button
+              type="submit"
+              disabled={isRunning}
+              className="btn-primary-af text-xs disabled:opacity-50 whitespace-nowrap"
+            >
+              {isRunning ? 'Running Pipeline...' : 'Run Instruction'}
+            </button>
+          </form>
+        </section>
+      )}
 
       {/* Pipeline Progress Bar */}
       {isRunning && (
