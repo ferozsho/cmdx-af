@@ -804,6 +804,21 @@ export function listUsers(): Promise<UserResponse[]> {
   return request<UserResponse[]>('GET', '/api/v1/users')
 }
 
+/** POST /api/v1/users */
+export function createUser(data: {
+  email: string
+  password: string
+  full_name?: string
+  role?: string
+}): Promise<UserResponse> {
+  return request<UserResponse>('POST', '/api/v1/users', data)
+}
+
+/** GET /api/v1/users/:id */
+export function getUser(id: string): Promise<UserResponse> {
+  return request<UserResponse>('GET', `/api/v1/users/${encodeURIComponent(id)}`)
+}
+
 /** PATCH /api/v1/users/:id */
 export function updateUser(
   id: string,

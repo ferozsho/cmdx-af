@@ -3,12 +3,12 @@
 from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_admin
+from app.core.security import get_current_admin, hash_password
 from app.models.user import User
 
 router = APIRouter()
@@ -23,6 +23,20 @@ class UserResponse(BaseModel):
     full_name: str | None
     role: str
     created_at: str | None
+
+
+class UserCreate(BaseModel):
+    email: str
+    password: str
+    full_name: str | None = None
+    role: str = "user"
+
+    @field_validator("password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError("Password must be at least 6 characters")
+        return v
 
 
 class UserUpdate(BaseModel):
@@ -51,6 +65,29 @@ async def list_users(
     )
     users = result.scalars().all()
     return [_to_user_response(u) for u in users]
+
+
+@router.post("/users", response_model=UserResponse, status_code=201)
+async def create_user(
+    data: UserCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
+) -> Any:
+    """Create a new user (admin only)."""
+    # Check for duplicate email
+    existing = await db.execute(select(User).where(User.email == data.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Email already registered")
+    user = User(
+        email=data.email,
+        hashed_password=hash_password(data.password),
+        full_name=data.full_name,
+        role=data.role,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return _to_user_response(user)
 
 
 @router.get("/users/{user_id}", response_model=UserResponse)

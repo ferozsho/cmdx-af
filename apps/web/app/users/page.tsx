@@ -1,16 +1,31 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { listUsers, updateUser, deleteUser, type UserResponse } from '@/lib/api'
+import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { listUsers, deleteUser, type UserResponse } from '@/lib/api'
+
+const PER_PAGE_OPTIONS = [5, 10, 20, 50, 100]
+
+function generatePageNumbers(current: number, total: number): (number | '...')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  const pages: (number | '...')[] = []
+  pages.push(1)
+  if (current > 3) pages.push('...')
+  const start = Math.max(2, current - 1)
+  const end = Math.min(total - 1, current + 1)
+  for (let i = start; i <= end; i++) pages.push(i)
+  if (current < total - 2) pages.push('...')
+  pages.push(total)
+  return pages
+}
 
 export default function UsersPage() {
   const [users, setUsers] = useState<UserResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState({ full_name: '', role: 'user' })
-  const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [perPage, setPerPage] = useState(5)
 
   const loadUsers = async () => {
     setLoading(true)
@@ -27,184 +42,266 @@ export default function UsersPage() {
 
   useEffect(() => { loadUsers() }, [])
 
-  const startEdit = (u: UserResponse) => {
-    setEditingId(u.id)
-    setEditForm({ full_name: u.full_name || '', role: u.role })
-    setMsg(null)
-  }
-
-  const cancelEdit = () => {
-    setEditingId(null)
-    setMsg(null)
-  }
-
-  const handleSave = async (userId: string) => {
-    setSaving(true)
-    setMsg(null)
-    try {
-      await updateUser(userId, editForm)
-      setMsg('User updated.')
-      setEditingId(null)
-      loadUsers()
-    } catch (err: any) {
-      setMsg(err?.message || 'Save failed')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const handleDelete = async (userId: string, email: string) => {
-    if (!confirm(`Delete user ${email}?`)) return
+    if (!confirm(`Permanently delete user "${email}"? This cannot be undone.`)) return
     setMsg(null)
     try {
       await deleteUser(userId)
-      setMsg(`User ${email} deleted.`)
+      setMsg(`User "${email}" deleted.`)
+      // Adjust page if last item on current page was deleted
+      const newTotal = users.length - 1
+      const maxPage = Math.max(1, Math.ceil(newTotal / perPage))
+      if (page > maxPage) setPage(maxPage)
       loadUsers()
     } catch (err: any) {
       setMsg(err?.message || 'Delete failed')
     }
   }
 
+  const totalPages = Math.max(1, Math.ceil(users.length / perPage))
+  // Clamp page if users list shrinks
+  const safePage = Math.min(page, totalPages)
+  const pageNumbers = useMemo(
+    () => generatePageNumbers(safePage, totalPages),
+    [safePage, totalPages],
+  )
+  const pageUsers = users.slice((safePage - 1) * perPage, safePage * perPage)
+
+  // Reset to page 1 when perPage changes
+  const handlePerPageChange = (val: number) => {
+    setPerPage(val)
+    setPage(1)
+  }
+
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto p-7">
-        <p className="text-sm text-muted animate-pulse">Loading users...</p>
+      <div className="space-y-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-surface-secondary rounded w-48" />
+          <div className="h-64 bg-surface-secondary rounded-[16px]" />
+        </div>
       </div>
     )
   }
 
+  const adminCount = users.filter((u) => u.role === 'admin').length
+  const userCount = users.filter((u) => u.role === 'user').length
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-foreground">👥 Users</h1>
-          <p className="text-xs text-muted mt-1">
-            {users.length} user{users.length !== 1 ? 's' : ''} registered
+          <h1 className="text-2xl font-bold text-foreground">👥 Users</h1>
+          <p className="text-sm text-muted mt-1">
+            Manage platform accounts and roles.
           </p>
+        </div>
+        <Link
+          href="/users/new"
+          className="btn-primary-af text-base flex items-center gap-1.5"
+        >
+          <span>＋</span> Add User
+        </Link>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="card-af p-5 text-center">
+          <p className="text-3xl font-bold text-foreground">{users.length}</p>
+          <p className="text-xs uppercase tracking-wider text-muted mt-1.5">Total</p>
+        </div>
+        <div className="card-af p-5 text-center">
+          <p className="text-3xl font-bold text-primary">{adminCount}</p>
+          <p className="text-xs uppercase tracking-wider text-muted mt-1.5">Admins</p>
+        </div>
+        <div className="card-af p-5 text-center">
+          <p className="text-3xl font-bold text-foreground">{userCount}</p>
+          <p className="text-xs uppercase tracking-wider text-muted mt-1.5">Users</p>
         </div>
       </div>
 
+      {/* Messages */}
       {error && (
         <div className="card-af p-4 text-sm text-red-500 bg-red-500/10 border border-red-500/30 rounded-[10px]">
           {error}
         </div>
       )}
       {msg && (
-        <div className="card-af p-4 text-sm text-emerald-500 bg-emerald-500/10 border border-emerald-500/30 rounded-[10px]">
-          {msg}
+        <div className="card-af p-4 text-sm text-emerald-500 bg-emerald-500/10 border border-emerald-500/30 rounded-[10px] flex items-center justify-between">
+          <span>{msg}</span>
+          <button onClick={() => setMsg(null)} className="text-sm text-muted hover:text-foreground">✕</button>
         </div>
       )}
 
+      {/* Users Table */}
       <div className="card-af overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-muted text-xs uppercase tracking-wider">
-              <th className="text-left p-4 font-semibold">Email</th>
-              <th className="text-left p-4 font-semibold">Name</th>
-              <th className="text-left p-4 font-semibold">Role</th>
-              <th className="text-right p-4 font-semibold">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => {
-              const isProtected = u.email === 'admin@agentforge.ai'
-              const isEditing = editingId === u.id
-              return (
-                <tr key={u.id} className="border-b border-border last:border-0">
-                  <td className="p-4 font-medium text-foreground">
-                    {u.email}
-                    {isProtected && (
-                      <span className="ml-2 text-[10px] bg-amber-500/15 text-amber-500 px-1.5 py-0.5 rounded font-bold">
-                        PROTECTED
-                      </span>
-                    )}
-                  </td>
-                  {isEditing ? (
-                    <>
-                      <td className="p-4">
-                        <input
-                          type="text"
-                          value={editForm.full_name}
-                          onChange={(e) =>
-                            setEditForm({ ...editForm, full_name: e.target.value })
-                          }
-                          className="input-af w-full text-xs"
-                        />
-                      </td>
-                      <td className="p-4">
-                        <select
-                          value={editForm.role}
-                          onChange={(e) =>
-                            setEditForm({ ...editForm, role: e.target.value })
-                          }
-                          className="input-af w-full text-xs"
-                        >
-                          <option value="user">user</option>
-                          <option value="admin">admin</option>
-                        </select>
-                      </td>
-                      <td className="p-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleSave(u.id)}
-                            disabled={saving}
-                            className="btn-primary-af !px-3 !py-1 !text-xs"
+        {users.length === 0 ? (
+          <div className="p-12 text-center">
+            <p className="text-muted text-base">No users found.</p>
+            <Link href="/users/new" className="text-primary text-base hover:underline mt-2 inline-block">
+              Create the first user →
+            </Link>
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-surface-secondary/50">
+                    <th className="text-left p-5 font-semibold text-sm uppercase tracking-wider text-muted">
+                      User
+                    </th>
+                    <th className="text-left p-5 font-semibold text-sm uppercase tracking-wider text-muted">
+                      Role
+                    </th>
+                    <th className="text-left p-5 font-semibold text-sm uppercase tracking-wider text-muted hidden sm:table-cell">
+                      Joined
+                    </th>
+                    <th className="text-right p-5 font-semibold text-sm uppercase tracking-wider text-muted">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageUsers.map((u) => {
+                    const isProtected = u.email === 'admin@agentforge.ai'
+                    return (
+                      <tr
+                        key={u.id}
+                        className="border-b border-border last:border-0 hover:bg-surface-secondary/30 transition-colors"
+                      >
+                        <td className="p-5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-primary/10 text-primary grid place-items-center font-bold text-sm flex-shrink-0">
+                              {u.email.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-foreground truncate text-[15px]">
+                                {u.full_name || u.email.split('@')[0]}
+                              </p>
+                              <p className="text-sm text-muted truncate">{u.email}</p>
+                            </div>
+                            {isProtected && (
+                              <span className="text-xs bg-amber-500/15 text-amber-500 px-2 py-0.5 rounded font-bold flex-shrink-0">
+                                PROTECTED
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-5">
+                          <span
+                            className={`inline-block text-xs px-2.5 py-1 rounded-full font-bold ${
+                              u.role === 'admin'
+                                ? 'bg-primary/15 text-primary border border-primary/30'
+                                : 'bg-surface-secondary text-muted border border-border'
+                            }`}
                           >
-                            {saving ? 'Saving...' : 'Save'}
-                          </button>
-                          <button
-                            onClick={cancelEdit}
-                            className="btn-secondary-af !px-3 !py-1 !text-xs"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="p-4 text-muted">{u.full_name || '—'}</td>
-                      <td className="p-4">
-                        <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                            u.role === 'admin'
-                              ? 'bg-primary/15 text-primary'
-                              : 'bg-surface-secondary text-muted'
-                          }`}
-                        >
-                          {u.role}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right">
-                        {!isProtected && (
+                            {u.role}
+                          </span>
+                        </td>
+                        <td className="p-5 text-muted text-sm hidden sm:table-cell">
+                          {u.created_at
+                            ? new Date(u.created_at).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                              })
+                            : '—'}
+                        </td>
+                        <td className="p-5 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => startEdit(u)}
-                              className="btn-secondary-af !px-3 !py-1 !text-xs"
+                            <Link
+                              href={`/users/${encodeURIComponent(u.id)}/edit`}
+                              className="btn-secondary-af !px-3 !py-1.5 text-sm"
                             >
                               Edit
-                            </button>
-                            <button
-                              onClick={() => handleDelete(u.id, u.email)}
-                              className="text-xs text-red-500 hover:text-red-400 px-2 py-1"
-                            >
-                              Delete
-                            </button>
+                            </Link>
+                            {!isProtected && (
+                              <button
+                                onClick={() => handleDelete(u.id, u.email)}
+                                className="text-sm text-red-500 hover:text-red-400 hover:bg-red-500/10 px-3 py-1.5 rounded transition-colors"
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
-                        )}
-                        {isProtected && (
-                          <span className="text-[10px] text-muted italic">
-                            Not editable
-                          </span>
-                        )}
-                      </td>
-                    </>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border px-5 py-4">
+                <div className="flex items-center gap-3 text-sm text-muted">
+                  <span>Rows per page:</span>
+                  <select
+                    value={perPage}
+                    onChange={(e) => handlePerPageChange(Number(e.target.value))}
+                    className="bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    {PER_PAGE_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                  <span>
+                    {(safePage - 1) * perPage + 1}–{Math.min(safePage * perPage, users.length)} of {users.length}
+                  </span>
+                </div>
+
+                <nav className="flex items-center gap-1.5" aria-label="Pagination">
+                  {/* Previous */}
+                  <button
+                    onClick={() => setPage(safePage - 1)}
+                    disabled={safePage <= 1}
+                    className="px-3 py-1.5 text-sm rounded-md border border-border text-muted hover:bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    aria-label="Previous page"
+                  >
+                    ‹
+                  </button>
+
+                  {pageNumbers.map((p, i) =>
+                    p === '...' ? (
+                      <span key={`ellipsis-${i}`} className="px-1.5 text-sm text-muted select-none">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p)}
+                        className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                          p === safePage
+                            ? 'bg-primary text-white font-semibold'
+                            : 'border border-border text-muted hover:bg-surface-secondary'
+                        }`}
+                        aria-label={`Page ${p}`}
+                        aria-current={p === safePage ? 'page' : undefined}
+                      >
+                        {p}
+                      </button>
+                    ),
                   )}
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+
+                  {/* Next */}
+                  <button
+                    onClick={() => setPage(safePage + 1)}
+                    disabled={safePage >= totalPages}
+                    className="px-3 py-1.5 text-sm rounded-md border border-border text-muted hover:bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    aria-label="Next page"
+                  >
+                    ›
+                  </button>
+                </nav>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
