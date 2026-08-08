@@ -994,6 +994,11 @@ export default function WorkspaceClient({
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6 flex-1 min-h-0">
           {/* File Tree Panel */}
           <div className="md:col-span-1 card-af p-4 text-xs space-y-2 min-h-0 max-h-[calc(100vh-219px)] overflow-y-auto">
+            {isOffline && (
+              <p className="text-sm text-muted italic pb-2 border-b border-border mb-2">
+                Refer to the offline banner above.
+              </p>
+            )}
             <div className="text-sm font-semibold text-foreground font-sans mb-3 flex items-center justify-between gap-2">
               <span>Live Workspace File Tree</span>
               <span className="flex items-center gap-1.5">
@@ -1072,7 +1077,9 @@ export default function WorkspaceClient({
           <h2 className="text-sm font-semibold text-foreground">
             Local RAG Semantic Search
           </h2>
-
+          {isOffline && (
+            <p className="text-sm text-muted italic">Refer to the offline banner above.</p>
+          )}
           {/* Live index status / background progress */}
           {ragStats?.indexing ? (
             <div className="rounded-[10px] p-4 bg-primary/5 border border-primary/20">
@@ -1496,6 +1503,9 @@ export default function WorkspaceClient({
       {activeTab === 'ARTIFACTS' && (
         <section className="card-af p-6 space-y-4">
           <h2 className="text-sm font-semibold text-foreground">Generated Artifacts</h2>
+          {isOffline && (
+            <p className="text-sm text-muted italic">Refer to the offline banner above.</p>
+          )}
           <p className="text-xs text-muted">
             Implementation plans, architecture documents, UI specs, test reports,
             and validation reports appear here after each pipeline run.
@@ -1568,6 +1578,9 @@ export default function WorkspaceClient({
           <h2 className="text-sm font-semibold text-foreground">
             Test Results
           </h2>
+          {isOffline && (
+            <p className="text-sm text-muted italic">Refer to the offline banner above.</p>
+          )}
           <p className="text-xs text-muted">
             Latest Test Agent run — loaded from persisted pipeline history.
           </p>
@@ -1681,6 +1694,9 @@ export default function WorkspaceClient({
           <h2 className="text-sm font-semibold text-foreground">
             Validation Report
           </h2>
+          {isOffline && (
+            <p className="text-sm text-muted italic">Refer to the offline banner above.</p>
+          )}
           <p className="text-xs text-muted">
             Latest Validation Agent run — loaded from persisted pipeline
             history.

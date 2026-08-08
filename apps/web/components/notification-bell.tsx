@@ -14,11 +14,26 @@ interface NotificationItem {
 }
 
 const POLL_MS = 15000
+const STORAGE_KEY = 'agentforge_seen_notifications'
+
+function loadSeenIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) return new Set(JSON.parse(raw))
+  } catch { /* ignore */ }
+  return new Set()
+}
+
+function saveSeenIds(ids: Set<string>) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(ids)))
+  } catch { /* ignore */ }
+}
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
-  const [seenIds, setSeenIds] = useState<Set<string>>(new Set())
+  const [seenIds, setSeenIds] = useState<Set<string>>(loadSeenIds)
   const [devices, setDevices] = useState<DeviceResponse[]>([])
   const prevRunsRef = useRef(0)
   const prevTestsRef = useRef(0)
@@ -108,9 +123,16 @@ export default function NotificationBell() {
         // Mark seen status based on previously seen IDs
         const marked = items.map((n) => ({
           ...n,
-          seen: seenIds.has(n.id) || (n.id === 'device-offline' || n.id === 'device-online' ? seenIds.has(n.id) : false),
+          seen: seenIds.has(n.id),
         }))
         setNotifications(marked)
+        // Prune stale IDs from localStorage (keep only current notification IDs)
+        const currentIds = new Set(items.map((n) => n.id))
+        const pruned = new Set(Array.from(seenIds).filter((id) => currentIds.has(id)))
+        if (pruned.size !== seenIds.size) {
+          setSeenIds(pruned)
+          saveSeenIds(pruned)
+        }
       } catch {
         setNotifications([
           { id: 'api-offline', icon: '🔴', message: 'API is unreachable.', time: new Date().toLocaleTimeString() },
@@ -131,8 +153,9 @@ export default function NotificationBell() {
         type="button"
         onClick={() => {
           if (!open) {
-            // Mark all as seen when opening
-            setSeenIds(new Set(notifications.map((n) => n.id)))
+            const ids = new Set(notifications.map((n) => n.id))
+            setSeenIds(ids)
+            saveSeenIds(ids)
             setNotifications((prev) => prev.map((n) => ({ ...n, seen: true })))
           }
           setOpen(!open)
