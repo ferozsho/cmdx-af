@@ -6,6 +6,7 @@ import logging
 from typing import Callable, Coroutine, Dict, Any
 import websockets
 from agentforge_protocol import ToolRequest, ToolResult
+from agentforge_local.connection.device_auth import load_device_credentials
 
 logger = logging.getLogger("agentforge.local.wss")
 
@@ -28,6 +29,9 @@ class LocalWSSClient:
         """Connect to Cloud WSS with auto-reconnect loop."""
         self.running = True
         url = f"{self.cloud_wss_url}/{self.device_id}"
+        token = load_device_credentials().get("device_token")
+        if token:
+            url = f"{url}?token={token}"
 
         while self.running:
             try:

@@ -20,6 +20,7 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     execution_target: Mapped[str] = mapped_column(String, default="LOCAL")
+    local_path: Mapped[str | None] = mapped_column(String, nullable=True)
     tech_stack: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False

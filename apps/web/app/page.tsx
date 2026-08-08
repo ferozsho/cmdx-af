@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   listProjects,
@@ -8,8 +8,13 @@ import {
   updateProject,
   deleteProject,
   getProjectStats,
+  validateProjectPath,
+  reindexRag,
+  getReindexStatus,
   type ProjectResponse,
   type DeviceResponse,
+  type ValidatePathResponse,
+  type ReindexJob,
 } from '@/lib/api'
 
 export default function DashboardPage() {
@@ -30,8 +35,24 @@ export default function DashboardPage() {
   const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [editTarget, setEditTarget] = useState<'LOCAL' | 'CLOUD'>('LOCAL')
+  const [editLocalPath, setEditLocalPath] = useState('')
   const [editTechStack, setEditTechStack] = useState<string[]>([])
   const [editSaving, setEditSaving] = useState(false)
+  const [editSaveError, setEditSaveError] = useState<string | null>(null)
+
+  // Edit modal: folder validation state
+  const [editChecking, setEditChecking] = useState(false)
+  const [editPathResult, setEditPathResult] =
+    useState<ValidatePathResponse | null>(null)
+  const [editPathError, setEditPathError] = useState<string | null>(null)
+
+  // Edit modal: background RAG indexing state
+  const [reindexState, setReindexState] = useState<
+    'idle' | 'running' | 'done' | 'failed'
+  >('idle')
+  const [reindexJob, setReindexJob] = useState<ReindexJob | null>(null)
+  const [reindexError, setReindexError] = useState<string | null>(null)
+  const pollRef = useRef<number | null>(null)
 
   // Delete state
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -65,6 +86,7 @@ export default function DashboardPage() {
     setEditTarget(
       project.execution_target === 'CLOUD' ? 'CLOUD' : 'LOCAL',
     )
+    setEditLocalPath(project.local_path || '')
     const stack = project.tech_stack
     setEditTechStack(
       stack && typeof stack === 'object'
@@ -73,29 +95,132 @@ export default function DashboardPage() {
     )
     setDeletingId(null)
     setDeleteConfirm(false)
+    setEditSaveError(null)
+    setEditPathResult(null)
+    setEditPathError(null)
+    setReindexState('idle')
+    setReindexJob(null)
+    setReindexError(null)
+  }
+
+  const handleCheckEditFolder = async () => {
+    if (!editLocalPath.trim()) return
+    setEditChecking(true)
+    setEditPathResult(null)
+    setEditPathError(null)
+    try {
+      const result = await validateProjectPath(editLocalPath.trim())
+      setEditPathResult(result)
+      // Auto-populate tech stack from detection
+      if (result.detected_stack.length > 0) {
+        setEditTechStack((prev) => {
+          const merged = new Set([...prev, ...result.detected_stack])
+          return Array.from(merged)
+        })
+      }
+    } catch (err) {
+      setEditPathError(
+        err instanceof Error ? err.message : 'Failed to validate folder',
+      )
+    } finally {
+      setEditChecking(false)
+    }
+  }
+
+  const pollReindex = (projectId: string) => {
+    if (pollRef.current) window.clearInterval(pollRef.current)
+    pollRef.current = window.setInterval(async () => {
+      try {
+        const res = await getReindexStatus(projectId)
+        if (res.job) setReindexJob(res.job)
+        if (res.status === 'done') {
+          if (pollRef.current) window.clearInterval(pollRef.current)
+          pollRef.current = null
+          setReindexState('done')
+          window.setTimeout(() => {
+            setEditingId(null)
+            setReindexState('idle')
+            setReindexJob(null)
+          }, 1600)
+        } else if (res.status === 'failed') {
+          if (pollRef.current) window.clearInterval(pollRef.current)
+          pollRef.current = null
+          setReindexState('failed')
+          setReindexError(res.job?.error || 'Indexing failed.')
+        }
+      } catch {
+        // transient poll error — keep polling
+      }
+    }, 1500)
+  }
+
+  const startReindex = async (projectId: string) => {
+    setReindexState('running')
+    setReindexJob(null)
+    setReindexError(null)
+    try {
+      await reindexRag(projectId)
+      pollReindex(projectId)
+    } catch (err) {
+      setReindexState('failed')
+      setReindexError(
+        err instanceof Error ? err.message : 'Failed to start indexing',
+      )
+    }
+  }
+
+  const closeEditModal = () => {
+    if (pollRef.current) {
+      window.clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+    setEditingId(null)
+    setEditSaving(false)
+    setEditSaveError(null)
+    setEditPathResult(null)
+    setEditPathError(null)
+    setReindexState('idle')
+    setReindexJob(null)
+    setReindexError(null)
   }
 
   const handleSaveEdit = async () => {
     if (!editingId || !editName.trim()) return
     setEditSaving(true)
+    setEditSaveError(null)
     try {
-      await updateProject(editingId, {
+      const saved = await updateProject(editingId, {
         name: editName.trim(),
         description: editDesc.trim(),
         execution_target: editTarget,
+        local_path: editLocalPath.trim() || undefined,
         tech_stack: editTechStack,
       })
       setProjects((prev) =>
         prev.map((p) =>
           p.id === editingId
-            ? { ...p, name: editName.trim(), description: editDesc.trim() }
+            ? {
+                ...p,
+                name: saved.name,
+                description: saved.description,
+                execution_target: saved.execution_target,
+                local_path: saved.local_path,
+              }
             : p,
         ),
       )
-      setEditingId(null)
+      setEditSaving(false)
+      // Kick off background RAG indexing (click-and-forget)
+      if (editTarget === 'LOCAL' && editLocalPath.trim()) {
+        await startReindex(editingId)
+      } else {
+        closeEditModal()
+      }
     } catch (err) {
       console.error('Failed to update project:', err)
-    } finally {
+      setEditSaveError(
+        err instanceof Error ? err.message : 'Failed to update project',
+      )
       setEditSaving(false)
     }
   }
@@ -270,6 +395,14 @@ export default function DashboardPage() {
                   ))}
                 </div>
               )}
+              {project.local_path && (
+                <div
+                  className="text-[10px] text-muted font-mono truncate mb-[10px]"
+                  title={project.local_path}
+                >
+                  📁 {project.local_path}
+                </div>
+              )}
               <div className="flex justify-between pt-[14px] border-t border-border text-xs text-muted">
                 <span>
                   {project.created_at
@@ -290,118 +423,302 @@ export default function DashboardPage() {
 
       {/* Edit Project Modal */}
       {editingId && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[8vh] bg-black/50 backdrop-blur-sm">
-          <div className="card-af max-w-[520px] w-full mx-4 p-6 space-y-4 shadow-2xl max-h-[85vh] overflow-y-auto">
-            <h3 className="text-lg font-bold text-foreground">Edit Project</h3>
-            <div className="space-y-3">
-              {/* Execution Target */}
-              <div>
-                <label className="block text-[13px] font-bold text-foreground mb-2">
-                  Execution Target
-                </label>
-                <div className="grid grid-cols-2 gap-3">
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[5vh] pb-[5vh] bg-black/50 backdrop-blur-sm overflow-y-auto">
+          <div className="card-af max-w-[860px] w-full mx-4 p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-bold text-foreground mb-4">
+              Edit Project
+            </h3>
+
+            {reindexState === 'running' && (
+              <div className="space-y-4 py-8 text-center">
+                <div className="w-14 h-14 mx-auto rounded-2xl bg-primary/10 text-primary grid place-items-center text-3xl animate-pulse">
+                  ◫
+                </div>
+                <h4 className="font-bold text-foreground">
+                  Indexing project folder in background…
+                </h4>
+                <p className="text-xs text-muted max-w-md mx-auto">
+                  Your project folder is being indexed for semantic search.
+                  You can close this window — indexing continues in the
+                  background.
+                </p>
+                <div className="h-2 bg-surface-secondary rounded-full overflow-hidden border border-border/50 max-w-sm mx-auto">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#1b78d2] to-[#6e38c7] rounded-full animate-pulse"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                {reindexJob && (
+                  <p className="text-[11px] text-muted font-mono">
+                    files: {reindexJob.files_indexed} · chunks:{' '}
+                    {reindexJob.chunks}
+                  </p>
+                )}
+                <div className="flex justify-center pt-2">
                   <button
                     type="button"
-                    onClick={() => setEditTarget('LOCAL')}
-                    className={`p-3 border rounded-xl text-left transition-colors ${
-                      editTarget === 'LOCAL'
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'btn-secondary-af !font-normal'
-                    }`}
+                    onClick={closeEditModal}
+                    className="btn-secondary-af text-xs"
                   >
-                    <div className="font-bold text-xs">Local Machine</div>
-                    <div className="text-[10px] opacity-80 mt-0.5">
-                      Runs via WSS on your PC
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditTarget('CLOUD')}
-                    className={`p-3 border rounded-xl text-left transition-colors ${
-                      editTarget === 'CLOUD'
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'btn-secondary-af !font-normal'
-                    }`}
-                  >
-                    <div className="font-bold text-xs">Cloud Workspace</div>
-                    <div className="text-[10px] opacity-80 mt-0.5">
-                      Runs in isolated container
-                    </div>
+                    Close (continue in background)
                   </button>
                 </div>
               </div>
-              <div>
-                <label className="block text-[13px] font-bold text-foreground mb-1">
-                  Project Name
-                </label>
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="input-af"
-                  autoFocus
-                />
+            )}
+
+            {reindexState === 'done' && (
+              <div className="space-y-3 py-8 text-center">
+                <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 grid place-items-center text-3xl">
+                  ✓
+                </div>
+                <h4 className="font-bold text-foreground">Project indexed</h4>
+                <p className="text-xs text-muted">
+                  {reindexJob
+                    ? `${reindexJob.files_indexed} files · ${reindexJob.chunks} chunks indexed.`
+                    : 'RAG indexing completed.'}
+                </p>
               </div>
-              <div>
-                <label className="block text-[13px] font-bold text-foreground mb-1">
-                  Description
-                </label>
-                <textarea
-                  rows={3}
-                  value={editDesc}
-                  onChange={(e) => setEditDesc(e.target.value)}
-                  className="input-af resize-y"
-                />
+            )}
+
+            {reindexState === 'failed' && (
+              <div className="space-y-3 py-8 text-center">
+                <div className="w-14 h-14 mx-auto rounded-2xl bg-red-500/15 text-red-500 grid place-items-center text-3xl">
+                  ✗
+                </div>
+                <h4 className="font-bold text-foreground">Indexing failed</h4>
+                <p className="text-xs text-muted max-w-md mx-auto">
+                  {reindexError || 'Something went wrong during indexing.'}
+                </p>
+                <div className="flex justify-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => editingId && startReindex(editingId)}
+                    className="btn-secondary-af text-xs"
+                  >
+                    Retry
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeEditModal}
+                    className="btn-primary-af text-xs"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
-              {/* Technology Stack */}
-              <div>
-                <label className="block text-[13px] font-bold text-foreground mb-2">
-                  Technology Stack
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {TECH_OPTIONS.map((tech) => {
-                    const selected = editTechStack.includes(tech)
-                    return (
+            )}
+
+            {reindexState === 'idle' && (
+              <div className="space-y-4">
+                {/* Execution Target */}
+                <div>
+                  <label className="block text-[13px] font-bold text-foreground mb-2">
+                    Execution Target
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setEditTarget('LOCAL')}
+                      className={`p-3 border rounded-xl text-left transition-colors ${
+                        editTarget === 'LOCAL'
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'btn-secondary-af !font-normal'
+                      }`}
+                    >
+                      <div className="font-bold text-xs">Local Machine</div>
+                      <div className="text-[10px] opacity-80 mt-0.5">
+                        Runs via WSS on your PC
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditTarget('CLOUD')}
+                      className={`p-3 border rounded-xl text-left transition-colors ${
+                        editTarget === 'CLOUD'
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'btn-secondary-af !font-normal'
+                      }`}
+                    >
+                      <div className="font-bold text-xs">Cloud Workspace</div>
+                      <div className="text-[10px] opacity-80 mt-0.5">
+                        Runs in isolated container
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Project Name + Description in 2-col grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[13px] font-bold text-foreground mb-1">
+                      Project Name
+                    </label>
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="input-af"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[13px] font-bold text-foreground mb-1">
+                      Description
+                    </label>
+                    <input
+                      type="text"
+                      value={editDesc}
+                      onChange={(e) => setEditDesc(e.target.value)}
+                      className="input-af"
+                    />
+                  </div>
+                </div>
+
+                {/* Local Workspace Path + validation */}
+                {editTarget === 'LOCAL' && (
+                  <div>
+                    <label className="block text-[13px] font-bold text-foreground mb-1">
+                      Local Workspace Path
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={editLocalPath}
+                        onChange={(e) => {
+                          setEditLocalPath(e.target.value)
+                          setEditPathResult(null)
+                          setEditPathError(null)
+                        }}
+                        placeholder="e.g. D:\Projects\cmdx-framework"
+                        className="input-af font-mono !text-xs flex-1"
+                      />
                       <button
-                        key={tech}
                         type="button"
-                        onClick={() =>
-                          setEditTechStack((prev) =>
-                            prev.includes(tech)
-                              ? prev.filter((t) => t !== tech)
-                              : [...prev, tech],
-                          )
-                        }
-                        className={`text-[11px] px-2.5 py-1 rounded-md border transition-colors ${
-                          selected
-                            ? 'bg-primary/15 border-primary text-primary font-bold'
-                            : 'bg-surface-secondary border-border text-muted'
+                        onClick={handleCheckEditFolder}
+                        disabled={editChecking || !editLocalPath.trim()}
+                        className="btn-secondary-af !py-2.5 text-xs whitespace-nowrap disabled:opacity-50"
+                      >
+                        {editChecking ? 'Checking...' : 'Check Folder'}
+                      </button>
+                    </div>
+                    {editChecking && (
+                      <div className="mt-2 text-xs text-muted animate-pulse">
+                        Validating project folder...
+                      </div>
+                    )}
+                    {editPathResult && (
+                      <div
+                        className={`mt-2 rounded-[10px] p-3 text-xs space-y-1 ${
+                          editPathResult.valid
+                            ? 'bg-emerald-500/10 border border-emerald-500/30'
+                            : 'bg-red-500/10 border border-red-500/30'
                         }`}
                       >
-                        {tech}
-                      </button>
-                    )
-                  })}
+                        <div className="font-semibold text-sm">
+                          {editPathResult.valid
+                            ? '✓ Folder Valid'
+                            : '✕ Folder Issues'}
+                        </div>
+                        {editPathResult.files_count > 0 && (
+                          <div className="text-foreground-secondary">
+                            {editPathResult.files_count} files ·{' '}
+                            {editPathResult.directories_count} dirs
+                            {editPathResult.git_repository
+                              ? ' · git repo'
+                              : ''}
+                          </div>
+                        )}
+                        {editPathResult.detected_stack.length > 0 && (
+                          <div className="text-primary font-semibold">
+                            Detected:{' '}
+                            {editPathResult.detected_stack.join(', ')}
+                          </div>
+                        )}
+                        {editPathResult.warnings.map((w, i) => (
+                          <div
+                            key={i}
+                            className="text-amber-600 dark:text-amber-400"
+                          >
+                            ⚠ {w}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {editPathError && (
+                      <div className="mt-2 text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded-[10px] p-2.5">
+                        {editPathError}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-muted mt-1.5">
+                      Saving with a folder path automatically starts RAG
+                      indexing in the background.
+                    </p>
+                  </div>
+                )}
+
+                {/* Technology Stack */}
+                <div>
+                  <label className="block text-[13px] font-bold text-foreground mb-2">
+                    Technology Stack
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {TECH_OPTIONS.map((tech) => {
+                      const selected = editTechStack.includes(tech)
+                      return (
+                        <button
+                          key={tech}
+                          type="button"
+                          onClick={() =>
+                            setEditTechStack((prev) =>
+                              prev.includes(tech)
+                                ? prev.filter((t) => t !== tech)
+                                : [...prev, tech],
+                            )
+                          }
+                          className={`text-[11px] px-2.5 py-1 rounded-md border transition-colors ${
+                            selected
+                              ? 'bg-primary/15 border-primary text-primary font-bold'
+                              : 'bg-surface-secondary border-border text-muted'
+                          }`}
+                        >
+                          {tech}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="flex justify-end gap-2.5 pt-2 border-t border-border">
-              <button
-                type="button"
-                onClick={() => setEditingId(null)}
-                className="btn-secondary-af text-xs"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveEdit}
-                disabled={editSaving || !editName.trim()}
-                className="btn-primary-af text-xs disabled:opacity-50"
-              >
-                {editSaving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
+            )}
+
+            {/* Footer */}
+            {editSaveError && (
+              <div className="mt-4 text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded-[10px] p-2.5">
+                {editSaveError}
+              </div>
+            )}
+            {reindexState === 'idle' && (
+              <div className="flex justify-end gap-2.5 pt-4 mt-4 border-t border-border">
+                <button
+                  type="button"
+                  onClick={closeEditModal}
+                  className="btn-secondary-af text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  disabled={editSaving || !editName.trim()}
+                  className="btn-primary-af text-xs disabled:opacity-50"
+                >
+                  {editSaving
+                    ? 'Saving...'
+                    : editTarget === 'LOCAL' && editLocalPath.trim()
+                      ? 'Save & Index in Background'
+                      : 'Save Changes'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

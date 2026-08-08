@@ -53,6 +53,7 @@ export interface ProjectResponse {
   name: string
   description: string | null
   execution_target: string
+  local_path?: string | null
   tech_stack?: Record<string, boolean> | null
   status: string
   created_at?: string | null
@@ -189,6 +190,7 @@ export function updateProject(
     name?: string
     description?: string
     execution_target?: string
+    local_path?: string
     tech_stack?: string[]
   },
 ): Promise<ProjectResponse> {
@@ -244,11 +246,31 @@ export function ragSearch(
   })
 }
 
-/** POST /api/v1/projects/:id/rag/reindex */
+/** POST /api/v1/projects/:id/rag/reindex — kicks off a background job */
 export function reindexRag(
   id: string,
-): Promise<{ files_indexed: number; chunks: number; last_index: string | null }> {
+): Promise<{
+  status: 'started' | 'running'
+  job: ReindexJob | null
+}> {
   return request('POST', `/api/v1/projects/${encodeURIComponent(id)}/rag/reindex`)
+}
+
+/** GET /api/v1/projects/:id/rag/reindex-status */
+export function getReindexStatus(
+  id: string,
+): Promise<{ status: string; job: ReindexJob | null }> {
+  return request('GET', `/api/v1/projects/${encodeURIComponent(id)}/rag/reindex-status`)
+}
+
+export interface ReindexJob {
+  status: 'running' | 'done' | 'failed' | 'idle'
+  files_indexed: number
+  chunks: number
+  last_index: string | null
+  error: string | null
+  started_at: string | null
+  finished_at: string | null
 }
 
 /** GET /api/v1/projects/:id/git/status */

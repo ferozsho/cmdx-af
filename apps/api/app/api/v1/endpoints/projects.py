@@ -3,6 +3,7 @@
 import asyncio
 import os
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -39,6 +40,7 @@ class ProjectResponse(BaseModel):
     name: str
     description: str | None = None
     execution_target: str
+    local_path: str | None = None
     tech_stack: dict | None = None
     status: str = "ACTIVE"
     created_at: str | None = None
@@ -51,6 +53,7 @@ class ProjectUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     execution_target: str | None = None
+    local_path: str | None = None
     tech_stack: List[str] | None = None
 
 
@@ -206,6 +209,23 @@ def _offline_response() -> dict:
     }
 
 
+# In-memory background re-index job tracker (project_id -> job state)
+_reindex_jobs: Dict[str, Dict[str, Any]] = {}
+
+
+def _reindex_job_payload(job: Dict[str, Any]) -> dict:
+    """Serialize a re-index job for API responses."""
+    return {
+        "status": job.get("status", "idle"),
+        "files_indexed": job.get("files_indexed", 0),
+        "chunks": job.get("chunks", 0),
+        "last_index": job.get("last_index"),
+        "error": job.get("error"),
+        "started_at": job.get("started_at"),
+        "finished_at": job.get("finished_at"),
+    }
+
+
 @router.get("/projects/stats/summary")
 async def get_project_stats(db: AsyncSession = Depends(get_db)) -> Any:
     """Get aggregated project stats for dashboard KPIs."""
@@ -252,6 +272,7 @@ async def list_projects(db: AsyncSession = Depends(get_db)) -> Any:
             name=p.name,
             description=p.description,
             execution_target=p.execution_target,
+            local_path=p.local_path,
             tech_stack=p.tech_stack,
             status="ACTIVE",
             created_at=p.created_at.isoformat() if p.created_at else None,
@@ -272,6 +293,7 @@ async def create_project(
         name=data.name,
         description=data.description,
         execution_target=data.execution_target,
+        local_path=data.local_path,
         tech_stack={t: True for t in tech_stack_list},
     )
     await db.commit()
@@ -334,9 +356,11 @@ async def create_project(
         name=project.name,
         description=project.description,
         execution_target=project.execution_target,
+        local_path=project.local_path,
         tech_stack=project.tech_stack,
         status="ACTIVE",
         created_at=project.created_at.isoformat() if project.created_at else None,
+        updated_at=project.updated_at.isoformat() if project.updated_at else None,
     )
 
 
@@ -354,6 +378,7 @@ async def get_project(
         name=project.name,
         description=project.description,
         execution_target=project.execution_target,
+        local_path=project.local_path,
         tech_stack=project.tech_stack,
         status="ACTIVE",
         created_at=project.created_at.isoformat() if project.created_at else None,
@@ -375,6 +400,7 @@ async def update_project(
         name=data.name,
         description=data.description,
         execution_target=data.execution_target,
+        local_path=data.local_path,
         tech_stack=tech_stack_dict,
     )
     if not project:
@@ -384,6 +410,7 @@ async def update_project(
         name=project.name,
         description=project.description,
         execution_target=project.execution_target,
+        local_path=project.local_path,
         tech_stack=project.tech_stack,
         status="ACTIVE",
         created_at=project.created_at.isoformat() if project.created_at else None,
@@ -620,19 +647,58 @@ async def get_rag_stats(project_id: str) -> Any:
 
 @router.post("/projects/{project_id}/rag/reindex")
 async def reindex_project_rag(project_id: str) -> Any:
-    """Re-index the project workspace into the RAG vector store."""
-    tool_res = await ToolGateway.invoke_tool(
-        device_id=_DEFAULT_DEVICE,
-        workspace_id=_DEFAULT_WORKSPACE,
-        job_id="job_rag_reindex",
-        tool_name="rag_reindex",
-        arguments={},
-    )
-    if not tool_res.success:
-        if _tool_is_offline(tool_res):
-            return _offline_response()
-        raise HTTPException(status_code=500, detail=tool_res.error)
-    return tool_res.result
+    """Kick off a background RAG re-index (click-and-forget) and return."""
+    existing = _reindex_jobs.get(project_id)
+    if existing and existing.get("status") == "running":
+        return {"status": "running", "job": _reindex_job_payload(existing)}
+
+    job: Dict[str, Any] = {
+        "status": "running",
+        "files_indexed": 0,
+        "chunks": 0,
+        "last_index": None,
+        "error": None,
+        "started_at": datetime.utcnow().isoformat() + "Z",
+        "finished_at": None,
+    }
+    _reindex_jobs[project_id] = job
+    asyncio.create_task(_run_reindex_job(project_id, job))
+    return {"status": "started", "job": _reindex_job_payload(job)}
+
+
+async def _run_reindex_job(project_id: str, job: Dict[str, Any]) -> None:
+    """Run the RAG re-index tool in the background and update the job."""
+    try:
+        tool_res = await ToolGateway.invoke_tool(
+            device_id=_DEFAULT_DEVICE,
+            workspace_id=_DEFAULT_WORKSPACE,
+            job_id="job_rag_reindex",
+            tool_name="rag_reindex",
+            arguments={},
+        )
+        if not tool_res.success:
+            job["status"] = "failed"
+            job["error"] = tool_res.error
+        else:
+            result = tool_res.result if isinstance(tool_res.result, dict) else {}
+            job["status"] = "done"
+            job["files_indexed"] = int(result.get("files_indexed", 0))
+            job["chunks"] = int(result.get("chunks", 0))
+            job["last_index"] = result.get("last_index")
+    except Exception as e:
+        job["status"] = "failed"
+        job["error"] = str(e)
+    finally:
+        job["finished_at"] = datetime.utcnow().isoformat() + "Z"
+
+
+@router.get("/projects/{project_id}/rag/reindex-status")
+async def get_reindex_status(project_id: str) -> Any:
+    """Return the status of the background RAG re-index job."""
+    job = _reindex_jobs.get(project_id)
+    if not job:
+        return {"status": "idle", "job": None}
+    return {"status": job["status"], "job": _reindex_job_payload(job)}
 
 
 @router.get("/projects/{project_id}/files/original")

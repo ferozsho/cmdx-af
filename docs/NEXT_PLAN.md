@@ -81,40 +81,54 @@ The RAG / artifacts / file-baseline / file-content / git endpoints all route thr
       baseline, git status (GIT tab), and RAG search.
 - [x] **3.3 RAG page**: `online` flag disables search/re-index when offline.
 
-### P4 — Platform hardening (larger — NOT STARTED)
-- [ ] **4.1 Qdrant vector search.** Replace local keyword RAG with real embeddings
-      (`sentence-transformers` + Qdrant) — deps exist, never wired.
-- [ ] **4.2 File watcher wiring.** Start watchdog-based re-index in local agent CLI.
-- [ ] **4.3 Pairing/auth exchange.** Validate pairing codes, device tokens, session auth.
+### P4 — Platform hardening (larger — COMPLETED 2026-08-08)
+- [x] **4.1 Qdrant vector search.** New `agentforge_local/rag/qdrant_store.py`
+      (collection per workspace, cosine, 384-d) + `LocalRAGIndexer` now upserts
+      into Qdrant and searches vectors first, falling back to keyword search
+      when Qdrant is unreachable. Verified live against `localhost:6333`.
+- [x] **4.2 File watcher wiring.** `agentforge start` now watches all registered
+      workspaces via `WorkspaceWatcher` (watchdog) and auto re-indexes RAG on
+      file changes (5s debounce).
+- [x] **4.3 Pairing/auth exchange.** Cloud: pairing codes stored + expiry,
+      `POST /devices/pair` (code → device + `device_token` in capabilities),
+      `POST /devices/validate-token`, WSS `/ws/devices/{id}` validates `?token=`.
+      Local agent: `agentforge connect <code>` exchanges credentials to
+      `~/.agentforge/device.json`, WSS client sends the token. Legacy devices
+      (no token) still connect.
 
 ---
 
-## 3. Execution Order (batches)
+## 3. Edit Project Modal (requested 2026-08-08)
 
-```
-Batch A (P1, quick wins)  → ✅ 1.2 bug fix, 1.3 stats, 1.4 lifecycle
-Batch B (P1, feature)     → ✅ 1.1 git rollback end-to-end
-Batch C (P3, offline)     → ✅ 3.1 API degradation, 3.2/3.3 frontend states
-Batch D (P2, depth)       → ✅ 2.1–2.4 usage/commit/file logging + UI
-Batch E (P4, platform)    → ⬜ 4.1–4.3 (needs design + local agent changes)
-```
-
-**Rule:** after each batch run `get_errors`, `tsc --noEmit`, keep Python < 100 chars,
-and never start/stop dev servers or deploy.
+- **Large modal**: `max-w-[860px]`, Name + Description side-by-side.
+- **Local Workspace Path field** (LOCAL targets) with a **Check Folder** button
+  using `POST /projects/validate-path` (inline validity, files/dirs, git, detected
+  stack, warnings). `local_path` is now a real Project column
+  (`alembic/versions/c7d8e9f0a1b2_add_project_local_path.py`) exposed in
+  `GET/POST/PATCH /projects` and shown on dashboard cards.
+- **Auto RAG with progress bar (click-and-forget)**: `POST /projects/{id}/rag/reindex`
+  now starts a **background job** (returns immediately) and
+  `GET /projects/{id}/rag/reindex-status` is polled by the modal — animated
+  progress bar → ✓ done (auto-close) or ✗ failed (retry). User can close anytime;
+  indexing continues server-side. RAG Manager re-index uses the same background
+  job + progress bar.
 
 ---
 
 ## 4. Deployment Note (2026-08-08)
 
-The Docker containers (`agentforge-api`, `agentforge-web`) were **not** rebuilt during
-this work (per workflow constraints). The running containers still serve pre-change code
-(no `/observability/agent-metrics`, no `online` flag, no rollback endpoint). To activate
-all batches A–D:
+The Docker containers (`agentforge-api`, `agentforge-web`) were **not** rebuilt
+during this work (per workflow constraints). The running containers still serve
+pre-change code (no `/observability/agent-metrics`, no `online` flag, no rollback
+endpoint). To activate all batches A–E + the modal:
 
 ```bash
 docker compose -f infrastructure/docker-compose.yml build api web
 docker compose -f infrastructure/docker-compose.yml up -d api web
+# then apply the new migration (inside the api container):
+docker exec agentforge-api alembic upgrade head
 ```
 
-The local agent daemon is confirmed **online** in dev (RAG stats returned 1 file / 1248
-chunks), so live endpoints will exercise the real tool path after rebuild.
+The local agent daemon is confirmed **online** in dev (RAG stats returned 1 file
+/ 1248 chunks), and Qdrant vector search is verified working against
+`localhost:6333`.

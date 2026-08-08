@@ -21,5 +21,9 @@ class LocalAgentSettings(BaseSettings):
     DEVICE_TOKEN: str | None = None
     HEARTBEAT_INTERVAL: int = 15
 
+    # Qdrant vector store (local or docker-published endpoint)
+    QDRANT_URL: str = "http://localhost:6333"
+    QDRANT_API_KEY: str | None = None
+
 
 local_settings = LocalAgentSettings()

@@ -53,6 +53,7 @@ class ProjectRepository:
         name: str,
         description: str | None = None,
         execution_target: str = "LOCAL",
+        local_path: str | None = None,
         tech_stack: dict | None = None,
         user_id: str = "",
     ) -> Project:
@@ -65,6 +66,7 @@ class ProjectRepository:
             name=name,
             description=description,
             execution_target=execution_target,
+            local_path=local_path,
             tech_stack=tech_stack or {},
         )
         self.db.add(project)
@@ -91,6 +93,7 @@ class ProjectRepository:
         name: str | None = None,
         description: str | None = None,
         execution_target: str | None = None,
+        local_path: str | None = None,
         tech_stack: dict | None = None,
     ) -> Project | None:
         """Update an existing project. Returns updated project or None if not found."""
@@ -103,6 +106,8 @@ class ProjectRepository:
             project.description = description
         if execution_target is not None:
             project.execution_target = execution_target
+        if local_path is not None:
+            project.local_path = local_path
         if tech_stack is not None:
             project.tech_stack = tech_stack
         await self.db.flush()

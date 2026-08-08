@@ -1,13 +1,15 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import {
   listProjects,
   ragSearch,
   getRagStats,
   reindexRag,
+  getReindexStatus,
   type ProjectResponse,
+  type ReindexJob,
 } from '@/lib/api'
 
 export default function RagManagerPage() {
@@ -25,7 +27,15 @@ export default function RagManagerPage() {
     online?: boolean
   } | null>(null)
   const [reindexing, setReindexing] = useState(false)
+  const [reindexJob, setReindexJob] = useState<ReindexJob | null>(null)
   const [reindexMessage, setReindexMessage] = useState<string | null>(null)
+  const pollRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) window.clearInterval(pollRef.current)
+    }
+  }, [])
 
   // Load projects on mount
   React.useEffect(() => {
@@ -50,18 +60,50 @@ export default function RagManagerPage() {
     if (!selectedProject) return
     setReindexing(true)
     setReindexMessage(null)
+    setReindexJob(null)
     try {
-      const result = await reindexRag(selectedProject)
-      setReindexMessage(
-        `Re-index complete: ${result.files_indexed} files, ${result.chunks} chunks.`,
-      )
-      setRagStats(result)
+      await reindexRag(selectedProject)
+      // Poll the background job until it finishes
+      if (pollRef.current) window.clearInterval(pollRef.current)
+      pollRef.current = window.setInterval(async () => {
+        try {
+          const res = await getReindexStatus(selectedProject)
+          if (res.job) setReindexJob(res.job)
+          if (res.status === 'done' && res.job) {
+            if (pollRef.current) window.clearInterval(pollRef.current)
+            pollRef.current = null
+            setReindexing(false)
+            setReindexMessage(
+              `Re-index complete: ${res.job.files_indexed} files, ${res.job.chunks} chunks.`,
+            )
+            setRagStats({
+              files_indexed: res.job.files_indexed,
+              chunks: res.job.chunks,
+              last_index: res.job.last_index,
+              online: true,
+            })
+          } else if (res.status === 'failed' && res.job) {
+            if (pollRef.current) window.clearInterval(pollRef.current)
+            pollRef.current = null
+            setReindexing(false)
+            setReindexMessage(
+              `Re-index failed: ${res.job.error || 'unknown error'}`,
+            )
+          }
+        } catch (err) {
+          if (pollRef.current) window.clearInterval(pollRef.current)
+          pollRef.current = null
+          setReindexing(false)
+          setReindexMessage(
+            `Re-index failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+          )
+        }
+      }, 1500)
     } catch (err) {
+      setReindexing(false)
       setReindexMessage(
         `Re-index failed: ${err instanceof Error ? err.message : 'unknown error'}`,
       )
-    } finally {
-      setReindexing(false)
     }
   }
 
@@ -127,6 +169,32 @@ export default function RagManagerPage() {
           }`}
         >
           {reindexMessage}
+        </div>
+      )}
+
+      {reindexing && (
+        <div className="card-af p-4 mb-[18px] flex items-center gap-4">
+          <div className="flex-1">
+            <div className="flex items-center justify-between text-xs mb-2">
+              <span className="font-semibold text-foreground">
+                Re-indexing project in background…
+              </span>
+              {reindexJob && (
+                <span className="text-muted font-mono">
+                  {reindexJob.files_indexed} files · {reindexJob.chunks} chunks
+                </span>
+              )}
+            </div>
+            <div className="h-2 bg-surface-secondary rounded-full overflow-hidden border border-border/50">
+              <div
+                className="h-full bg-gradient-to-r from-[#1b78d2] to-[#6e38c7] rounded-full animate-pulse"
+                style={{ width: '100%' }}
+              />
+            </div>
+            <p className="text-[11px] text-muted mt-2 m-0">
+              You can keep working — indexing continues in the background.
+            </p>
+          </div>
         </div>
       )}
 
