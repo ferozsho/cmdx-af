@@ -709,6 +709,11 @@ export function listAgents(activeOnly = false): Promise<AgentTemplateResponse[]>
   return request<AgentTemplateResponse[]>('GET', `/api/v1/agents${qs}`)
 }
 
+/** GET /api/v1/agents/:id */
+export function getAgent(id: string): Promise<AgentTemplateResponse> {
+  return request<AgentTemplateResponse>('GET', `/api/v1/agents/${encodeURIComponent(id)}`)
+}
+
 /** POST /api/v1/agents */
 export function createAgent(data: {
   name: string
