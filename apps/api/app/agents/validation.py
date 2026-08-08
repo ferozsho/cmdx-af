@@ -1,5 +1,6 @@
 """Validation Agent Implementation."""
 
+import json
 from typing import Any, Dict, List
 
 from app.agents.base import BaseAgent
@@ -38,6 +39,20 @@ def _count_issues(output: str) -> int:
         if ln.strip() and not ln.startswith(("Found ", "error:", "warning:"))
     ]
     return len(lines)
+
+
+def _content_dict(content: Any) -> Dict[str, Any]:
+    """Coerce LLM JSON content (string or dict) into a dict."""
+    if isinstance(content, dict):
+        return content
+    if isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return {}
 
 
 class ValidationAgent(BaseAgent):
@@ -151,7 +166,7 @@ class ValidationAgent(BaseAgent):
                 system_prompt=SYSTEM_PROMPT,
                 json_mode=True,
             )
-            llm_out = response.content or {}
+            llm_out = _content_dict(response.content)
             tokens_used = response.total_tokens
             cost = response.cost
         except Exception:
