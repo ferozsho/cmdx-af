@@ -16,8 +16,17 @@ model patterns. Return JSON with:
 class DatabaseAgent(BaseAgent):
     """Database Agent generating SQLAlchemy models and Alembic migrations."""
 
-    def __init__(self) -> None:
-        super().__init__("Database Agent", capability="coding")
+    def __init__(
+        self,
+        system_prompt_override: str | None = None,
+        tools_override: list[str] | None = None,
+    ) -> None:
+        super().__init__(
+            "Database Agent",
+            capability="coding",
+            system_prompt_override=system_prompt_override,
+            tools_override=tools_override,
+        )
 
     async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Generate database models and migrations using LLM."""
@@ -32,7 +41,7 @@ class DatabaseAgent(BaseAgent):
                     "Include COMPLETE file content for each generated file. "
                     "Return each file as {path, content}."
                 ),
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=self.get_system_prompt(SYSTEM_PROMPT),
                 json_mode=True,
             )
             files = response.content.get("files", [])

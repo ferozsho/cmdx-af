@@ -15,8 +15,17 @@ Return JSON with:
 class FrontendAgent(BaseAgent):
     """Frontend Agent generating and writing React/Next.js components."""
 
-    def __init__(self) -> None:
-        super().__init__("Frontend Agent", capability="coding")
+    def __init__(
+        self,
+        system_prompt_override: str | None = None,
+        tools_override: list[str] | None = None,
+    ) -> None:
+        super().__init__(
+            "Frontend Agent",
+            capability="coding",
+            system_prompt_override=system_prompt_override,
+            tools_override=tools_override,
+        )
 
     async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Generate frontend code via LLM and write to workspace."""
@@ -31,7 +40,7 @@ class FrontendAgent(BaseAgent):
                     "pages, hooks) with full file content. Each file must include "
                     "ALL imports and complete implementation code."
                 ),
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=self.get_system_prompt(SYSTEM_PROMPT),
                 json_mode=True,
             )
             files = response.content.get("files", [])

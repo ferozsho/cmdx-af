@@ -49,8 +49,17 @@ def _parse_pytest_output(output: str) -> Dict[str, Any]:
 class TestAgent(BaseAgent):
     """Test Agent generating and running backend and frontend tests."""
 
-    def __init__(self) -> None:
-        super().__init__("Test Agent", capability="coding")
+    def __init__(
+        self,
+        system_prompt_override: str | None = None,
+        tools_override: list[str] | None = None,
+    ) -> None:
+        super().__init__(
+            "Test Agent",
+            capability="coding",
+            system_prompt_override=system_prompt_override,
+            tools_override=tools_override,
+        )
 
     async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Generate tests via LLM, write them, then run pytest for real counts."""
@@ -75,7 +84,7 @@ class TestAgent(BaseAgent):
                     "React/Next.js components. Return each test file as "
                     "{path, content} with COMPLETE file content."
                 ),
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=self.get_system_prompt(SYSTEM_PROMPT),
                 json_mode=True,
             )
 

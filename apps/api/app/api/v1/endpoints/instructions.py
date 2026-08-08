@@ -110,7 +110,7 @@ async def submit_instruction(
         pass
 
     async def _run_async_pipeline() -> None:
-        orchestrator = PipelineOrchestrator()
+        orchestrator = PipelineOrchestrator(project_id=project_id)
 
         async def _event_cb(
             agent_name: str,

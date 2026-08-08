@@ -1,7 +1,7 @@
 """Base Agent Class."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from app.llm.router import ModelRouter
 from app.tools.gateway.tool_gateway import ToolGateway
 
@@ -9,9 +9,27 @@ from app.tools.gateway.tool_gateway import ToolGateway
 class BaseAgent(ABC):
     """Abstract base class for specialized software development agents."""
 
-    def __init__(self, agent_name: str, capability: str = "reasoning") -> None:
+    def __init__(
+        self,
+        agent_name: str,
+        capability: str = "reasoning",
+        system_prompt_override: str | None = None,
+        tools_override: list[str] | None = None,
+    ) -> None:
         self.agent_name = agent_name
         self.provider = ModelRouter.get_provider(capability)
+        self._system_prompt_override = system_prompt_override
+        self._tools_override = tools_override
+
+    def get_system_prompt(self, default: str) -> str:
+        """Return the override system prompt if set, otherwise the default."""
+        return self._system_prompt_override or default
+
+    def get_tools(self, default: list[str] | None = None) -> list[str]:
+        """Return override tools list if set, otherwise the default (or empty)."""
+        if self._tools_override is not None:
+            return self._tools_override
+        return default or []
 
     @abstractmethod
     async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -27,12 +45,44 @@ class BaseAgent(ABC):
     def _get_job_id(self, context: Dict[str, Any]) -> str:
         return context.get("instruction_id", "unknown")
 
+    def _get_project_config(self, context: Dict[str, Any]) -> Optional[object]:
+        """Return the project config object injected by the pipeline, if any."""
+        return context.get("project_config")
+
+    async def _check_fs_policy(
+        self, context: Dict[str, Any], operation: str
+    ) -> None:
+        """Enforce filesystem policy before dispatching a tool call."""
+        project = self._get_project_config(context)
+        if project is None:
+            return
+        from app.core.policies import check_fs_policy
+
+        check_fs_policy(project, operation)
+
+    async def _check_git_policy(
+        self,
+        context: Dict[str, Any],
+        operation: str,
+        branch: str | None = None,
+    ) -> None:
+        """Enforce git policy before dispatching a git tool call."""
+        project = self._get_project_config(context)
+        if project is None:
+            return
+        from app.core.policies import check_git_policy
+
+        check_git_policy(project, operation, branch=branch)
+
     async def _write_files(
         self,
         context: Dict[str, Any],
         files: List[Dict[str, str]],
     ) -> List[Dict[str, Any]]:
         """Write files to workspace via ToolGateway. Each file: {path, content}."""
+        # Enforce filesystem write policy
+        await self._check_fs_policy(context, "write")
+
         results = []
         device = self._get_device_id(context)
         workspace = self._get_workspace_id(context)
@@ -70,6 +120,54 @@ class BaseAgent(ABC):
             except Exception:
                 pass
         return results
+
+    async def _read_file(
+        self,
+        context: Dict[str, Any],
+        path: str,
+    ) -> Dict[str, Any]:
+        """Read a single file from workspace via ToolGateway."""
+        await self._check_fs_policy(context, "read")
+        device = self._get_device_id(context)
+        workspace = self._get_workspace_id(context)
+        job = self._get_job_id(context)
+        try:
+            res = await ToolGateway.invoke_tool(
+                device_id=device,
+                workspace_id=workspace,
+                job_id=job,
+                tool_name="read_file",
+                arguments={"path": path},
+            )
+            if not res.success:
+                return {"path": path, "success": False, "error": res.error}
+            return {"path": path, "success": True, "content": res.result}
+        except Exception as e:
+            return {"path": path, "success": False, "error": str(e)}
+
+    async def _delete_file(
+        self,
+        context: Dict[str, Any],
+        path: str,
+    ) -> Dict[str, Any]:
+        """Delete a file from workspace via ToolGateway."""
+        await self._check_fs_policy(context, "delete")
+        device = self._get_device_id(context)
+        workspace = self._get_workspace_id(context)
+        job = self._get_job_id(context)
+        try:
+            res = await ToolGateway.invoke_tool(
+                device_id=device,
+                workspace_id=workspace,
+                job_id=job,
+                tool_name="delete_file",
+                arguments={"path": path},
+            )
+            if not res.success:
+                return {"path": path, "success": False, "error": res.error}
+            return {"path": path, "success": True}
+        except Exception as e:
+            return {"path": path, "success": False, "error": str(e)}
 
     async def _run_command(
         self,

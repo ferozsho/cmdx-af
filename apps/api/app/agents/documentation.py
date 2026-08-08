@@ -15,8 +15,17 @@ Return JSON with:
 class DocumentationAgent(BaseAgent):
     """Documentation Agent updating project docs."""
 
-    def __init__(self) -> None:
-        super().__init__("Documentation Agent", capability="documentation")
+    def __init__(
+        self,
+        system_prompt_override: str | None = None,
+        tools_override: list[str] | None = None,
+    ) -> None:
+        super().__init__(
+            "Documentation Agent",
+            capability="documentation",
+            system_prompt_override=system_prompt_override,
+            tools_override=tools_override,
+        )
 
     async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Update documentation files using LLM."""
@@ -34,7 +43,7 @@ class DocumentationAgent(BaseAgent):
                     "Generate documentation updates (README.md, API docs, etc.) "
                     "with COMPLETE file content. Return each as {path, content}."
                 ),
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=self.get_system_prompt(SYSTEM_PROMPT),
                 json_mode=True,
             )
             files = response.content.get("files", [])

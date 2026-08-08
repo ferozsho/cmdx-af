@@ -58,8 +58,17 @@ def _content_dict(content: Any) -> Dict[str, Any]:
 class ValidationAgent(BaseAgent):
     """Validation Agent running Ruff, mypy, Bandit, and ESLint checks."""
 
-    def __init__(self) -> None:
-        super().__init__("Validation Agent", capability="validation")
+    def __init__(
+        self,
+        system_prompt_override: str | None = None,
+        tools_override: list[str] | None = None,
+    ) -> None:
+        super().__init__(
+            "Validation Agent",
+            capability="validation",
+            system_prompt_override=system_prompt_override,
+            tools_override=tools_override,
+        )
 
     async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Run linting, type-checking, and security validation via real tools."""
@@ -163,7 +172,7 @@ class ValidationAgent(BaseAgent):
                     "\"build_status\" (PASSED/FAILED), \"auto_fixes_applied\" "
                     "(list), and \"recommendations\" (list)."
                 ),
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=self.get_system_prompt(SYSTEM_PROMPT),
                 json_mode=True,
             )
             llm_out = _content_dict(response.content)

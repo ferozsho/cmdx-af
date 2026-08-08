@@ -74,6 +74,13 @@ class ProjectRepository:
         local_path: str | None = None,
         tech_stack: dict | None = None,
         user_id: str = "",
+        git_enabled: bool = True,
+        git_branch_patterns: list | None = None,
+        git_require_pr: bool = False,
+        git_commit_template: str | None = None,
+        fs_read_enabled: bool = True,
+        fs_write_enabled: bool = True,
+        fs_delete_enabled: bool = True,
     ) -> Project:
         """Create and persist a new project."""
         if not user_id:
@@ -86,6 +93,13 @@ class ProjectRepository:
             execution_target=execution_target,
             local_path=local_path,
             tech_stack=tech_stack or {},
+            git_enabled=git_enabled,
+            git_branch_patterns=git_branch_patterns or ["*"],
+            git_require_pr=git_require_pr,
+            git_commit_template=git_commit_template,
+            fs_read_enabled=fs_read_enabled,
+            fs_write_enabled=fs_write_enabled,
+            fs_delete_enabled=fs_delete_enabled,
         )
         self.db.add(project)
         await self.db.flush()
@@ -120,6 +134,13 @@ class ProjectRepository:
         execution_target: str | None = None,
         local_path: str | None = None,
         tech_stack: dict | None = None,
+        git_enabled: bool | None = None,
+        git_branch_patterns: list | None = None,
+        git_require_pr: bool | None = None,
+        git_commit_template: str | None = None,
+        fs_read_enabled: bool | None = None,
+        fs_write_enabled: bool | None = None,
+        fs_delete_enabled: bool | None = None,
     ) -> Project | None:
         """Update an existing project. Returns updated project or None if not found."""
         project = await self.get_by_id(project_id)
@@ -135,5 +156,19 @@ class ProjectRepository:
             project.local_path = local_path
         if tech_stack is not None:
             project.tech_stack = tech_stack
+        if git_enabled is not None:
+            project.git_enabled = git_enabled
+        if git_branch_patterns is not None:
+            project.git_branch_patterns = git_branch_patterns
+        if git_require_pr is not None:
+            project.git_require_pr = git_require_pr
+        if git_commit_template is not None:
+            project.git_commit_template = git_commit_template
+        if fs_read_enabled is not None:
+            project.fs_read_enabled = fs_read_enabled
+        if fs_write_enabled is not None:
+            project.fs_write_enabled = fs_write_enabled
+        if fs_delete_enabled is not None:
+            project.fs_delete_enabled = fs_delete_enabled
         await self.db.flush()
         return project

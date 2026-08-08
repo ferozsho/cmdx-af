@@ -10,6 +10,7 @@ const TABS = [
   'artifacts',
   'tests',
   'validation',
+  'settings',
 ]
 
 function cleanPath(str: string | null | undefined): string {

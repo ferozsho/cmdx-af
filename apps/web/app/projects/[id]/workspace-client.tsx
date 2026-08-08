@@ -12,7 +12,11 @@ import {
   listArtifacts,
   listProjectRuns,
   listRagChunks,
+  listProjectAgents,
+  configureProjectAgent,
+  updateProject,
   type AgentRun,
+  type ProjectAgentResponse,
   ragSearch,
   getRagStats,
   getGitStatus,
@@ -257,6 +261,7 @@ export default function WorkspaceClient({
     | 'ARTIFACTS'
     | 'TESTS'
     | 'VALIDATION'
+    | 'SETTINGS'
 
   const urlFile = getParam('file') || ''
   const urlQuery = getParam('q') || ''
@@ -324,19 +329,44 @@ export default function WorkspaceClient({
   const [runs, setRuns] = useState<AgentRun[]>([])
   const [runsLoading, setRunsLoading] = useState(false)
 
-  const [agentsState, setAgentsState] = useState<any[]>([
-    { name: 'Planning Agent', status: 'PENDING', duration: '-' },
-    { name: 'Architecture Agent', status: 'PENDING', duration: '-' },
-    { name: 'Visual Analysis Agent', status: 'PENDING', duration: '-' },
-    { name: 'UI/UX Agent', status: 'PENDING', duration: '-' },
-    { name: 'Documentation Agent', status: 'PENDING', duration: '-' },
-    { name: 'Frontend Agent', status: 'PENDING', duration: '-' },
-    { name: 'Backend Agent', status: 'PENDING', duration: '-' },
-    { name: 'Database Agent', status: 'PENDING', duration: '-' },
-    { name: 'Test Agent', status: 'PENDING', duration: '-' },
-    { name: 'Validation Agent', status: 'PENDING', duration: '-' },
-    { name: 'Git Agent', status: 'PENDING', duration: '-' },
-  ])
+  // Per-project agent configuration (loaded from API, not hardcoded)
+  // Extended with runtime pipeline status fields
+  const [agentsState, setAgentsState] = useState<(ProjectAgentResponse & { status?: string; duration?: string })[]>([])
+  const [agentsLoading, setAgentsLoading] = useState(true)
+
+  // Load per-project agent configuration
+  useEffect(() => {
+    async function loadAgents() {
+      try {
+        const data = await listProjectAgents(projectId)
+        setAgentsState(data.map((a) => ({ ...a, status: 'PENDING', duration: '-' })))
+      } catch (err) {
+        console.error('Failed to load project agents:', err)
+      } finally {
+        setAgentsLoading(false)
+      }
+    }
+    loadAgents()
+  }, [projectId])
+
+  // Toggle agent enabled/disabled
+  const toggleAgent = async (templateId: string, enabled: boolean) => {
+    // Optimistic update
+    setAgentsState((prev) =>
+      prev.map((a) => (a.template_id === templateId ? { ...a, enabled } : a)),
+    )
+    try {
+      await configureProjectAgent(projectId, { template_id: templateId, enabled })
+    } catch (err) {
+      console.error('Failed to toggle agent:', err)
+      // Revert on failure
+      setAgentsState((prev) =>
+        prev.map((a) =>
+          a.template_id === templateId ? { ...a, enabled: !enabled } : a,
+        ),
+      )
+    }
+  }
 
   // Store structured results from agent pipeline executions
   const [pipelineResults, setPipelineResults] = useState<Record<string, any>>({})
@@ -582,7 +612,7 @@ export default function WorkspaceClient({
         if (data.agent_name) {
           setAgentsState((prev) =>
             prev.map((ag) => {
-              if (ag.name === data.agent_name) {
+              if (ag.template_name === data.agent_name) {
                 return {
                   ...ag,
                   status: data.status,
@@ -730,7 +760,11 @@ export default function WorkspaceClient({
       { time: new Date().toLocaleTimeString(), text: `[Instruction Submitted] ${prompt}` },
     ])
 
-    setAgentsState((prev) => prev.map((ag) => ({ ...ag, status: 'PENDING', duration: '-' })))
+    setAgentsState((prev) =>
+      prev.map((ag) =>
+        ag.enabled ? { ...ag, status: 'PENDING', duration: '-' } : ag,
+      ),
+    )
 
     try {
       await submitInstruction(projectId, prompt)
@@ -769,7 +803,7 @@ export default function WorkspaceClient({
 
         {/* Tab Navigation Links */}
         <nav className="flex gap-2">
-          {(['AGENTS', 'FILES', 'RAG', 'GIT', 'ARTIFACTS', 'TESTS', 'VALIDATION'] as const).map((tab) => {
+          {(['AGENTS', 'FILES', 'RAG', 'GIT', 'ARTIFACTS', 'TESTS', 'VALIDATION', 'SETTINGS'] as const).map((tab) => {
             const isActive = activeTab === tab
             const href = `/projects/${encodeURIComponent(projectId)}/${tab.toLowerCase()}`
             return (
@@ -821,7 +855,7 @@ export default function WorkspaceClient({
             </span>
             <span className="text-[10px] text-muted">
               {agentsState.filter((a) => a.status === 'COMPLETED').length} /{' '}
-              {agentsState.length} agents
+              {agentsState.filter((a) => a.enabled).length} agents
             </span>
           </div>
           <div className="w-full bg-surface-secondary rounded-full h-2 overflow-hidden border border-border">
@@ -830,16 +864,16 @@ export default function WorkspaceClient({
               style={{
                 width: `${Math.round(
                   (agentsState.filter((a) => a.status !== 'PENDING').length /
-                    agentsState.length) *
+                    Math.max(agentsState.filter((a) => a.enabled).length, 1)) *
                     100,
                 )}%`,
               }}
             />
           </div>
           <div className="flex flex-wrap gap-1 mt-3">
-            {agentsState.map((ag) => (
+            {agentsState.filter((a) => a.enabled).map((ag) => (
               <span
-                key={ag.name}
+                key={ag.template_id}
                 className={`text-[9px] px-1.5 py-0.5 rounded ${
                   ag.status === 'COMPLETED'
                     ? 'bg-emerald-500/15 text-emerald-500'
@@ -848,7 +882,7 @@ export default function WorkspaceClient({
                       : 'bg-surface-secondary text-muted'
                 }`}
               >
-                {ag.name.split(' ')[0]}
+                {ag.template_name.split(' ')[0]}
               </span>
             ))}
           </div>
@@ -860,16 +894,49 @@ export default function WorkspaceClient({
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Agent Sequence List */}
           <div className="md:col-span-1 space-y-3">
-            <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">Agent Sequence</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">
+                Agent Sequence
+              </h2>
+              {agentsLoading && (
+                <span className="text-[10px] text-muted animate-pulse">Loading...</span>
+              )}
+            </div>
+            {!agentsLoading && agentsState.length === 0 && (
+              <p className="text-xs text-muted">
+                No agents configured. Run an instruction to auto-populate.
+              </p>
+            )}
             <div className="space-y-2">
               {agentsState.map((ag) => (
                 <div
-                  key={ag.name}
-                  className="card-af p-3 flex items-center justify-between text-xs"
+                  key={ag.template_id}
+                  className={`card-af p-3 flex items-center justify-between text-xs ${
+                    !ag.enabled ? 'opacity-50' : ''
+                  }`}
                 >
-                  <span className="font-medium text-foreground">{ag.name}</span>
+                  <span className="font-medium text-foreground">{ag.template_name}</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-muted">{ag.duration}</span>
+                    <span className="text-[10px] text-muted">{ag.duration || '-'}</span>
+                    {/* Enable/Disable Toggle */}
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={ag.enabled}
+                      aria-label={`${ag.enabled ? 'Disable' : 'Enable'} ${ag.template_name}`}
+                      onClick={() => toggleAgent(ag.template_id, !ag.enabled)}
+                      disabled={isRunning}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 ${
+                        ag.enabled ? 'bg-emerald-500' : 'bg-surface-secondary border border-border'
+                      } ${isRunning ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                          ag.enabled ? 'translate-x-4' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                    {/* Pipeline status badge */}
                     <span
                       className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         ag.status === 'COMPLETED'
@@ -879,7 +946,7 @@ export default function WorkspaceClient({
                           : 'bg-surface-secondary text-muted'
                       }`}
                     >
-                      {ag.status}
+                      {ag.status || 'PENDING'}
                     </span>
                   </div>
                 </div>
@@ -1739,6 +1806,245 @@ export default function WorkspaceClient({
           })()}
         </section>
       )}
+
+      {/* Settings Tab — Git & Filesystem Policies */}
+      {activeTab === 'SETTINGS' && (
+        <SettingsPanel
+          project={project}
+          projectId={projectId}
+          onSaved={(updated) => setProject(updated)}
+        />
+      )}
     </div>
+  )
+}
+
+/** Inline settings panel for Git and Filesystem policy configuration. */
+function SettingsPanel({
+  project,
+  projectId,
+  onSaved,
+}: {
+  project: ProjectResponse | null
+  projectId: string
+  onSaved: (p: ProjectResponse) => void
+}) {
+  const [gitEnabled, setGitEnabled] = useState(project?.git_enabled ?? true)
+  const [branchPatterns, setBranchPatterns] = useState(
+    (project?.git_branch_patterns || ['*']).join(', '),
+  )
+  const [gitRequirePr, setGitRequirePr] = useState(
+    project?.git_require_pr ?? false,
+  )
+  const [gitCommitTemplate, setGitCommitTemplate] = useState(
+    project?.git_commit_template || '',
+  )
+  const [fsRead, setFsRead] = useState(project?.fs_read_enabled ?? true)
+  const [fsWrite, setFsWrite] = useState(project?.fs_write_enabled ?? true)
+  const [fsDelete, setFsDelete] = useState(project?.fs_delete_enabled ?? true)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  // Sync state when project loads/changes
+  useEffect(() => {
+    if (project) {
+      setGitEnabled(project.git_enabled ?? true)
+      setBranchPatterns((project.git_branch_patterns || ['*']).join(', '))
+      setGitRequirePr(project.git_require_pr ?? false)
+      setGitCommitTemplate(project.git_commit_template || '')
+      setFsRead(project.fs_read_enabled ?? true)
+      setFsWrite(project.fs_write_enabled ?? true)
+      setFsDelete(project.fs_delete_enabled ?? true)
+    }
+  }, [project])
+
+  const handleSave = async () => {
+    setSaving(true)
+    setSaved(false)
+    try {
+      const patterns = branchPatterns
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+      const updated = await updateProject(projectId, {
+        git_enabled: gitEnabled,
+        git_branch_patterns: patterns.length > 0 ? patterns : ['*'],
+        git_require_pr: gitRequirePr,
+        git_commit_template: gitCommitTemplate || null,
+        fs_read_enabled: fsRead,
+        fs_write_enabled: fsWrite,
+        fs_delete_enabled: fsDelete,
+      })
+      onSaved(updated)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      console.error('Failed to save policies:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!project) {
+    return (
+      <section className="card-af p-6">
+        <p className="text-sm text-muted">Loading project settings...</p>
+      </section>
+    )
+  }
+
+  return (
+    <section className="space-y-6">
+      {/* Git Policy */}
+      <div className="card-af p-6">
+        <h2 className="text-base font-semibold text-foreground mb-4">
+          🔀 Git Authorization
+        </h2>
+        <div className="space-y-4">
+          {/* Git enable/disable */}
+          <label className="flex items-center justify-between">
+            <span className="text-sm text-foreground">
+              Enable Git operations
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={gitEnabled}
+              onClick={() => setGitEnabled(!gitEnabled)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary ${
+                gitEnabled ? 'bg-emerald-500' : 'bg-surface-secondary border border-border'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  gitEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </label>
+          <p className="text-[11px] text-muted -mt-2">
+            When disabled, all Git operations (status, log, commit, rollback)
+            are blocked for this project.
+          </p>
+
+          {/* Branch patterns */}
+          <div>
+            <label className="block text-sm text-foreground mb-1">
+              Allowed branch patterns
+            </label>
+            <input
+              type="text"
+              value={branchPatterns}
+              onChange={(e) => setBranchPatterns(e.target.value)}
+              placeholder="feature/*, fix/*, hotfix/*"
+              className="input-af w-full text-xs"
+              disabled={!gitEnabled}
+            />
+            <p className="text-[11px] text-muted mt-1">
+              Comma-separated glob patterns. Use <code>*</code> to allow all.
+              The agent cannot create or commit to branches that don&apos;t match.
+            </p>
+          </div>
+
+          {/* Require PR */}
+          <label className="flex items-center justify-between">
+            <span className="text-sm text-foreground">
+              Require Pull Request (block direct commits)
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={gitRequirePr}
+              onClick={() => setGitRequirePr(!gitRequirePr)}
+              disabled={!gitEnabled}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary ${
+                gitRequirePr ? 'bg-amber-500' : 'bg-surface-secondary border border-border'
+              } ${!gitEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  gitRequirePr ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </label>
+          <p className="text-[11px] text-muted -mt-2">
+            When enabled, the agent cannot commit directly — it must submit
+            changes via a Pull Request workflow.
+          </p>
+
+          {/* Commit template */}
+          <div>
+            <label className="block text-sm text-foreground mb-1">
+              Commit message template
+            </label>
+            <textarea
+              value={gitCommitTemplate}
+              onChange={(e) => setGitCommitTemplate(e.target.value)}
+              placeholder="e.g.&#10;Reviewed-by: @team&#10;Refs: PROJ-123"
+              rows={3}
+              className="input-af w-full text-xs font-mono"
+              disabled={!gitEnabled}
+            />
+            <p className="text-[11px] text-muted mt-1">
+              Appended to every agent-generated commit message.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Filesystem Access */}
+      <div className="card-af p-6">
+        <h2 className="text-base font-semibold text-foreground mb-4">
+          📁 Filesystem Access
+        </h2>
+        <div className="space-y-4">
+          {([
+            ['fsRead', 'Read files', fsRead, setFsRead, 'Agent can read file contents from the workspace.'],
+            ['fsWrite', 'Write files', fsWrite, setFsWrite, 'Agent can create and update files in the workspace.'],
+            ['fsDelete', 'Delete files', fsDelete, setFsDelete, 'Agent can delete files from the workspace.'],
+          ] as const).map(([key, label, value, setter, help]) => (
+            <div key={key}>
+              <label className="flex items-center justify-between">
+                <span className="text-sm text-foreground">{label}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={value}
+                  onClick={() => setter(!value)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary ${
+                    value ? 'bg-emerald-500' : 'bg-surface-secondary border border-border'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      value ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </label>
+              <p className="text-[11px] text-muted mt-0.5">{help}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Save button */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="btn-primary-af text-sm disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Save Policies'}
+        </button>
+        {saved && (
+          <span className="text-xs text-emerald-500 font-medium">
+            ✓ Saved successfully
+          </span>
+        )}
+      </div>
+    </section>
   )
 }

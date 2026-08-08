@@ -15,8 +15,17 @@ Return JSON with:
 class BackendAgent(BaseAgent):
     """Backend Agent generating and writing FastAPI routes, services, schemas."""
 
-    def __init__(self) -> None:
-        super().__init__("Backend Agent", capability="coding")
+    def __init__(
+        self,
+        system_prompt_override: str | None = None,
+        tools_override: list[str] | None = None,
+    ) -> None:
+        super().__init__(
+            "Backend Agent",
+            capability="coding",
+            system_prompt_override=system_prompt_override,
+            tools_override=tools_override,
+        )
 
     async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Generate backend code via LLM and write to workspace."""
@@ -30,7 +39,7 @@ class BackendAgent(BaseAgent):
                     "Generate COMPLETE backend Python code (FastAPI routes, "
                     "services, schemas) with full file content including all imports."
                 ),
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=self.get_system_prompt(SYSTEM_PROMPT),
                 json_mode=True,
             )
             files = response.content.get("files", [])

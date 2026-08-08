@@ -4,22 +4,14 @@ import json
 import time
 from typing import Any, Dict, List, Optional
 
-from app.agents.planning import PlanningAgent
-from app.agents.architecture import ArchitectureAgent
-from app.agents.visual_analysis import VisualAnalysisAgent
-from app.agents.ui_ux import UIUXAgent
-from app.agents.frontend import FrontendAgent
-from app.agents.backend import BackendAgent
-from app.agents.database import DatabaseAgent
-from app.agents.documentation import DocumentationAgent
-from app.agents.test_agent import TestAgent
-from app.agents.validation import ValidationAgent
-from app.agents.git_agent import GitAgent
+from app.agents.registry import AGENT_REGISTRY, DEFAULT_AGENT_ORDER
 from app.core.database import AsyncSessionLocal
 from app.llm.tracking import current_instruction_id
 from app.models.agent_run import AgentRun
 from app.models.artifact import Artifact
 from app.models.instruction import Instruction
+from app.repositories.agent_template_repo import AgentTemplateRepository
+from app.repositories.project_repo import ProjectRepository
 
 
 # Maps each artifact-producing agent to its Artifact.artifact_type
@@ -92,22 +84,65 @@ def _build_artifact(
 
 
 class PipelineOrchestrator:
-    """Sequential Multi-Agent Development Pipeline Orchestrator."""
+    """Sequential Multi-Agent Development Pipeline Orchestrator.
 
-    def __init__(self) -> None:
-        self.agents = [
-            PlanningAgent(),
-            ArchitectureAgent(),
-            VisualAnalysisAgent(),
-            UIUXAgent(),
-            DocumentationAgent(),
-            FrontendAgent(),
-            BackendAgent(),
-            DatabaseAgent(),
-            TestAgent(),
-            ValidationAgent(),
-            GitAgent(),
-        ]
+    Loads per-project agent configuration from the project_agents table so
+    users can enable/disable agents, reorder them, and override prompts/tools
+    per project. Falls back to all 11 default agents when no configuration
+    exists (backward compatible).
+    """
+
+    def __init__(self, project_id: str | None = None) -> None:
+        self.project_id = project_id
+        self.agents: list = []  # Populated lazily in _load_agents()
+
+    async def _load_agents(self) -> list:
+        """Build the agent instance list from per-project config or defaults."""
+        if not self.project_id:
+            return self._default_agents()
+
+        try:
+            async with AsyncSessionLocal() as session:
+                template_repo = AgentTemplateRepository(session)
+                project_agents = await template_repo.list_project_agents(
+                    self.project_id
+                )
+
+                if not project_agents:
+                    return self._default_agents()
+
+                # Load templates to check global is_active and get names
+                templates = await template_repo.list_all()
+                tmpl_map = {t.id: t for t in templates}
+
+                agents: list = []
+                for pa in sorted(project_agents, key=lambda x: x.sort_order):
+                    if not pa.enabled:
+                        continue
+                    tmpl = tmpl_map.get(pa.template_id)
+                    if not tmpl or not tmpl.is_active:
+                        continue
+                    agent_cls = AGENT_REGISTRY.get(tmpl.name)
+                    if not agent_cls:
+                        continue
+                    # Build overrides from custom_config
+                    overrides = pa.custom_config or {}
+                    agents.append(
+                        agent_cls(
+                            system_prompt_override=overrides.get("system_prompt"),
+                            tools_override=overrides.get("tools"),
+                        )
+                    )
+
+                if agents:
+                    return agents
+                return self._default_agents()
+        except Exception:
+            return self._default_agents()
+
+    def _default_agents(self) -> list:
+        """Return the hardcoded default agent list (backward compat)."""
+        return [AGENT_REGISTRY[name]() for name in DEFAULT_AGENT_ORDER]
 
     async def run_pipeline(
         self,
@@ -121,18 +156,34 @@ class PipelineOrchestrator:
         # Bind instruction_id so LLM usage tracking persists the right FK
         current_instruction_id.set(instruction_id)
 
+        # Load per-project agent config (or defaults)
+        agents = await self._load_agents()
+
+        # Load project config for policy enforcement
+        project_config = None
+        if self.project_id:
+            try:
+                async with AsyncSessionLocal() as session:
+                    project_repo = ProjectRepository(session)
+                    project_config = await project_repo.get_by_id(self.project_id)
+            except Exception:
+                pass
+
         context: Dict[str, Any] = {
             "instruction_id": instruction_id,
             "prompt": prompt,
             "device_id": device_id,
             "workspace_id": workspace_id,
+            "project_config": project_config,
         }
         results: List[Dict[str, Any]] = []
 
-        for agent in self.agents:
+        for agent in agents:
             start_time = time.time()
             if event_callback:
-                await event_callback(agent.agent_name, "STARTED", f"Running {agent.agent_name}...")
+                await event_callback(
+                    agent.agent_name, "STARTED", f"Running {agent.agent_name}..."
+                )
 
             res = await agent.execute(context)
             duration = round(time.time() - start_time, 2)

@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.policies import check_fs_policy, check_git_policy
 from app.core.security import get_current_user
 from app.models.agent_run import AgentRun
 from app.models.user import User
@@ -33,6 +34,15 @@ class ProjectCreate(BaseModel):
     local_path: str | None = None
     tech_stack: List[str] | None = None
     initial_instruction: str | None = None
+    # Git authorization
+    git_enabled: bool = True
+    git_branch_patterns: List[str] | None = None
+    git_require_pr: bool = False
+    git_commit_template: str | None = None
+    # Filesystem access
+    fs_read_enabled: bool = True
+    fs_write_enabled: bool = True
+    fs_delete_enabled: bool = True
 
 
 class ProjectResponse(BaseModel):
@@ -47,6 +57,15 @@ class ProjectResponse(BaseModel):
     status: str = "ACTIVE"
     created_at: str | None = None
     updated_at: str | None = None
+    # Git authorization
+    git_enabled: bool = True
+    git_branch_patterns: list | None = None
+    git_require_pr: bool = False
+    git_commit_template: str | None = None
+    # Filesystem access
+    fs_read_enabled: bool = True
+    fs_write_enabled: bool = True
+    fs_delete_enabled: bool = True
 
 
 class ProjectUpdate(BaseModel):
@@ -57,6 +76,15 @@ class ProjectUpdate(BaseModel):
     execution_target: str | None = None
     local_path: str | None = None
     tech_stack: List[str] | None = None
+    # Git authorization
+    git_enabled: bool | None = None
+    git_branch_patterns: List[str] | None = None
+    git_require_pr: bool | None = None
+    git_commit_template: str | None = None
+    # Filesystem access
+    fs_read_enabled: bool | None = None
+    fs_write_enabled: bool | None = None
+    fs_delete_enabled: bool | None = None
 
 
 class ValidatePathRequest(BaseModel):
@@ -313,6 +341,13 @@ async def list_projects(
             status="ACTIVE",
             created_at=p.created_at.isoformat() if p.created_at else None,
             updated_at=p.updated_at.isoformat() if p.updated_at else None,
+            git_enabled=bool(p.git_enabled),
+            git_branch_patterns=p.git_branch_patterns if p.git_branch_patterns else None,
+            git_require_pr=bool(p.git_require_pr),
+            git_commit_template=p.git_commit_template,
+            fs_read_enabled=bool(p.fs_read_enabled),
+            fs_write_enabled=bool(p.fs_write_enabled),
+            fs_delete_enabled=bool(p.fs_delete_enabled),
         )
         for p in projects
     ]
@@ -334,6 +369,13 @@ async def create_project(
         local_path=data.local_path,
         tech_stack={t: True for t in tech_stack_list},
         user_id=current_user.id,
+        git_enabled=data.git_enabled,
+        git_branch_patterns=data.git_branch_patterns,
+        git_require_pr=data.git_require_pr,
+        git_commit_template=data.git_commit_template,
+        fs_read_enabled=data.fs_read_enabled,
+        fs_write_enabled=data.fs_write_enabled,
+        fs_delete_enabled=data.fs_delete_enabled,
     )
     await db.commit()
     await db.refresh(project)
@@ -362,7 +404,7 @@ async def create_project(
         workspace_id = _DEFAULT_WORKSPACE
 
         async def _run_initial_pipeline() -> None:
-            orchestrator = PipelineOrchestrator()
+            orchestrator = PipelineOrchestrator(project_id=project.id)
 
             async def _event_cb(
                 agent_name: str,
@@ -400,6 +442,13 @@ async def create_project(
         status="ACTIVE",
         created_at=project.created_at.isoformat() if project.created_at else None,
         updated_at=project.updated_at.isoformat() if project.updated_at else None,
+        git_enabled=bool(project.git_enabled),
+        git_branch_patterns=project.git_branch_patterns if project.git_branch_patterns else None,
+        git_require_pr=bool(project.git_require_pr),
+        git_commit_template=project.git_commit_template,
+        fs_read_enabled=bool(project.fs_read_enabled),
+        fs_write_enabled=bool(project.fs_write_enabled),
+        fs_delete_enabled=bool(project.fs_delete_enabled),
     )
 
 
@@ -424,6 +473,13 @@ async def get_project(
         status="ACTIVE",
         created_at=project.created_at.isoformat() if project.created_at else None,
         updated_at=project.updated_at.isoformat() if project.updated_at else None,
+        git_enabled=bool(project.git_enabled),
+        git_branch_patterns=project.git_branch_patterns if project.git_branch_patterns else None,
+        git_require_pr=bool(project.git_require_pr),
+        git_commit_template=project.git_commit_template,
+        fs_read_enabled=bool(project.fs_read_enabled),
+        fs_write_enabled=bool(project.fs_write_enabled),
+        fs_delete_enabled=bool(project.fs_delete_enabled),
     )
 
 
@@ -446,6 +502,13 @@ async def update_project(
         execution_target=data.execution_target,
         local_path=data.local_path,
         tech_stack=tech_stack_dict,
+        git_enabled=data.git_enabled,
+        git_branch_patterns=data.git_branch_patterns,
+        git_require_pr=data.git_require_pr,
+        git_commit_template=data.git_commit_template,
+        fs_read_enabled=data.fs_read_enabled,
+        fs_write_enabled=data.fs_write_enabled,
+        fs_delete_enabled=data.fs_delete_enabled,
     )
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -459,6 +522,13 @@ async def update_project(
         status="ACTIVE",
         created_at=project.created_at.isoformat() if project.created_at else None,
         updated_at=project.updated_at.isoformat() if project.updated_at else None,
+        git_enabled=bool(project.git_enabled),
+        git_branch_patterns=project.git_branch_patterns if project.git_branch_patterns else None,
+        git_require_pr=bool(project.git_require_pr),
+        git_commit_template=project.git_commit_template,
+        fs_read_enabled=bool(project.fs_read_enabled),
+        fs_write_enabled=bool(project.fs_write_enabled),
+        fs_delete_enabled=bool(project.fs_delete_enabled),
     )
 
 
@@ -537,6 +607,10 @@ async def get_project_tree(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Fetch real project file tree from connected Local Agent."""
+    repo = ProjectRepository(db)
+    project = await repo.get_by_id(project_id)
+    if project:
+        check_fs_policy(project, "read")
     workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,
@@ -560,6 +634,10 @@ async def read_project_file(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Read real project file content from connected Local Agent."""
+    repo = ProjectRepository(db)
+    project = await repo.get_by_id(project_id)
+    if project:
+        check_fs_policy(project, "read")
     workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,
@@ -633,6 +711,10 @@ async def get_git_status(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get real Git status from Local Agent workspace."""
+    repo = ProjectRepository(db)
+    project = await repo.get_by_id(project_id)
+    if project:
+        check_git_policy(project, "read")
     workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,
@@ -656,6 +738,10 @@ async def get_git_log(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get recent git commit log from Local Agent workspace."""
+    repo = ProjectRepository(db)
+    project = await repo.get_by_id(project_id)
+    if project:
+        check_git_policy(project, "read")
     workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,
@@ -687,6 +773,10 @@ async def rollback_git_commit(
     """Hard-reset the workspace to a specified commit hash."""
     if not data.commit_hash:
         raise HTTPException(status_code=400, detail="commit_hash is required")
+    repo = ProjectRepository(db)
+    project = await repo.get_by_id(project_id)
+    if project:
+        check_git_policy(project, "rollback")
     workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,
@@ -848,6 +938,10 @@ async def get_file_original(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get the original (git HEAD) version of a file for diff baseline."""
+    repo = ProjectRepository(db)
+    project = await repo.get_by_id(project_id)
+    if project:
+        check_fs_policy(project, "read")
     workspace = await _resolve_workspace(project_id, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=_DEFAULT_DEVICE,

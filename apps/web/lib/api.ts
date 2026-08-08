@@ -230,6 +230,15 @@ export interface ProjectResponse {
   status: string
   created_at?: string | null
   updated_at?: string | null
+  // Git authorization
+  git_enabled?: boolean
+  git_branch_patterns?: string[] | null
+  git_require_pr?: boolean
+  git_commit_template?: string | null
+  // Filesystem access
+  fs_read_enabled?: boolean
+  fs_write_enabled?: boolean
+  fs_delete_enabled?: boolean
 }
 
 export interface DeviceResponse {
@@ -368,6 +377,15 @@ export function updateProject(
     execution_target?: string
     local_path?: string
     tech_stack?: string[]
+    // Git authorization
+    git_enabled?: boolean
+    git_branch_patterns?: string[]
+    git_require_pr?: boolean
+    git_commit_template?: string | null
+    // Filesystem access
+    fs_read_enabled?: boolean
+    fs_write_enabled?: boolean
+    fs_delete_enabled?: boolean
   },
 ): Promise<ProjectResponse> {
   return request<ProjectResponse>(

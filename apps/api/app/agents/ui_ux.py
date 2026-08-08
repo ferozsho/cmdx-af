@@ -16,8 +16,17 @@ detailed UI design specifications. Return JSON with:
 class UIUXAgent(BaseAgent):
     """UI/UX Agent producing UI design specifications."""
 
-    def __init__(self) -> None:
-        super().__init__("UI/UX Agent", capability="reasoning")
+    def __init__(
+        self,
+        system_prompt_override: str | None = None,
+        tools_override: list[str] | None = None,
+    ) -> None:
+        super().__init__(
+            "UI/UX Agent",
+            capability="reasoning",
+            system_prompt_override=system_prompt_override,
+            tools_override=tools_override,
+        )
 
     async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Produce UI specification using LLM."""
@@ -31,7 +40,7 @@ class UIUXAgent(BaseAgent):
                     "Produce a detailed UI/UX specification for the required feature. "
                     "Consider layout, components, responsive behavior, and accessibility."
                 ),
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=self.get_system_prompt(SYSTEM_PROMPT),
                 json_mode=True,
             )
             return {

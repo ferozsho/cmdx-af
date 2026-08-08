@@ -16,8 +16,17 @@ message summarizing all changes. Return JSON with:
 class GitAgent(BaseAgent):
     """Git Agent managing branches, commits, and rollbacks."""
 
-    def __init__(self) -> None:
-        super().__init__("Git Agent", capability="coding")
+    def __init__(
+        self,
+        system_prompt_override: str | None = None,
+        tools_override: list[str] | None = None,
+    ) -> None:
+        super().__init__(
+            "Git Agent",
+            capability="coding",
+            system_prompt_override=system_prompt_override,
+            tools_override=tools_override,
+        )
 
     async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Create branch, commit all changes via ToolGateway."""
@@ -27,6 +36,9 @@ class GitAgent(BaseAgent):
         device = self._get_device_id(context)
         workspace = self._get_workspace_id(context)
         job = self._get_job_id(context)
+
+        # ── Enforce git branch creation policy ──
+        await self._check_git_policy(context, "branch_create", branch=branch_name)
 
         # Collect all agent outputs for the commit message
         plan = context.get("plan_json", {})
@@ -58,13 +70,24 @@ class GitAgent(BaseAgent):
                     "Write a conventional commit message. "
                     "Format: type(scope): description"
                 ),
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=self.get_system_prompt(SYSTEM_PROMPT),
                 json_mode=True,
             )
             commit_msg = response.content.get(
                 "commit_message",
                 f"feat: Implementation for {instruction_id}",
             )
+
+            # Inject commit template if configured
+            template = None
+            project_config = self._get_project_config(context)
+            if project_config:
+                template = getattr(project_config, "git_commit_template", None)
+            if template:
+                commit_msg = f"{commit_msg}\n\n{template}"
+
+            # ── Enforce git commit policy ──
+            await self._check_git_policy(context, "commit", branch=branch_name)
 
             # 3. Commit all changes
             commit_res = await ToolGateway.invoke_tool(
