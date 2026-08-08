@@ -262,6 +262,9 @@ export default function WorkspaceClient({
   const [ragResults, setRagResults] = useState<any[]>([])
   const [ragStats, setRagStats] = useState<RagStats | null>(null)
   const [ragPage, setRagPage] = useState(0)
+  const [ragSearching, setRagSearching] = useState(false)
+  const [ragError, setRagError] = useState<string | null>(null)
+  const [ragSearched, setRagSearched] = useState(false)
 
   const [fileTree, setFileTree] = useState<any>(null)
   const [fileTreeError, setFileTreeError] = useState<string | null>(null)
@@ -388,18 +391,33 @@ export default function WorkspaceClient({
 
   // Handle RAG search
   const executeRagSearch = async (queryText: string) => {
-    if (!queryText.trim()) return
-    updateUrl('rag', undefined, queryText)
+    const q = queryText.trim()
+    if (!q) return
+    updateUrl('rag', undefined, q)
+    setRagSearching(true)
+    setRagError(null)
     try {
-      const data = await ragSearch(projectId, queryText, 15)
+      const data = await ragSearch(projectId, q, 15)
       if ((data as any)?.status === 'offline') {
         setRagResults([])
+        setRagSearched(true)
+        setRagError(
+          (data as any)?.detail ||
+            'Local agent workstation is offline. Start `agentforge start` to enable RAG search.',
+        )
         return
       }
-      setRagResults(Array.isArray(data) ? data : [data])
+      const results = Array.isArray(data) ? data : [data]
+      setRagResults(results)
       setRagPage(0)
+      setRagSearched(true)
     } catch (err) {
       console.error('Failed to search RAG:', err)
+      setRagResults([])
+      setRagSearched(true)
+      setRagError('Search failed — please try again.')
+    } finally {
+      setRagSearching(false)
     }
   }
 
@@ -571,7 +589,7 @@ export default function WorkspaceClient({
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col min-h-0 space-y-6">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-border pb-4">
         <div>
@@ -735,9 +753,9 @@ export default function WorkspaceClient({
       )}
 
       {activeTab === 'FILES' && (
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-6 flex-1 min-h-0">
           {/* File Tree Panel */}
-          <div className="md:col-span-1 card-af p-4 text-xs space-y-2 max-h-[600px] overflow-y-auto">
+          <div className="md:col-span-1 card-af p-4 text-xs space-y-2 min-h-0 max-h-[calc(100vh-219px)] overflow-y-auto">
             <div className="text-sm font-semibold text-foreground font-sans mb-3 flex items-center justify-between gap-2">
               <span>Live Workspace File Tree</span>
               <span className="flex items-center gap-1.5">
@@ -795,7 +813,7 @@ export default function WorkspaceClient({
           </div>
 
           {/* File Code / Diff Viewer Panel */}
-          <div className="md:col-span-2 space-y-2">
+          <div className="md:col-span-2 space-y-2 min-h-0 max-h-[calc(100vh-219px)]">
             {loadingFile ? (
               <div className="card-af p-12 text-center text-xs text-muted font-mono animate-pulse">
                 Fetching file content from local workstation over WSS...
@@ -874,10 +892,47 @@ export default function WorkspaceClient({
               placeholder="Search codebase semantically (e.g. payment processing logic)..."
               className="input-af flex-1"
             />
-            <button type="submit" className="btn-primary-af text-xs">
-              Search RAG
+            <button
+              type="submit"
+              className="btn-primary-af text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={ragSearching}
+            >
+              {ragSearching ? 'Searching…' : 'Search RAG'}
             </button>
           </form>
+
+          {/* Live search feedback — shown below the form where results render */}
+          {ragSearching && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-3 rounded-[10px] border border-primary/20 bg-primary/5 px-4 py-3.5 text-xs"
+            >
+              <span className="h-4 w-4 flex-shrink-0 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              <span className="text-foreground">
+                Searching workspace for{' '}
+                <span className="font-mono text-primary">
+                  “{ragQuery.trim()}”
+                </span>
+                …
+              </span>
+            </div>
+          )}
+
+          {!ragSearching && ragError && (
+            <div className="rounded-[10px] border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-500">
+              ⚠ {ragError}
+            </div>
+          )}
+
+          {!ragSearching && !ragError && ragSearched && ragResults.length === 0 && (
+            <div className="rounded-[10px] border border-border bg-surface-secondary px-4 py-3 text-xs text-muted">
+              No results found for{' '}
+              <span className="font-mono text-foreground">
+                “{ragQuery.trim()}”
+              </span>
+            </div>
+          )}
 
           {ragResults.length > 0 && (
             <div className="space-y-3 pt-2">

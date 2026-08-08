@@ -89,7 +89,7 @@ export default function DiffViewer({
   const hasBaseline = originalCode.trim().length > 0
 
   return (
-    <div className="bg-[#0d121f] border border-border rounded-xl overflow-hidden text-xs font-mono max-h-[550px] flex flex-col shadow-xl">
+    <div className="bg-[#0d121f] border border-border rounded-xl overflow-hidden text-xs font-mono h-full min-h-0 flex flex-col shadow-xl">
       {/* Header bar */}
       <div className="bg-[#111827] px-4 py-2.5 border-b border-border flex items-center justify-between text-gray-200 flex-shrink-0">
         <div className="flex items-center gap-2">

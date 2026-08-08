@@ -130,7 +130,7 @@ export default function RootLayout({
             </header>
 
             {/* Page Content */}
-            <div className="p-7">{children}</div>
+            <div className="p-7 flex-1 flex flex-col min-h-0">{children}</div>
           </main>
         </ThemeProvider>
       </body>
