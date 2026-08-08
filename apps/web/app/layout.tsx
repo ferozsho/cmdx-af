@@ -7,6 +7,7 @@ import { LiveWorkspaceLink } from './live-workspace-link'
 import { SidebarHealth } from './sidebar-health'
 import { NavItem } from './nav-item'
 import { ThemeProvider } from '@/components/theme-provider'
+import AuthGuard from '@/components/auth-guard'
 
 export const metadata: Metadata = {
   title: {
@@ -130,7 +131,9 @@ export default function RootLayout({
             </header>
 
             {/* Page Content */}
-            <div className="p-7 flex-1 flex flex-col min-h-0">{children}</div>
+            <div className="p-7 flex-1 flex flex-col min-h-0">
+              <AuthGuard>{children}</AuthGuard>
+            </div>
           </main>
         </ThemeProvider>
       </body>

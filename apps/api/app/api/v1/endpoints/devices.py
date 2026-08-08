@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.security import get_current_user
+from app.models.user import User
 from app.repositories.device_repo import DeviceRepository
 
 router = APIRouter()
@@ -48,10 +50,13 @@ class TokenValidateRequest(BaseModel):
 
 
 @router.get("/devices", response_model=List[DeviceResponse])
-async def list_devices(db: AsyncSession = Depends(get_db)) -> Any:
-    """Get all registered workstation devices from the database."""
+async def list_devices(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Get all registered workstation devices for the authenticated user."""
     repo = DeviceRepository(db)
-    devices = await repo.list_all()
+    devices = await repo.list_for_user(current_user.id)
     return [
         DeviceResponse(
             id=d.id,
@@ -67,7 +72,9 @@ async def list_devices(db: AsyncSession = Depends(get_db)) -> Any:
 
 
 @router.post("/devices/pairing-code")
-async def generate_pairing_code() -> Any:
+async def generate_pairing_code(
+    current_user: User = Depends(get_current_user),
+) -> Any:
     """Generate and store a temporary pairing code for Local Agent onboarding."""
     code = f"AGF-{uuid.uuid4().hex[:4].upper()}"
     now = time.time()
@@ -131,6 +138,7 @@ async def validate_device_token(
 async def revoke_device(
     device_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Revoke a registered device: disconnect WSS and remove from DB."""
     from app.wss.connection_manager import wss_manager
@@ -139,6 +147,9 @@ async def revoke_device(
         await wss_manager.disconnect(device_id, db)
 
     repo = DeviceRepository(db)
+    device = await repo.get_by_id(device_id)
+    if not device or device.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Device not found")
     deleted = await repo.delete(device_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Device not found")

@@ -7,6 +7,25 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+const AUTH_TOKEN_KEY = 'agentforge_token'
+
+export function getToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage.getItem(AUTH_TOKEN_KEY)
+}
+
+export function setToken(token: string): void {
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(AUTH_TOKEN_KEY, token)
+  }
+}
+
+export function clearToken(): void {
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(AUTH_TOKEN_KEY)
+  }
+}
+
 export class ApiError extends Error {
   code: number
   detail: string
@@ -25,9 +44,14 @@ async function request<T>(
   options?: RequestInit,
 ): Promise<T> {
   const url = `${API_BASE}${path}`
+  const token = getToken()
   const res = await fetch(url, {
     method,
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options?.headers,
+    },
     body: body ? JSON.stringify(body) : undefined,
     ...options,
   })
@@ -44,6 +68,44 @@ async function request<T>(
   }
 
   return res.json() as Promise<T>
+}
+
+// ── Auth ───────────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: string
+  email: string
+  full_name: string | null
+  created_at?: string | null
+}
+
+export interface AuthResponse {
+  access_token: string
+  token_type: string
+  user: AuthUser
+}
+
+/** POST /api/v1/auth/register — create an account, returns JWT + user */
+export function register(
+  email: string,
+  password: string,
+  fullName?: string,
+): Promise<AuthResponse> {
+  return request<AuthResponse>('POST', '/api/v1/auth/register', {
+    email,
+    password,
+    full_name: fullName || null,
+  })
+}
+
+/** POST /api/v1/auth/login — returns JWT + user */
+export function login(email: string, password: string): Promise<AuthResponse> {
+  return request<AuthResponse>('POST', '/api/v1/auth/login', { email, password })
+}
+
+/** GET /api/v1/auth/me — current authenticated user (throws 401 if not authed) */
+export function getMe(): Promise<AuthUser> {
+  return request<AuthUser>('GET', '/api/v1/auth/me')
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -345,6 +407,28 @@ export function listArtifacts(
   }[]
 > {
   return request('GET', `/api/v1/projects/${encodeURIComponent(id)}/artifacts`)
+}
+
+/** GET /api/v1/projects/:id/runs — persisted agent runs (via instructions) */
+export interface AgentRun {
+  id: string
+  instruction_id: string
+  agent_name: string
+  status: string
+  output: string | null
+  metadata: Record<string, unknown> | null
+  duration_seconds: number
+  created_at: string | null
+}
+
+export function listProjectRuns(
+  id: string,
+  limit = 50,
+): Promise<AgentRun[]> {
+  return request(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(id)}/runs?limit=${limit}`,
+  )
 }
 
 /** GET /api/v1/observability/agent-metrics */

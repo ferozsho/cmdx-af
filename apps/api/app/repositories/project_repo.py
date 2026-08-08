@@ -41,6 +41,24 @@ class ProjectRepository:
         )
         return list(result.scalars().all())
 
+    async def list_for_user(self, user_id: str) -> List[Project]:
+        """Return projects belonging to a user, newest first."""
+        result = await self.db.execute(
+            select(Project)
+            .where(Project.user_id == user_id)
+            .order_by(Project.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def belongs_to(self, project_id: str, user_id: str) -> bool:
+        """True when a project exists and belongs to the given user."""
+        result = await self.db.execute(
+            select(Project.id).where(
+                Project.id == project_id, Project.user_id == user_id
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
     async def get_by_id(self, project_id: str) -> Optional[Project]:
         """Get a single project by its primary key."""
         result = await self.db.execute(
@@ -76,6 +94,13 @@ class ProjectRepository:
     async def count(self) -> int:
         """Return total number of projects."""
         result = await self.db.execute(select(Project))
+        return len(list(result.scalars().all()))
+
+    async def count_for_user(self, user_id: str) -> int:
+        """Return total number of projects for a user."""
+        result = await self.db.execute(
+            select(Project).where(Project.user_id == user_id)
+        )
         return len(list(result.scalars().all()))
 
     async def delete(self, project_id: str) -> bool:

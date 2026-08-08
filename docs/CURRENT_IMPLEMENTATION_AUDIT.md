@@ -1,13 +1,21 @@
 # AgentForge — Current Implementation Audit
 
-**Date:** 2026-08-07
-**Auditor:** Automated codebase analysis
+**Date:** 2026-08-08 (refreshed — supersedes the 2026-08-07 audit)
+**Authoritative status source:** `docs/NEXT_PLAN.md`
 
 ---
 
 ## 1. Executive Summary
 
-The AgentForge codebase has a SOLID architectural foundation. The communication backbone (WSS, ToolGateway, SSE) is fully real. The database schema is complete and well-designed. The local agent is 100% real with all security boundaries implemented. However, the cloud API endpoints are almost entirely mock-driven, agents (except Planning) are stubs, and the frontend is a mix of real API calls and hardcoded data. The database layer is wired but dormant — no endpoint uses it.
+AgentForge is now REAL end-to-end: DB-backed CRUD, real DeepSeek LLM calls
+(Settings-page-driven config), a live Local Execution Daemon over WSS, Qdrant
+vector search with background indexing + live progress, auth
+(register/login/JWT), observability, and a fully polished Next.js UI. No mock
+data sources remain in the cloud API path (MockLLMProvider exists only for
+tests / APP_MODE=mock). The 2026-08-07 audit claimed mock CRUD, stub agents,
+hardcoded dashboards, no Qdrant, no watcher wiring, no validate-path, no
+settings persistence, no observability, no auth — **all of those have since
+been implemented and verified.** See sections 3–7 below for the current gaps.
 
 ---
 
@@ -62,10 +70,10 @@ The AgentForge codebase has a SOLID architectural foundation. The communication 
 | Path Guard | ✅ Real | Path traversal protection, restricted path blocking |
 | Secret Redactor | ✅ Real | 5 pattern classes (API keys, tokens, DB URLs, passwords, PEM) |
 | Workspace Manager | ✅ Real | JSON file persistence for workspace registry |
-| File Watcher | ✅ Real | watchdog-based, ignores .git/node_modules |
+| File Watcher | ✅ Real | watchdog-based, 5s debounce, `_IGNORED_PARTS` path-parts ignore (venv/caches) — wired into `agentforge start` |
 | RAG Chunker | ✅ Real | Line-window chunking for 12 file types |
 | RAG Embedder | ✅ Real | sentence-transformers with deterministic fallback |
-| RAG Indexer | ✅ Real | In-memory keyword search (vector search not wired) |
+| RAG Indexer | ✅ Real | **Qdrant vector search** (`ws_<md5>` collection, cosine 384-d) + keyword fallback; `_instances` cache; `index_state` live progress |
 
 ### 2.6 Frontend (Real Parts)
 | Component | Status | Details |
@@ -88,146 +96,51 @@ The AgentForge codebase has a SOLID architectural foundation. The communication 
 
 ---
 
-## 3. Existing but Partial
+## 3. Current Gaps (2026-08-08)
 
-### 3.1 Backend
-| Component | Issue |
-|-----------|-------|
-| Database | Schema complete but **zero endpoints use `get_db`** — all CRUD is in-memory mock |
-| Projects endpoint | `GET /projects` returns `MOCK_PROJECTS` list; `POST` appends to in-memory list (lost on restart) |
-| Devices endpoint | `GET /devices` returns `MOCK_DEVICES` list; pairing code is generated but not persisted |
-| RAG Indexer (local) | Uses keyword matching, not vector similarity; Qdrant client never used despite being a dependency |
-| File Watcher | Exists but never wired into CLI — never started |
-| Project validation | No `/projects/validate-path` endpoint exists |
+The former “Existing but Partial / Mock / Missing / Broken” sections are obsolete —
+the rows they listed (DB CRUD, real agents, Qdrant, watcher, validate-path, settings
+persistence, observability, auth, rollback, error handling) are implemented and
+verified. Remaining gaps:
 
-### 3.2 Agents (9 of 11 are STUBS)
-| Agent | Issue |
-|-------|-------|
-| ArchitectureAgent | Returns hardcoded `architectural_decisions` list |
-| BackendAgent | Returns hardcoded `files_generated` list |
-| FrontendAgent | Returns hardcoded `files_generated` list |
-| DatabaseAgent | Returns hardcoded `files_generated` list |
-| DocumentationAgent | Returns hardcoded `docs_updated` list |
-| UIUXAgent | Returns hardcoded `ui_spec` dict |
-| ValidationAgent | Returns hardcoded zero issues |
-| TestAgent | Returns hardcoded 28 passed, 87.5% coverage |
-| GitAgent | Returns hardcoded branch and fake commit hash `a1b2c3d4` |
-| VisualAnalysisAgent | Real image encoding, fake analysis output |
-
-### 3.3 Frontend
-| Component | Issue |
-|-----------|-------|
-| Dashboard (`page.tsx`) | 100% hardcoded KPIs and project cards |
-| Devices page | Device table row is hardcoded HTML, not from API |
-| Workspace header | Project name "Commerce Platform", device "FEROZ-PC", path all hardcoded |
-| Agent list | 11 agent names hardcoded in `useState` initializer |
-| Diff baseline | Always `"// Baseline snapshot"` — no real git diff comparison |
+| Area | Gap |
+|------|-----|
+| Auth depth | No refresh tokens, no token-revocation UI, no per-route RBAC beyond projects/devices |
+| Local agent chunker | `chunker.py` still hardcodes chunk_size/overlap (not wired to Settings page RAG fields) |
+| Dockerized local agent | Image + compose exist; the native `agentforge start` flow is what's exercised |
+| Test coverage | Endpoint tests for RAG/settings/validate-path/rollback/auth would close gaps |
+| Prototype doc | `docs/index.html` is a static mock — informational only, not wired |
 
 ---
 
-## 4. Mock Implementations
-
-### 4.1 Mock Data Sources
-| Location | Mock Data |
-|----------|-----------|
-| `endpoints/projects.py` | `MOCK_PROJECTS` — hardcoded list, mutating array |
-| `endpoints/devices.py` | `MOCK_DEVICES` — hardcoded list |
-| `llm/mock.py` | `MockLLMProvider` — hardcoded responses |
-
-### 4.2 Stub Agents (hardcoded returns)
-| File | Agent | Return Type |
-|------|-------|-------------|
-| `agents/architecture.py` | ArchitectureAgent | `architectural_decisions: [...]` |
-| `agents/backend.py` | BackendAgent | `files_generated: [...]` |
-| `agents/frontend.py` | FrontendAgent | `files_generated: [...]` |
-| `agents/database.py` | DatabaseAgent | `files_generated: [...]` |
-| `agents/documentation.py` | DocumentationAgent | `docs_updated: [...]` |
-| `agents/ui_ux.py` | UIUXAgent | `ui_spec: {...}` |
-| `agents/validation.py` | ValidationAgent | `lint_issues: 0, type_errors: 0` |
-| `agents/test_agent.py` | TestAgent | `tests_passed: 28, coverage: 87.5` |
-| `agents/git_agent.py` | GitAgent | `branch: "agent/ins_xxx", commit_hash: "a1b2c3d4"` |
-
-### 4.3 Frontend Hardcoded Data
-| Location | Hardcoded Values |
-|----------|-----------------|
-| `app/page.tsx` | KPIs: "4", "1", "12", "128/128"; project cards with names/paths |
-| `app/devices/devices-client.tsx` | Device row: "FEROZ-PC", "Windows 11 Pro" |
-| `app/projects/[id]/workspace-client.tsx` | Project name, device, path, agent list (11 names) |
-| `app/projects/[id]/workspace-client.tsx` | Pairing code fallback: `'AGF-84K2'` |
-
----
-
-## 5. Missing Features
-
-| Feature | Details |
-|---------|---------|
-| Project path validation endpoint | No `POST /projects/validate-path` |
-| Database-backed project CRUD | All projects in memory |
-| Database-backed device CRUD | All devices in memory |
-| Technology stack detection | No project scanning for stack detection |
-| Real agent implementations | 9 of 11 agents need real LLM calls + tool integration |
-| Qdrant vector search | Local agent has keyword search only |
-| File watcher integration | Not wired into daemon |
-| Observability metrics | No endpoint returns real aggregated data |
-| Settings persistence | No settings CRUD endpoint |
-| Infrastructure health checks | No real DB/Redis/Qdrant connectivity checks |
-| Agent pipeline persistence | Runs not saved to `agent_runs` table |
-| Instruction persistence | Not saved to `instructions` table |
-| LLM usage tracking | Not saved to `llm_usage` table |
-| File operation logging | Not saved to `file_operations` table |
-| Git commit logging | Not saved to `git_commits` table |
-| Artifact persistence | Not saved to `artifacts` table |
-| Authentication | No auth endpoints or middleware |
-| Error handling in frontend | New Project silently redirects on failure |
-
----
-
-## 6. Broken Features
-
-| Feature | Issue | Severity |
-|---------|-------|----------|
-| "Check Project Folder" | Does not exist — no validation endpoint, no UI button | **P0** |
-| Project persistence | Projects lost on API restart | **P0** |
-| Device list | Never fetched from API in frontend | P1 |
-| Project dashboard | Shows hardcoded data, never from API | P1 |
-| Agent execution | 9 agents produce fake results | P2 |
-| RAG vector search | Uses keyword matching, not embeddings | P2 |
-| Git rollback | No endpoint for rollback | P2 |
-
----
-
-## 7. Integration Map
+## 4. Integration Map (current)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    FRONTEND (Next.js 16)                     │
-│  page.tsx  devices-client  workspace-client  new-project    │
-│   (mock)     (partial)        (partial)         (real)      │
+│              FRONTEND (Next.js 16 App Router)                │
+│  login  dashboard  workspace-client  devices  settings      │
+│  rag-manager  observability  (all REAL, auth-guarded)       │
 └──────────────────────┬──────────────────────────────────────┘
-                       │ REST / SSE
+                       │ REST (Bearer JWT) / SSE
 ┌──────────────────────▼──────────────────────────────────────┐
 │                   FASTAPI BACKEND                            │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐ │
-│  │ Projects │  │ Devices  │  │Instructs │  │    SSE     │ │
-│  │ (mock)   │  │ (mock)   │  │ (real)   │  │   (real)   │ │
-│  └──────────┘  └──────────┘  └────┬─────┘  └────────────┘ │
-│                                    │                        │
-│  ┌─────────────────────────────────▼──────────────────────┐ │
-│  │              PipelineOrchestrator                       │ │
-│  │  11 Agents → 1 real (Planning), 9 stubs, 1 mixed      │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                    │                        │
-│  ┌─────────────────────────────────▼──────────────────────┐ │
-│  │  ToolGateway → WSSConnectionManager → /ws/devices/{id} │ │
-│  │                   (ALL REAL)                            │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
+│  auth  projects  devices  settings  observability          │
+│  rag  instructions  sse  agents   (ALL DB-backed + real)    │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │  Database (PostgreSQL) — DORMANT, NOT USED             │ │
-│  │  10 models defined, 0 queries executed by endpoints    │ │
+│  │  PipelineOrchestrator — 11 real agents (LLM, json_mode) │ │
 │  └────────────────────────────────────────────────────────┘ │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │  ToolGateway → WSSConnectionManager → /ws/devices/{id} │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  PostgreSQL (users/projects/devices/agent_runs/llm_usage…)  │
 └──────────────────────┬──────────────────────────────────────┘
-                       │ WSS (WebSocket)
+                       │ WSS (authenticated tools)
+┌──────────────────────▼──────────────────────────────────────┐
+│  LOCAL AGENT — native or Docker                            │
+│  filesystem  git  execution  RAG (Qdrant + keyword)        │
+│  watcher  embedder  secret-redactor  path-guard            │
+└─────────────────────────────────────────────────────────────┘
+```
 ┌──────────────────────▼──────────────────────────────────────┐
 │              LOCAL AGENT (Python Daemon)                     │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐ │

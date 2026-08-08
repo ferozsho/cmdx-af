@@ -40,6 +40,22 @@ class DeviceRepository:
         )
         return list(result.scalars().all())
 
+    async def list_for_user(self, user_id: str) -> List[Device]:
+        """Return devices belonging to a user, newest first."""
+        result = await self.db.execute(
+            select(Device)
+            .where(Device.user_id == user_id)
+            .order_by(Device.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def count_for_user(self, user_id: str) -> int:
+        """Return total number of devices for a user."""
+        result = await self.db.execute(
+            select(Device).where(Device.user_id == user_id)
+        )
+        return len(list(result.scalars().all()))
+
     async def get_by_id(self, device_id: str) -> Optional[Device]:
         """Get a single device by its primary key."""
         result = await self.db.execute(

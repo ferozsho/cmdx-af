@@ -10,6 +10,8 @@ import {
   getFileContent,
   getFileOriginal,
   listArtifacts,
+  listProjectRuns,
+  type AgentRun,
   ragSearch,
   getRagStats,
   getGitStatus,
@@ -291,6 +293,10 @@ export default function WorkspaceClient({
   >([])
   const [artifactsLoading, setArtifactsLoading] = useState(false)
 
+  // Persisted agent runs (for TESTS / VALIDATION tabs)
+  const [runs, setRuns] = useState<AgentRun[]>([])
+  const [runsLoading, setRunsLoading] = useState(false)
+
   const [agentsState, setAgentsState] = useState<any[]>([
     { name: 'Planning Agent', status: 'PENDING', duration: '-' },
     { name: 'Architecture Agent', status: 'PENDING', duration: '-' },
@@ -544,6 +550,17 @@ export default function WorkspaceClient({
         .then((data) => setArtifacts(data))
         .catch((err) => console.error('Failed to load artifacts:', err))
         .finally(() => setArtifactsLoading(false))
+    }
+    if (
+      (activeTab === 'TESTS' || activeTab === 'VALIDATION') &&
+      runs.length === 0 &&
+      !runsLoading
+    ) {
+      setRunsLoading(true)
+      listProjectRuns(projectId)
+        .then((data) => setRuns(data))
+        .catch((err) => console.error('Failed to load runs:', err))
+        .finally(() => setRunsLoading(false))
     }
   }, [activeTab, projectId])
 
@@ -1114,8 +1131,9 @@ export default function WorkspaceClient({
             and validation reports appear here after each pipeline run.
           </p>
           {artifactsLoading ? (
-            <div className="text-xs text-muted animate-pulse">
-              Loading artifacts...
+            <div className="flex items-center gap-2.5 text-xs text-muted">
+              <span className="h-3.5 w-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              Loading artifacts…
             </div>
           ) : artifacts.length > 0 ? (
             <div className="space-y-3">
@@ -1142,6 +1160,21 @@ export default function WorkspaceClient({
                     <span className="text-[10px] text-muted font-mono">
                       {art.content.length} chars
                     </span>
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.preventDefault()
+                        try {
+                          await navigator.clipboard.writeText(art.content)
+                        } catch {
+                          // clipboard unavailable
+                        }
+                      }}
+                      className="text-[10px] px-2 py-1 rounded border border-border hover:bg-hover text-muted hover:text-foreground flex-shrink-0"
+                      title="Copy artifact content"
+                    >
+                      📋 Copy
+                    </button>
                   </summary>
                   <pre className="mt-3 bg-[#0d121f] border border-border/60 rounded-lg p-3 text-[11px] text-foreground-secondary font-mono whitespace-pre-wrap overflow-x-auto">
                     {art.content}
@@ -1165,70 +1198,111 @@ export default function WorkspaceClient({
           <h2 className="text-sm font-semibold text-foreground">
             Test Results
           </h2>
-          {pipelineResults['Test Agent'] ? (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                {[
-                  ['Total', (pipelineResults['Test Agent'].tests_passed || 0) + (pipelineResults['Test Agent'].tests_failed || 0)],
-                  ['Passed', pipelineResults['Test Agent'].tests_passed || 0],
-                  ['Failed', pipelineResults['Test Agent'].tests_failed || 0],
-                  ['Coverage', `${pipelineResults['Test Agent'].coverage_percent || 0}%`],
-                ].map(([label, value]) => (
-                  <div
-                    key={label as string}
-                    className="bg-surface-secondary border border-border rounded-lg p-4 text-center"
-                  >
-                    <div className="text-[10px] text-muted uppercase">
-                      {label}
-                    </div>
-                    <div
-                      className={`text-xl font-bold mt-1 ${
-                        label === 'Failed' && Number(value) > 0
-                          ? 'text-red-500'
-                          : 'text-foreground'
-                      }`}
-                    >
-                      {String(value)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {pipelineResults['Test Agent'].test_summary && (
-                <div className="bg-surface-secondary border border-border rounded-lg p-4">
-                  <div className="text-xs font-semibold text-foreground mb-1">
-                    Summary
-                  </div>
+          <p className="text-xs text-muted">
+            Latest Test Agent run — loaded from persisted pipeline history.
+          </p>
+          {(() => {
+            const run = runs.find(
+              (r) => r.agent_name === 'Test Agent' && r.metadata,
+            )
+            const meta = ((run?.metadata as any) ||
+              pipelineResults['Test Agent']) as any
+
+            if (runsLoading && !meta) {
+              return (
+                <div className="text-xs text-muted animate-pulse">
+                  Loading test results…
+                </div>
+              )
+            }
+            if (!meta) {
+              return (
+                <div className="text-center py-8">
                   <p className="text-xs text-muted">
-                    {pipelineResults['Test Agent'].test_summary}
+                    No test results yet. Run a pipeline to generate and
+                    persist test reports.
                   </p>
                 </div>
-              )}
-              {pipelineResults['Test Agent'].tests_generated?.length > 0 && (
-                <div>
-                  <div className="text-xs font-semibold text-foreground mb-2">
-                    Test Files Generated
+              )
+            }
+            const passed = Number(meta.tests_passed || 0)
+            const failed = Number(meta.tests_failed || 0)
+            return (
+              <>
+                {run && (
+                  <div className="text-[10px] text-muted font-mono">
+                    Latest run:{' '}
+                    {run.created_at
+                      ? new Date(run.created_at).toLocaleString()
+                      : 'recently'}{' '}
+                    · {run.status} · {run.duration_seconds.toFixed(1)}s
                   </div>
-                  <div className="space-y-1">
-                    {pipelineResults['Test Agent'].tests_generated.map(
-                      (f: string, i: number) => (
-                        <div
-                          key={i}
-                          className="text-xs font-mono text-emerald-600 dark:text-emerald-400"
-                        >
-                          ✓ {f}
-                        </div>
-                      ),
-                    )}
-                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  {[
+                    ['Total', passed + failed],
+                    ['Passed', passed],
+                    ['Failed', failed],
+                    ['Coverage', `${meta.coverage_percent || 0}%`],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label as string}
+                      className="bg-surface-secondary border border-border rounded-lg p-4 text-center"
+                    >
+                      <div className="text-[10px] text-muted uppercase">
+                        {label}
+                      </div>
+                      <div
+                        className={`text-xl font-bold mt-1 ${
+                          label === 'Failed' && Number(value) > 0
+                            ? 'text-red-500'
+                            : 'text-foreground'
+                        }`}
+                      >
+                        {String(value)}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              )}
-            </>
-          ) : (
-            <p className="text-xs text-muted">
-              Test results appear here after the Test Agent runs during a
-              pipeline execution.
-            </p>
-          )}
+                {meta.test_summary && (
+                  <div className="bg-surface-secondary border border-border rounded-lg p-4">
+                    <div className="text-xs font-semibold text-foreground mb-1">
+                      Summary
+                    </div>
+                    <p className="text-xs text-muted">{meta.test_summary}</p>
+                  </div>
+                )}
+                {Array.isArray(meta.tests_generated) &&
+                  meta.tests_generated.length > 0 && (
+                    <div>
+                      <div className="text-xs font-semibold text-foreground mb-2">
+                        Test Files Generated
+                      </div>
+                      <div className="space-y-1">
+                        {meta.tests_generated.map((f: string, i: number) => (
+                          <div
+                            key={i}
+                            className="text-xs font-mono text-emerald-600 dark:text-emerald-400"
+                          >
+                            ✓ {f}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                {run?.output && (
+                  <details className="bg-surface-secondary border border-border rounded-lg p-3">
+                    <summary className="text-xs font-semibold text-foreground cursor-pointer">
+                      Raw output
+                    </summary>
+                    <pre className="mt-2 text-[11px] text-muted font-mono whitespace-pre-wrap">
+                      {run.output}
+                    </pre>
+                  </details>
+                )}
+              </>
+            )
+          })()}
         </section>
       )}
 
@@ -1237,99 +1311,139 @@ export default function WorkspaceClient({
           <h2 className="text-sm font-semibold text-foreground">
             Validation Report
           </h2>
-          {pipelineResults['Validation Agent'] ? (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {[
-                  [
-                    'Lint Issues',
-                    pipelineResults['Validation Agent'].lint_issues || 0,
-                    'text-amber-500',
-                  ],
-                  [
-                    'Type Errors',
-                    pipelineResults['Validation Agent'].type_errors || 0,
-                    'text-red-500',
-                  ],
-                  [
-                    'Security Issues',
-                    pipelineResults['Validation Agent'].security_issues || 0,
-                    'text-red-500',
-                  ],
-                ].map(([label, value, color]) => (
-                  <div
-                    key={label as string}
-                    className="bg-surface-secondary border border-border rounded-lg p-4 text-center"
-                  >
-                    <div className="text-[10px] text-muted uppercase">
-                      {label}
-                    </div>
-                    <div className={`text-xl font-bold mt-1 ${color}`}>
-                      {String(value)}
-                    </div>
+          <p className="text-xs text-muted">
+            Latest Validation Agent run — loaded from persisted pipeline
+            history.
+          </p>
+          {(() => {
+            const run = runs.find(
+              (r) => r.agent_name === 'Validation Agent' && r.metadata,
+            )
+            const meta = ((run?.metadata as any) ||
+              pipelineResults['Validation Agent']) as any
+
+            if (runsLoading && !meta) {
+              return (
+                <div className="text-xs text-muted animate-pulse">
+                  Loading validation report…
+                </div>
+              )
+            }
+            if (!meta) {
+              return (
+                <div className="text-center py-8">
+                  <p className="text-xs text-muted">
+                    No validation report yet. Run a pipeline to lint, typecheck,
+                    and security-scan the generated code.
+                  </p>
+                </div>
+              )
+            }
+            return (
+              <>
+                {run && (
+                  <div className="text-[10px] text-muted font-mono">
+                    Latest run:{' '}
+                    {run.created_at
+                      ? new Date(run.created_at).toLocaleString()
+                      : 'recently'}{' '}
+                    · {run.status} · {run.duration_seconds.toFixed(1)}s
                   </div>
-                ))}
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted">Build Status:</span>
-                <span
-                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    pipelineResults['Validation Agent'].build_status ===
-                    'PASSED'
-                      ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
-                      : 'bg-red-500/15 text-red-500 border border-red-500/30'
-                  }`}
-                >
-                  {pipelineResults['Validation Agent'].build_status || '—'}
-                </span>
-              </div>
-              {pipelineResults['Validation Agent'].auto_fixes_applied
-                ?.length > 0 && (
-                <div>
-                  <div className="text-xs font-semibold text-foreground mb-2">
-                    Auto-Fixes Applied
-                  </div>
-                  <div className="space-y-1">
-                    {pipelineResults[
-                      'Validation Agent'
-                    ].auto_fixes_applied.map((f: string, i: number) => (
-                      <div
-                        key={i}
-                        className="text-xs font-mono text-primary"
-                      >
-                        🔧 {f}
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    [
+                      'Lint Issues',
+                      meta.lint_issues || 0,
+                      'text-amber-500',
+                    ],
+                    [
+                      'Type Errors',
+                      meta.type_errors || 0,
+                      'text-red-500',
+                    ],
+                    [
+                      'Security Issues',
+                      meta.security_issues || 0,
+                      'text-red-500',
+                    ],
+                  ].map(([label, value, color]) => (
+                    <div
+                      key={label as string}
+                      className="bg-surface-secondary border border-border rounded-lg p-4 text-center"
+                    >
+                      <div className="text-[10px] text-muted uppercase">
+                        {label}
                       </div>
-                    ))}
-                  </div>
+                      <div className={`text-xl font-bold mt-1 ${color}`}>
+                        {String(value)}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              )}
-              {pipelineResults['Validation Agent'].recommendations?.length >
-                0 && (
-                <div>
-                  <div className="text-xs font-semibold text-foreground mb-2">
-                    Recommendations
-                  </div>
-                  <ul className="space-y-1">
-                    {pipelineResults[
-                      'Validation Agent'
-                    ].recommendations.map((r: string, i: number) => (
-                      <li
-                        key={i}
-                        className="text-xs text-muted flex gap-2"
-                      >
-                        <span className="text-primary">→</span> {r}
-                      </li>
-                    ))}
-                  </ul>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted">Build Status:</span>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      meta.build_status === 'PASSED'
+                        ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
+                        : 'bg-red-500/15 text-red-500 border border-red-500/30'
+                    }`}
+                  >
+                    {meta.build_status || '—'}
+                  </span>
                 </div>
-              )}
-            </>
-          ) : (
-            <p className="text-xs text-muted">
-              Validation results appear after the Validation Agent completes
-              during pipeline execution.
-            </p>
-          )}
+                {Array.isArray(meta.auto_fixes_applied) &&
+                  meta.auto_fixes_applied.length > 0 && (
+                    <div>
+                      <div className="text-xs font-semibold text-foreground mb-2">
+                        Auto-Fixes Applied
+                      </div>
+                      <div className="space-y-1">
+                        {meta.auto_fixes_applied.map(
+                          (f: string, i: number) => (
+                            <div
+                              key={i}
+                              className="text-xs font-mono text-primary"
+                            >
+                              🔧 {f}
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  )}
+                {Array.isArray(meta.recommendations) &&
+                  meta.recommendations.length > 0 && (
+                    <div>
+                      <div className="text-xs font-semibold text-foreground mb-2">
+                        Recommendations
+                      </div>
+                      <ul className="space-y-1">
+                        {meta.recommendations.map((r: string, i: number) => (
+                          <li
+                            key={i}
+                            className="text-xs text-muted flex gap-2"
+                          >
+                            <span className="text-primary">→</span> {r}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                {run?.output && (
+                  <details className="bg-surface-secondary border border-border rounded-lg p-3">
+                    <summary className="text-xs font-semibold text-foreground cursor-pointer">
+                      Raw output
+                    </summary>
+                    <pre className="mt-2 text-[11px] text-muted font-mono whitespace-pre-wrap">
+                      {run.output}
+                    </pre>
+                  </details>
+                )}
+              </>
+            )
+          })()}
         </section>
       )}
     </div>

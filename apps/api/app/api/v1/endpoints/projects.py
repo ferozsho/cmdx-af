@@ -13,7 +13,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.security import get_current_user
 from app.models.agent_run import AgentRun
+from app.models.user import User
 from app.repositories.project_repo import ProjectRepository
 from app.repositories.device_repo import DeviceRepository
 from app.tools.gateway.tool_gateway import ToolGateway
@@ -255,13 +257,16 @@ def _reindex_job_payload(job: Dict[str, Any]) -> dict:
 
 
 @router.get("/projects/stats/summary")
-async def get_project_stats(db: AsyncSession = Depends(get_db)) -> Any:
+async def get_project_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
     """Get aggregated project stats for dashboard KPIs."""
     repo = ProjectRepository(db)
     device_repo = DeviceRepository(db)
-    total = await repo.count()
+    total = await repo.count_for_user(current_user.id)
     online = await device_repo.count_online()
-    total_devices = await device_repo.count()
+    total_devices = await device_repo.count_for_user(current_user.id)
 
     # Real agent run count from agent_runs
     runs_result = await db.execute(
@@ -290,10 +295,13 @@ async def get_project_stats(db: AsyncSession = Depends(get_db)) -> Any:
 
 
 @router.get("/projects", response_model=List[ProjectResponse])
-async def list_projects(db: AsyncSession = Depends(get_db)) -> Any:
-    """Get all projects from the database."""
+async def list_projects(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Get all projects for the authenticated user."""
     repo = ProjectRepository(db)
-    projects = await repo.list_all()
+    projects = await repo.list_for_user(current_user.id)
     return [
         ProjectResponse(
             id=p.id,
@@ -312,7 +320,9 @@ async def list_projects(db: AsyncSession = Depends(get_db)) -> Any:
 
 @router.post("/projects", response_model=ProjectResponse)
 async def create_project(
-    data: ProjectCreate, db: AsyncSession = Depends(get_db)
+    data: ProjectCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Create a new project in the database."""
     repo = ProjectRepository(db)
@@ -323,6 +333,7 @@ async def create_project(
         execution_target=data.execution_target,
         local_path=data.local_path,
         tech_stack={t: True for t in tech_stack_list},
+        user_id=current_user.id,
     )
     await db.commit()
     await db.refresh(project)
@@ -394,12 +405,14 @@ async def create_project(
 
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
 async def get_project(
-    project_id: str, db: AsyncSession = Depends(get_db)
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get project details by ID from the database."""
     repo = ProjectRepository(db)
     project = await repo.get_by_id(project_id)
-    if not project:
+    if not project or project.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Project not found")
     return ProjectResponse(
         id=project.id,
@@ -419,9 +432,12 @@ async def update_project(
     project_id: str,
     data: ProjectUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Update an existing project."""
     repo = ProjectRepository(db)
+    if not await repo.belongs_to(project_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
     tech_stack_dict = {t: True for t in data.tech_stack} if data.tech_stack is not None else None
     project = await repo.update(
         project_id=project_id,
@@ -448,10 +464,14 @@ async def update_project(
 
 @router.delete("/projects/{project_id}")
 async def delete_project(
-    project_id: str, db: AsyncSession = Depends(get_db)
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Delete a project by ID."""
     repo = ProjectRepository(db)
+    if not await repo.belongs_to(project_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
     deleted = await repo.delete(project_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -790,12 +810,17 @@ async def get_file_original(
 async def list_project_artifacts(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """List all generated artifacts for a project."""
     from app.repositories.artifact_repo import ArtifactRepository
 
-    repo = ArtifactRepository(db)
-    artifacts = await repo.list_for_project(project_id)
+    repo = ProjectRepository(db)
+    if not await repo.belongs_to(project_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    artifact_repo = ArtifactRepository(db)
+    artifacts = await artifact_repo.list_for_project(project_id)
     return [
         {
             "id": a.id,
@@ -806,4 +831,56 @@ async def list_project_artifacts(
             "created_at": a.created_at.isoformat() if a.created_at else None,
         }
         for a in artifacts
+    ]
+
+
+class AgentRunResponse(BaseModel):
+    """Schema for a single agent run (persisted pipeline step)."""
+
+    id: str
+    instruction_id: str
+    agent_name: str
+    status: str
+    output: str | None = None
+    metadata: dict | None = None
+    duration_seconds: float = 0.0
+    created_at: str | None = None
+
+
+@router.get("/projects/{project_id}/runs", response_model=List[AgentRunResponse])
+async def list_project_runs(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    limit: int = Query(default=50, le=200),
+) -> Any:
+    """List recent persisted agent runs for a project (via its instructions)."""
+    from sqlalchemy import select
+
+    from app.models.agent_run import AgentRun
+    from app.models.instruction import Instruction
+
+    repo = ProjectRepository(db)
+    if not await repo.belongs_to(project_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    result = await db.execute(
+        select(AgentRun)
+        .join(Instruction, Instruction.id == AgentRun.instruction_id)
+        .where(Instruction.project_id == project_id)
+        .order_by(AgentRun.created_at.desc())
+        .limit(limit)
+    )
+    return [
+        AgentRunResponse(
+            id=r.id,
+            instruction_id=r.instruction_id,
+            agent_name=r.agent_name,
+            status=r.status,
+            output=r.output,
+            metadata=r.metadata_json,
+            duration_seconds=r.duration_seconds,
+            created_at=r.created_at.isoformat() if r.created_at else None,
+        )
+        for r in result.scalars().all()
     ]
