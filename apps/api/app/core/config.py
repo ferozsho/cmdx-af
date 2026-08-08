@@ -10,11 +10,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Runtime-overridable settings (set by Settings page via API)
 runtime_settings: Dict[str, str] = {}
 
-# Persist runtime settings across restarts (JSON file on disk)
+# Persist runtime settings across restarts (JSON file on disk).
+# config.py lives at <root>/app/core/config.py, so we need THREE parents to
+# reach <root> (e.g. /app/apps/api) where the `data/` volume is mounted.
 _SETTINGS_FILE = Path(
     os.environ.get(
         "AGENTFORGE_SETTINGS_FILE",
-        str(Path(__file__).resolve().parent.parent / "data" / "runtime_settings.json"),
+        str(
+            Path(__file__).resolve().parent.parent.parent
+            / "data"
+            / "runtime_settings.json"
+        ),
     )
 )
 
