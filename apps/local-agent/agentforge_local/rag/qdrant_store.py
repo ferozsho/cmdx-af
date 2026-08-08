@@ -79,16 +79,62 @@ class QdrantStore:
             return None
 
     def upsert_chunks(self, chunks: List[Dict[str, Any]]) -> int:
-        """Embed and upsert chunks; returns number stored (0 when offline)."""
+        """Embed and upsert chunks; returns number stored (0 when offline).
+
+        The collection is made to EXACTLY match ``chunks``: points for files
+        no longer indexed are dropped, and ALL old points for files that are
+        still indexed are purged before re-upserting — this keeps the store
+        clean even when chunk granularity changes (e.g. a Settings-driven
+        chunk-size change), which a per-file_path ``must_not`` filter alone
+        would miss.
+        """
         if not chunks:
             return 0
         name = self._collection()
         if name is None:
             return 0
         try:
-            from qdrant_client.models import PointStruct
+            from qdrant_client.models import (
+                FieldCondition,
+                Filter,
+                FilterSelector,
+                MatchAny,
+                PointStruct,
+            )
 
             client = self._get_client()
+            new_paths = list({c["file_path"] for c in chunks})
+
+            # 1) Files no longer indexed → remove their points entirely.
+            # 2) Files still indexed → remove ALL old points (stale chunk
+            #    granularity) before inserting the fresh set below.
+            client.delete(
+                collection_name=name,
+                points_selector=FilterSelector(
+                    filter=Filter(
+                        must_not=[
+                            FieldCondition(
+                                key="file_path",
+                                match=MatchAny(any=new_paths),
+                            )
+                        ]
+                    )
+                ),
+            )
+            client.delete(
+                collection_name=name,
+                points_selector=FilterSelector(
+                    filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="file_path",
+                                match=MatchAny(any=new_paths),
+                            )
+                        ]
+                    )
+                ),
+            )
+
             # Batch-embed all chunks in one pass (per-chunk calls made full
             # workspace indexing take many minutes on large repos).
             vectors = self.embedder.embed_batch(
@@ -112,32 +158,9 @@ class QdrantStore:
                     )
                 )
             client.upsert(collection_name=name, points=points)
-            # Drop stale points (files no longer part of the index) so a
-            # re-index reflects the current workspace, not old content.
-            try:
-                from qdrant_client.models import (
-                    FieldCondition,
-                    Filter,
-                    FilterSelector,
-                    MatchAny,
-                )
-
-                new_paths = list({c["file_path"] for c in chunks})
-                client.delete(
-                    collection_name=name,
-                    points_selector=FilterSelector(
-                        filter=Filter(
-                            must_not=[
-                                FieldCondition(
-                                    key="file_path",
-                                    match=MatchAny(any=new_paths),
-                                )
-                            ]
-                        )
-                    ),
-                )
-            except Exception:
-                pass
+            return len(points)
+        except Exception:
+            return 0
             return len(points)
         except Exception:
             return 0

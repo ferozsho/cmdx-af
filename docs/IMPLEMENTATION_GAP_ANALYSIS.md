@@ -66,8 +66,10 @@ re-index loop, per-thread CPU ~4.5%), an **index concurrency guard**
 `POST /auth/logout`, web single-flight auto-refresh on 401), **forgot/reset
 password** (`POST /auth/forgot-password` dev-token + `/auth/reset-password` +
 `/forgot-password` page), and **chunker parity** (chunker defaults now 500/50,
-matching cloud Settings defaults; takes effect on next agent restart for
-watcher/startup indexes).
+matching cloud Settings defaults — LIVE: agent restarted, index is now 158
+chunks with a clean Qdrant collection, and `QdrantStore.upsert_chunks` now
+fully purges stale points for re-chunked files so the store exactly matches
+the index).
 
 ---
 
