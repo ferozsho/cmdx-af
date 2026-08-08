@@ -29,6 +29,9 @@ function formatFileSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
 
+// RAG results rendered per page
+const PAGE_SIZE = 10
+
 function cleanPath(str: string | null | undefined): string {
   if (!str) return ''
   let s = str
@@ -256,6 +259,7 @@ export default function WorkspaceClient({
 
   const urlFile = getParam('file') || ''
   const urlQuery = getParam('q') || ''
+  const urlPage = Math.max(0, parseInt(getParam('page') || '0', 10) || 0)
 
   const [prompt, setPrompt] = useState('')
   const [isRunning, setIsRunning] = useState(false)
@@ -267,6 +271,11 @@ export default function WorkspaceClient({
   const [ragSearching, setRagSearching] = useState(false)
   const [ragError, setRagError] = useState<string | null>(null)
   const [ragSearched, setRagSearched] = useState(false)
+  // RAG result cards are collapsed by default; expand on click. Toggled by
+  // global result index (stable across pagination).
+  const [expandedResults, setExpandedResults] = useState<Set<number>>(
+    () => new Set(),
+  )
 
   const [fileTree, setFileTree] = useState<any>(null)
   const [fileTreeError, setFileTreeError] = useState<string | null>(null)
@@ -337,8 +346,13 @@ export default function WorkspaceClient({
   }, [projectId])
 
   // Function to switch tab with SEO-friendly URL sync:
-  // /projects/[id]/[tab]?file=...&q=...
-  const updateUrl = (tab: string, file?: string, q?: string) => {
+  // /projects/[id]/[tab]?file=...&q=...&page=N
+  const updateUrl = (
+    tab: string,
+    file?: string,
+    q?: string,
+    page?: number,
+  ) => {
     const cleanTab = cleanPath(tab).toLowerCase()
     const cleanFile = cleanPath(file)
     const cleanQ = cleanPath(q)
@@ -346,6 +360,7 @@ export default function WorkspaceClient({
     const params = new URLSearchParams()
     if (cleanFile) params.set('file', cleanFile)
     if (cleanQ) params.set('q', cleanQ)
+    if (page && page > 0) params.set('page', String(page))
     const qs = params.toString()
     router.push(
       `/projects/${encodeURIComponent(projectId)}/${cleanTab}${
@@ -395,15 +410,17 @@ export default function WorkspaceClient({
     }
   }
 
-  // Handle RAG search
-  const executeRagSearch = async (queryText: string) => {
+  // Handle RAG search. `page` seeds the pagination + URL (?page=N) so a
+  // shared/bookmarked URL restores the exact result page.
+  const executeRagSearch = async (queryText: string, page = 0) => {
     const q = queryText.trim()
     if (!q) return
-    updateUrl('rag', undefined, q)
+    updateUrl('rag', undefined, q, page)
     setRagSearching(true)
     setRagError(null)
+    setExpandedResults(new Set())
     try {
-      const data = await ragSearch(projectId, q, 15)
+      const data = await ragSearch(projectId, q, 30)
       if ((data as any)?.status === 'offline') {
         setRagResults([])
         setRagSearched(true)
@@ -415,7 +432,7 @@ export default function WorkspaceClient({
       }
       const results = Array.isArray(data) ? data : [data]
       setRagResults(results)
-      setRagPage(0)
+      setRagPage(page)
       setRagSearched(true)
     } catch (err) {
       console.error('Failed to search RAG:', err)
@@ -425,6 +442,23 @@ export default function WorkspaceClient({
     } finally {
       setRagSearching(false)
     }
+  }
+
+  // RAG pagination — keeps ?page=N in the URL (shareable, SEO-friendly)
+  const goToRagPage = (page: number) => {
+    const total = Math.ceil(ragResults.length / PAGE_SIZE)
+    const next = Math.max(0, Math.min(page, total - 1))
+    setRagPage(next)
+    updateUrl('rag', undefined, ragQuery, next)
+  }
+
+  const toggleResult = (idx: number) => {
+    setExpandedResults((prev) => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
   }
 
   // Poll live RAG stats while on the RAG tab so progress + last-index stay
@@ -533,7 +567,7 @@ export default function WorkspaceClient({
       }
     }
     if (activeTab === 'RAG' && urlQuery && ragResults.length === 0) {
-      executeRagSearch(urlQuery)
+      executeRagSearch(urlQuery, urlPage)
     }
     if (activeTab === 'GIT' && !gitStatus) {
       getGitStatus(projectId)
@@ -571,9 +605,11 @@ export default function WorkspaceClient({
     if (raw.includes('%3D') || raw.includes('%3d')) {
       const cleanFile = cleanPath(searchParams.get('file'))
       const cleanQ = cleanPath(searchParams.get('q'))
+      const cleanPage = cleanPath(searchParams.get('page'))
       const params = new URLSearchParams()
       if (cleanFile) params.set('file', cleanFile)
       if (cleanQ) params.set('q', cleanQ)
+      if (cleanPage) params.set('page', cleanPage)
       const cleanSearch = params.toString()
       if (cleanSearch !== raw.replace(/^\?/, '')) {
         const base = window.location.pathname
@@ -954,29 +990,58 @@ export default function WorkspaceClient({
           {ragResults.length > 0 && (
             <div className="space-y-3 pt-2">
               {ragResults
-                .slice(ragPage * 5, ragPage * 5 + 5)
-                .map((res, i) => (
-                  <article
-                    key={i}
-                    className="bg-surface-secondary border border-border rounded-lg p-3 text-xs space-y-1 font-mono"
-                  >
-                    <div className="flex justify-between text-primary font-sans font-semibold">
-                      <span>
-                        {res.file_path} (Lines {res.start_line}-{res.end_line})
-                      </span>
-                      <span>Relevance: {(res.score * 100).toFixed(0)}%</span>
-                    </div>
-                    <pre className="text-foreground-secondary bg-[#090d16] p-2 rounded overflow-x-auto text-xs">
-                      {res.content}
-                    </pre>
-                  </article>
-                ))}
-              {ragResults.length > 5 && (
+                .slice(ragPage * PAGE_SIZE, ragPage * PAGE_SIZE + PAGE_SIZE)
+                .map((res, localIdx) => {
+                  const globalIdx = ragPage * PAGE_SIZE + localIdx
+                  const isOpen = expandedResults.has(globalIdx)
+                  return (
+                    <article
+                      key={`${res.file_path}:${res.start_line}`}
+                      className="bg-surface-secondary border border-border rounded-lg text-xs font-mono overflow-hidden"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleResult(globalIdx)}
+                        className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-hover/50 transition-colors"
+                        aria-expanded={isOpen}
+                        aria-label={`${isOpen ? 'Collapse' : 'Expand'} result for ${res.file_path}`}
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={`text-muted text-[9px] transition-transform ${
+                              isOpen ? 'rotate-90' : ''
+                            }`}
+                          >
+                            ▶
+                          </span>
+                          <span className="text-primary font-sans font-semibold truncate">
+                            {res.file_path} (Lines {res.start_line}-
+                            {res.end_line})
+                          </span>
+                        </span>
+                        <span className="shrink-0 flex items-center gap-3">
+                          <span className="text-primary font-sans font-semibold">
+                            Relevance: {(res.score * 100).toFixed(0)}%
+                          </span>
+                          <span className="text-muted font-sans">
+                            {isOpen ? '−' : '+'}
+                          </span>
+                        </span>
+                      </button>
+                      {isOpen && (
+                        <pre className="text-foreground-secondary bg-[#090d16] p-2 rounded-b overflow-x-auto text-xs border-t border-border">
+                          {res.content}
+                        </pre>
+                      )}
+                    </article>
+                  )
+                })}
+              {ragResults.length > PAGE_SIZE && (
                 <div className="flex items-center gap-1.5 justify-end pt-1 text-[10px] text-muted select-none">
                   <button
                     type="button"
                     disabled={ragPage === 0}
-                    onClick={() => setRagPage((p) => Math.max(0, p - 1))}
+                    onClick={() => goToRagPage(ragPage - 1)}
                     className="px-1.5 py-0.5 rounded border border-border hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed"
                     aria-label="Previous results page"
                   >
@@ -984,15 +1049,15 @@ export default function WorkspaceClient({
                   </button>
                   <span className="font-mono">
                     {ragPage + 1}/
-                    {Math.ceil(ragResults.length / 5)} · {ragResults.length}{' '}
-                    results
+                    {Math.ceil(ragResults.length / PAGE_SIZE)} ·{' '}
+                    {ragResults.length} results
                   </span>
                   <button
                     type="button"
                     disabled={
-                      ragPage >= Math.ceil(ragResults.length / 5) - 1
+                      ragPage >= Math.ceil(ragResults.length / PAGE_SIZE) - 1
                     }
-                    onClick={() => setRagPage((p) => p + 1)}
+                    onClick={() => goToRagPage(ragPage + 1)}
                     className="px-1.5 py-0.5 rounded border border-border hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed"
                     aria-label="Next results page"
                   >
