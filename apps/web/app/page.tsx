@@ -408,7 +408,7 @@ export default function DashboardPage() {
               </div>
 
               <Link
-                href={`/projects/${encodeURIComponent(project.id)}?tab=agents`}
+                href={`/projects/${encodeURIComponent(project.id)}/agents`}
                 className="block"
               >
                 <h3 className="font-bold text-foreground text-[15px] mt-3 mb-0">
@@ -475,7 +475,7 @@ export default function DashboardPage() {
                     : '—'}
                 </span>
                 <Link
-                  href={`/projects/${encodeURIComponent(project.id)}?tab=agents`}
+                  href={`/projects/${encodeURIComponent(project.id)}/agents`}
                   className="text-primary font-medium hover:underline"
                 >
                   Open Workspace →

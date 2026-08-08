@@ -20,7 +20,7 @@ export function LiveWorkspaceLink() {
 
   return (
     <Link
-      href={projectId ? `/projects/${projectId}?tab=agents` : '/projects/new'}
+      href={projectId ? `/projects/${projectId}/agents` : '/projects/new'}
       className={`flex items-center gap-[10px] py-[11px] px-3 rounded-[10px] my-1 transition-colors ${
         isActive
           ? 'bg-[#202d4f] text-white font-medium'

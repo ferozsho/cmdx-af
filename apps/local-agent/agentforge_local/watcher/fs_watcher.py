@@ -5,6 +5,8 @@ from typing import Any
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 from watchdog.observers import Observer
 
+from agentforge_local.rag.indexer import _IGNORED_PARTS
+
 
 class RAGWatcherHandler(FileSystemEventHandler):
     """File modification event handler triggering RAG re-indexing."""
@@ -12,8 +14,16 @@ class RAGWatcherHandler(FileSystemEventHandler):
     def __init__(self, callback: Any) -> None:
         self.callback = callback
 
+    def _is_ignored(self, path: str) -> bool:
+        """True when the path lives under an ignored dir (venv, caches, etc.)."""
+        return bool(set(Path(path).parts) & _IGNORED_PARTS)
+
     def on_modified(self, event: FileSystemEvent) -> None:
-        if not event.is_directory and not any(p in event.src_path for p in (".git", "node_modules")):
+        if not event.is_directory and not self._is_ignored(event.src_path):
+            self.callback(event.src_path)
+
+    def on_created(self, event: FileSystemEvent) -> None:
+        if not event.is_directory and not self._is_ignored(event.src_path):
             self.callback(event.src_path)
 
 

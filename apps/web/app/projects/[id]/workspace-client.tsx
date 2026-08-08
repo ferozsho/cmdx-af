@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import DiffViewer from '@/components/diff-viewer'
 import {
   getProject,
@@ -61,12 +61,14 @@ function FileTreeNode({
   selectedPath,
   onSelectFile,
   gitStatus,
+  mode = 'auto',
 }: {
   node: any
   parentPath?: string
   selectedPath: string
   onSelectFile: (path: string) => void
   gitStatus?: any
+  mode?: 'auto' | 'collapsed' | 'expanded'
 }) {
   const currentPath = parentPath ? `${parentPath}/${node.name}` : node.name
 
@@ -85,8 +87,16 @@ function FileTreeNode({
     setUserExpanded(null)
   }, [cleanSelected])
 
-  // Open if user explicitly expanded OR if it is an ancestor of the selected file
-  const isOpen = userExpanded !== null ? userExpanded : isAncestorOfSelected
+  // Explicit user toggle wins; otherwise honor the global tree mode
+  // ('auto' auto-opens ancestors of the selected file)
+  const isOpen =
+    userExpanded !== null
+      ? userExpanded
+      : mode === 'collapsed'
+        ? false
+        : mode === 'expanded'
+          ? true
+          : isAncestorOfSelected
 
   if (node.type === 'dir') {
     const dirHasChanges = hasChangedChild(currentPath, gitStatus)
@@ -115,20 +125,15 @@ function FileTreeNode({
           )}
         </button>
         {isOpen && (
-          <div className="border-l border-border pl-2 space-y-0.5">
-            {node.children?.map((child: any) => {
-              const childPath = currentPath ? `${currentPath}/${child.name}` : child.name
-              return (
-                <FileTreeNode
-                  key={childPath}
-                  node={child}
-                  parentPath={currentPath}
-                  selectedPath={selectedPath}
-                  onSelectFile={onSelectFile}
-                  gitStatus={gitStatus}
-                />
-              )
-            })}
+          <div className="border-l border-border pl-2">
+            <TreePager
+              children={node.children || []}
+              parentPath={currentPath}
+              selectedPath={selectedPath}
+              onSelectFile={onSelectFile}
+              gitStatus={gitStatus}
+              mode={mode}
+            />
           </div>
         )}
       </div>
@@ -204,10 +209,86 @@ function FileTreeNode({
   )
 }
 
-export default function WorkspaceClient({ projectId }: { projectId: string }) {
+function TreePager({
+  children,
+  parentPath,
+  selectedPath,
+  onSelectFile,
+  gitStatus,
+  mode,
+}: {
+  children: any[]
+  parentPath: string
+  selectedPath: string
+  onSelectFile: (path: string) => void
+  gitStatus?: any
+  mode: 'auto' | 'collapsed' | 'expanded'
+}) {
+  const [page, setPage] = useState(0)
+  const perPage = 5
+  const totalPages = Math.max(1, Math.ceil(children.length / perPage))
+  const safePage = Math.min(page, totalPages - 1)
+  const slice = children.slice(
+    safePage * perPage,
+    safePage * perPage + perPage,
+  )
+
+  return (
+    <div className="space-y-0.5">
+      {slice.map((child: any) => {
+        const childPath = parentPath
+          ? `${parentPath}/${child.name}`
+          : child.name
+        return (
+          <FileTreeNode
+            key={childPath}
+            node={child}
+            parentPath={parentPath}
+            selectedPath={selectedPath}
+            onSelectFile={onSelectFile}
+            gitStatus={gitStatus}
+            mode={mode}
+          />
+        )
+      })}
+      {children.length > perPage && (
+        <div className="flex items-center gap-1.5 justify-end pt-1 text-[10px] text-muted select-none">
+          <button
+            type="button"
+            disabled={safePage === 0}
+            onClick={() => setPage(safePage - 1)}
+            className="px-1.5 py-0.5 rounded border border-border hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="Previous page"
+          >
+            ‹
+          </button>
+          <span className="font-mono">
+            {safePage + 1}/{totalPages} · {children.length}
+          </span>
+          <button
+            type="button"
+            disabled={safePage >= totalPages - 1}
+            onClick={() => setPage(safePage + 1)}
+            className="px-1.5 py-0.5 rounded border border-border hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="Next page"
+          >
+            ›
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function WorkspaceClient({
+  projectId,
+  initialTab,
+}: {
+  projectId: string
+  initialTab?: string
+}) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const pathname = usePathname()
 
   // Helper to safely parse search parameters even if encoded by proxy/port forwarding
   const getParam = (key: string): string | null => {
@@ -224,8 +305,8 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     return val ? cleanPath(val) : null
   }
 
-  // Read URL search params
-  const activeTab = (getParam('tab') || 'agents').toUpperCase() as
+  // Active tab comes from the URL path segment (/projects/[id]/[tab])
+  const activeTab = ((initialTab || 'agents') as string).toUpperCase() as
     | 'AGENTS'
     | 'FILES'
     | 'RAG'
@@ -246,6 +327,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
   const [fileTree, setFileTree] = useState<any>(null)
   const [fileTreeError, setFileTreeError] = useState<string | null>(null)
+  // File tree collapse/expand control + remount key
+  const [treeMode, setTreeMode] = useState<'auto' | 'collapsed' | 'expanded'>(
+    'auto',
+  )
+  const [treeKey, setTreeKey] = useState(0)
   const [gitStatus, setGitStatus] = useState<any>(null)
   const [selectedFilePath, setSelectedFilePath] = useState<string>(cleanPath(urlFile))
   const [selectedFileContent, setSelectedFileContent] = useState<string>('')
@@ -303,17 +389,23 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     loadProject()
   }, [projectId])
 
-  // Function to switch tab with URL sync
+  // Function to switch tab with SEO-friendly URL sync:
+  // /projects/[id]/[tab]?file=...&q=...
   const updateUrl = (tab: string, file?: string, q?: string) => {
     const cleanTab = cleanPath(tab).toLowerCase()
     const cleanFile = cleanPath(file)
     const cleanQ = cleanPath(q)
 
     const params = new URLSearchParams()
-    params.set('tab', cleanTab)
     if (cleanFile) params.set('file', cleanFile)
     if (cleanQ) params.set('q', cleanQ)
-    router.push(`${pathname}?${params.toString()}`, { scroll: false })
+    const qs = params.toString()
+    router.push(
+      `/projects/${encodeURIComponent(projectId)}/${cleanTab}${
+        qs ? `?${qs}` : ''
+      }`,
+      { scroll: false },
+    )
   }
 
   // Handle file selection with URL search param
@@ -372,29 +464,22 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     }
   }
 
-  // Poll live RAG index progress while on the RAG tab (covers the startup
-  // background index, watcher re-index, and explicit re-index)
+  // Poll live RAG stats while on the RAG tab so progress + last-index stay
+  // fresh (covers startup background index, watcher re-index, explicit
+  // re-index, and idle stats)
   useEffect(() => {
-    let timer: number | null = null
+    if (activeTab !== 'RAG') return
     const tick = async () => {
       try {
         const s = await getRagStats(projectId)
         setRagStats(s)
-        if (!s.indexing && timer) {
-          window.clearInterval(timer)
-          timer = null
-        }
       } catch {
         // ignore transient errors
       }
     }
-    if (activeTab === 'RAG') {
-      tick()
-      timer = window.setInterval(tick, 2000)
-    }
-    return () => {
-      if (timer) window.clearInterval(timer)
-    }
+    tick()
+    const timer = window.setInterval(tick, 2000)
+    return () => window.clearInterval(timer)
   }, [activeTab, projectId])
 
   // Subscribe to SSE events
@@ -505,21 +590,23 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     }
   }, [activeTab, projectId])
 
-  // One-time URL cleanup: remove any stale %3D (=) artifacts from the file param
+  // One-time URL cleanup: strip stale %3D (=) artifacts from query params
   useEffect(() => {
     if (typeof window === 'undefined') return
     const raw = window.location.search
     if (raw.includes('%3D') || raw.includes('%3d')) {
       const cleanFile = cleanPath(searchParams.get('file'))
       const cleanQ = cleanPath(searchParams.get('q'))
-      const cleanTab = cleanPath(searchParams.get('tab'))
       const params = new URLSearchParams()
-      if (cleanTab) params.set('tab', cleanTab.toLowerCase())
       if (cleanFile) params.set('file', cleanFile)
       if (cleanQ) params.set('q', cleanQ)
       const cleanSearch = params.toString()
-      if (cleanSearch && raw !== `?${cleanSearch}`) {
-        router.replace(`${pathname}?${cleanSearch}`, { scroll: false })
+      if (cleanSearch !== raw.replace(/^\?/, '')) {
+        const base = window.location.pathname
+        router.replace(
+          `${base}${cleanSearch ? `?${cleanSearch}` : ''}`,
+          { scroll: false },
+        )
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -575,7 +662,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         <nav className="flex gap-2">
           {(['AGENTS', 'FILES', 'RAG', 'GIT', 'ARTIFACTS', 'TESTS', 'VALIDATION'] as const).map((tab) => {
             const isActive = activeTab === tab
-            const href = `/projects/${projectId}?tab=${tab.toLowerCase()}`
+            const href = `/projects/${encodeURIComponent(projectId)}/${tab.toLowerCase()}`
             return (
               <Link
                 key={tab}
@@ -712,27 +799,47 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* File Tree Panel */}
           <div className="md:col-span-1 card-af p-4 text-xs space-y-2 max-h-[600px] overflow-y-auto">
-            <div className="text-sm font-semibold text-foreground font-sans mb-3 flex items-center justify-between">
+            <div className="text-sm font-semibold text-foreground font-sans mb-3 flex items-center justify-between gap-2">
               <span>Live Workspace File Tree</span>
-              <span className="text-[10px] bg-primary/15 text-primary border border-primary/30 px-2 py-0.5 rounded font-mono">
-                WSS Connected
+              <span className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTreeMode(treeMode === 'expanded' ? 'auto' : 'expanded')
+                    setTreeKey((k) => k + 1)
+                  }}
+                  className="w-6 h-6 grid place-items-center rounded border border-border hover:bg-hover text-muted hover:text-foreground"
+                  title={
+                    treeMode === 'expanded'
+                      ? 'Collapse all folders'
+                      : 'Expand all folders'
+                  }
+                  aria-label={
+                    treeMode === 'expanded'
+                      ? 'Collapse all folders'
+                      : 'Expand all folders'
+                  }
+                >
+                  {treeMode === 'expanded' ? '⤡' : '⤢'}
+                </button>
+                <span className="text-[10px] bg-primary/15 text-primary border border-primary/30 px-2 py-0.5 rounded font-mono">
+                  WSS Connected
+                </span>
               </span>
             </div>
             {fileTree ? (
-              <div className="space-y-1 font-mono">
+              <div key={treeKey} className="space-y-1 font-mono">
                 <div className="font-bold text-primary flex items-center gap-1.5 pb-1">
                   <span>📁</span> {fileTree.name}/
                 </div>
-                {fileTree.children?.map((node: any) => (
-                  <FileTreeNode
-                    key={node.name}
-                    node={node}
-                    parentPath=""
-                    selectedPath={selectedFilePath}
-                    onSelectFile={handleSelectFile}
-                    gitStatus={gitStatus}
-                  />
-                ))}
+                <TreePager
+                  children={fileTree.children || []}
+                  parentPath=""
+                  selectedPath={selectedFilePath}
+                  onSelectFile={handleSelectFile}
+                  gitStatus={gitStatus}
+                  mode={treeMode}
+                />
               </div>
             ) : fileTreeError ? (
               <div className="text-red-500 text-xs font-mono">
