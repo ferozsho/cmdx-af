@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import DiffViewer from '@/components/diff-viewer'
@@ -11,6 +11,7 @@ import {
   getFileOriginal,
   listArtifacts,
   listProjectRuns,
+  listRagChunks,
   type AgentRun,
   ragSearch,
   getRagStats,
@@ -260,6 +261,12 @@ export default function WorkspaceClient({
   const urlFile = getParam('file') || ''
   const urlQuery = getParam('q') || ''
   const urlPage = Math.max(0, parseInt(getParam('page') || '0', 10) || 0)
+  const urlView: 'chunks' | 'search' =
+    getParam('view') === 'search' ? 'search' : 'chunks'
+  const urlChunksPage = Math.max(
+    0,
+    parseInt(getParam('cpage') || '0', 10) || 0,
+  )
 
   const [prompt, setPrompt] = useState('')
   const [isRunning, setIsRunning] = useState(false)
@@ -274,6 +281,17 @@ export default function WorkspaceClient({
   // RAG result cards are collapsed by default; expand on click. Toggled by
   // global result index (stable across pagination).
   const [expandedResults, setExpandedResults] = useState<Set<number>>(
+    () => new Set(),
+  )
+  // RAG browse view: "All Chunks" (default) vs search results
+  const [ragView, setRagView] = useState<'chunks' | 'search'>(urlView)
+  const [ragChunks, setRagChunks] = useState<any[]>([])
+  const [ragChunksTotal, setRagChunksTotal] = useState(0)
+  const [ragChunksLoading, setRagChunksLoading] = useState(false)
+  const [chunksPage, setChunksPage] = useState(0)
+  // Chunk cards collapsed by default; toggled by chunk id (stable across
+  // pagination)
+  const [expandedChunks, setExpandedChunks] = useState<Set<string>>(
     () => new Set(),
   )
 
@@ -346,12 +364,14 @@ export default function WorkspaceClient({
   }, [projectId])
 
   // Function to switch tab with SEO-friendly URL sync:
-  // /projects/[id]/[tab]?file=...&q=...&page=N
+  // /projects/[id]/[tab]?file=...&q=...&page=N&view=chunks|search&cpage=N
   const updateUrl = (
     tab: string,
     file?: string,
     q?: string,
     page?: number,
+    view?: string,
+    cpage?: number,
   ) => {
     const cleanTab = cleanPath(tab).toLowerCase()
     const cleanFile = cleanPath(file)
@@ -361,6 +381,8 @@ export default function WorkspaceClient({
     if (cleanFile) params.set('file', cleanFile)
     if (cleanQ) params.set('q', cleanQ)
     if (page && page > 0) params.set('page', String(page))
+    if (view) params.set('view', view)
+    if (cpage && cpage > 0) params.set('cpage', String(cpage))
     const qs = params.toString()
     router.push(
       `/projects/${encodeURIComponent(projectId)}/${cleanTab}${
@@ -415,7 +437,8 @@ export default function WorkspaceClient({
   const executeRagSearch = async (queryText: string, page = 0) => {
     const q = queryText.trim()
     if (!q) return
-    updateUrl('rag', undefined, q, page)
+    updateUrl('rag', undefined, q, page, 'search')
+    setRagView('search')
     setRagSearching(true)
     setRagError(null)
     setExpandedResults(new Set())
@@ -444,12 +467,42 @@ export default function WorkspaceClient({
     }
   }
 
+  // Load the paginated chunk browser for the default "All Chunks" view.
+  const loadRagChunks = async (offset: number) => {
+    setRagChunksLoading(true)
+    try {
+      const data = await listRagChunks(projectId, offset, PAGE_SIZE)
+      if ((data as any)?.status === 'offline') {
+        setRagChunks([])
+        setRagChunksTotal(0)
+        return
+      }
+      setRagChunks(data.chunks || [])
+      setRagChunksTotal(data.total || 0)
+    } catch (err) {
+      console.error('Failed to load RAG chunks:', err)
+      setRagChunks([])
+      setRagChunksTotal(0)
+    } finally {
+      setRagChunksLoading(false)
+    }
+  }
+
   // RAG pagination — keeps ?page=N in the URL (shareable, SEO-friendly)
   const goToRagPage = (page: number) => {
     const total = Math.ceil(ragResults.length / PAGE_SIZE)
     const next = Math.max(0, Math.min(page, total - 1))
     setRagPage(next)
-    updateUrl('rag', undefined, ragQuery, next)
+    updateUrl('rag', undefined, ragQuery, next, 'search')
+  }
+
+  // Chunk browse pagination — keeps ?cpage=N in the URL
+  const goToChunksPage = (page: number) => {
+    const total = Math.ceil(ragChunksTotal / PAGE_SIZE)
+    const next = Math.max(0, Math.min(page, total - 1))
+    setChunksPage(next)
+    loadRagChunks(next * PAGE_SIZE)
+    updateUrl('rag', undefined, undefined, 0, 'chunks', next)
   }
 
   const toggleResult = (idx: number) => {
@@ -459,6 +512,27 @@ export default function WorkspaceClient({
       else next.add(idx)
       return next
     })
+  }
+
+  const toggleChunk = (id: string) => {
+    setExpandedChunks((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const switchRagView = (v: 'chunks' | 'search') => {
+    setRagView(v)
+    if (v === 'chunks') {
+      if (ragChunks.length === 0 && !ragChunksLoading) {
+        loadRagChunks(chunksPage * PAGE_SIZE)
+      }
+      updateUrl('rag', undefined, undefined, 0, 'chunks', chunksPage)
+    } else {
+      updateUrl('rag', undefined, ragQuery, ragPage, 'search')
+    }
   }
 
   // Poll live RAG stats while on the RAG tab so progress + last-index stay
@@ -478,6 +552,18 @@ export default function WorkspaceClient({
     const timer = window.setInterval(tick, 2000)
     return () => window.clearInterval(timer)
   }, [activeTab, projectId])
+
+  // Refresh the chunks browser when a background index finishes so the
+  // default "All Chunks" view always reflects the latest index.
+  const wasIndexingRef = useRef(false)
+  useEffect(() => {
+    const indexing = ragStats?.indexing === true
+    if (wasIndexingRef.current && !indexing && ragStats?.state === 'complete') {
+      if (ragView === 'chunks') loadRagChunks(chunksPage * PAGE_SIZE)
+    }
+    wasIndexingRef.current = indexing
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ragStats?.indexing, ragStats?.state, ragView, chunksPage])
 
   // Subscribe to SSE events
   useEffect(() => {
@@ -569,6 +655,15 @@ export default function WorkspaceClient({
     if (activeTab === 'RAG' && urlQuery && ragResults.length === 0) {
       executeRagSearch(urlQuery, urlPage)
     }
+    if (
+      activeTab === 'RAG' &&
+      !urlQuery &&
+      ragView === 'chunks' &&
+      ragChunks.length === 0 &&
+      !ragChunksLoading
+    ) {
+      loadRagChunks(urlChunksPage * PAGE_SIZE)
+    }
     if (activeTab === 'GIT' && !gitStatus) {
       getGitStatus(projectId)
         .then((data: any) => {
@@ -606,10 +701,14 @@ export default function WorkspaceClient({
       const cleanFile = cleanPath(searchParams.get('file'))
       const cleanQ = cleanPath(searchParams.get('q'))
       const cleanPage = cleanPath(searchParams.get('page'))
+      const cleanView = cleanPath(searchParams.get('view'))
+      const cleanCpage = cleanPath(searchParams.get('cpage'))
       const params = new URLSearchParams()
       if (cleanFile) params.set('file', cleanFile)
       if (cleanQ) params.set('q', cleanQ)
       if (cleanPage) params.set('page', cleanPage)
+      if (cleanView) params.set('view', cleanView)
+      if (cleanCpage) params.set('cpage', cleanCpage)
       const cleanSearch = params.toString()
       if (cleanSearch !== raw.replace(/^\?/, '')) {
         const base = window.location.pathname
@@ -954,8 +1053,133 @@ export default function WorkspaceClient({
             </button>
           </form>
 
+          {/* View toggle: browse all chunks (default) or search results */}
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+              <button
+                type="button"
+                onClick={() => switchRagView('chunks')}
+                className={`px-3 py-1.5 font-medium transition-colors ${
+                  ragView === 'chunks'
+                    ? 'bg-primary text-white'
+                    : 'text-muted hover:bg-hover'
+                }`}
+                aria-pressed={ragView === 'chunks'}
+              >
+                🗂 All Chunks{ragChunksTotal > 0 ? ` (${ragChunksTotal})` : ''}
+              </button>
+              <button
+                type="button"
+                onClick={() => switchRagView('search')}
+                className={`px-3 py-1.5 font-medium transition-colors border-l border-border ${
+                  ragView === 'search'
+                    ? 'bg-primary text-white'
+                    : 'text-muted hover:bg-hover'
+                }`}
+                aria-pressed={ragView === 'search'}
+              >
+                🔍 Search Results
+                {ragResults.length > 0 ? ` (${ragResults.length})` : ''}
+              </button>
+            </div>
+          </div>
+
+          {/* Default view: browse every indexed chunk (collapsible, paginated) */}
+          {ragView === 'chunks' && (
+            <div className="space-y-3">
+              {ragChunksLoading && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center gap-3 rounded-[10px] border border-border bg-surface-secondary px-4 py-3.5 text-xs text-muted"
+                >
+                  <span className="h-4 w-4 flex-shrink-0 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                  Loading indexed chunks…
+                </div>
+              )}
+              {!ragChunksLoading && ragChunks.length === 0 && (
+                <div className="rounded-[10px] border border-border bg-surface-secondary px-4 py-3 text-xs text-muted">
+                  No chunks indexed yet. Run a re-index or wait for the initial
+                  background index to complete.
+                </div>
+              )}
+              {ragChunks.length > 0 && (
+                <div className="max-h-[calc(100vh-430px)] overflow-y-auto pr-1 space-y-2">
+                  {ragChunks.map((chunk) => {
+                    const isOpen = expandedChunks.has(chunk.id)
+                    return (
+                      <article
+                        key={chunk.id}
+                        className="bg-surface-secondary border border-border rounded-lg text-xs font-mono overflow-hidden"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleChunk(chunk.id)}
+                          className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-hover/50 transition-colors"
+                          aria-expanded={isOpen}
+                          aria-label={`${isOpen ? 'Collapse' : 'Expand'} chunk for ${chunk.file_path}`}
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`text-muted text-[9px] transition-transform ${
+                                isOpen ? 'rotate-90' : ''
+                              }`}
+                            >
+                              ▶
+                            </span>
+                            <span className="text-primary font-sans font-semibold truncate">
+                              {chunk.file_path} (Lines {chunk.start_line}-
+                              {chunk.end_line})
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-muted font-sans">
+                            {isOpen ? '−' : '+'}
+                          </span>
+                        </button>
+                        {isOpen && (
+                          <pre className="text-foreground-secondary bg-[#090d16] p-2 rounded-b overflow-x-auto text-xs border-t border-border">
+                            {chunk.content}
+                          </pre>
+                        )}
+                      </article>
+                    )
+                  })}
+                </div>
+              )}
+              {ragChunksTotal > PAGE_SIZE && (
+                <div className="flex items-center gap-1.5 justify-end pt-1 text-[10px] text-muted select-none">
+                  <button
+                    type="button"
+                    disabled={chunksPage === 0}
+                    onClick={() => goToChunksPage(chunksPage - 1)}
+                    className="px-1.5 py-0.5 rounded border border-border hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed"
+                    aria-label="Previous chunks page"
+                  >
+                    ‹
+                  </button>
+                  <span className="font-mono">
+                    {chunksPage + 1}/
+                    {Math.ceil(ragChunksTotal / PAGE_SIZE)} ·{' '}
+                    {ragChunksTotal} chunks
+                  </span>
+                  <button
+                    type="button"
+                    disabled={
+                      chunksPage >= Math.ceil(ragChunksTotal / PAGE_SIZE) - 1
+                    }
+                    onClick={() => goToChunksPage(chunksPage + 1)}
+                    className="px-1.5 py-0.5 rounded border border-border hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed"
+                    aria-label="Next chunks page"
+                  >
+                    ›
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Live search feedback — shown below the form where results render */}
-          {ragSearching && (
+          {ragView === 'search' && ragSearching && (
             <div
               role="status"
               aria-live="polite"
@@ -972,22 +1196,26 @@ export default function WorkspaceClient({
             </div>
           )}
 
-          {!ragSearching && ragError && (
+          {ragView === 'search' && !ragSearching && ragError && (
             <div className="rounded-[10px] border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-500">
               ⚠ {ragError}
             </div>
           )}
 
-          {!ragSearching && !ragError && ragSearched && ragResults.length === 0 && (
-            <div className="rounded-[10px] border border-border bg-surface-secondary px-4 py-3 text-xs text-muted">
-              No results found for{' '}
-              <span className="font-mono text-foreground">
-                “{ragQuery.trim()}”
-              </span>
-            </div>
-          )}
+          {ragView === 'search' &&
+            !ragSearching &&
+            !ragError &&
+            ragSearched &&
+            ragResults.length === 0 && (
+              <div className="rounded-[10px] border border-border bg-surface-secondary px-4 py-3 text-xs text-muted">
+                No results found for{' '}
+                <span className="font-mono text-foreground">
+                  “{ragQuery.trim()}”
+                </span>
+              </div>
+            )}
 
-          {ragResults.length > 0 && (
+          {ragView === 'search' && ragResults.length > 0 && (
             <div className="space-y-3 pt-2">
               {ragResults
                 .slice(ragPage * PAGE_SIZE, ragPage * PAGE_SIZE + PAGE_SIZE)

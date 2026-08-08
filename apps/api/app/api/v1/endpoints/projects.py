@@ -598,6 +598,34 @@ async def rag_search_project(
     return tool_res.result
 
 
+@router.get("/projects/{project_id}/rag/chunks")
+async def list_rag_chunks(
+    project_id: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    q: str = Query(""),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Browse the currently indexed RAG chunks (paginated, optional filter).
+
+    Used by the RAG tab's default "All Chunks" view.
+    """
+    workspace = await _resolve_workspace(project_id, db)
+    tool_res = await ToolGateway.invoke_tool(
+        device_id=_DEFAULT_DEVICE,
+        workspace_id=workspace,
+        job_id="job_rag_chunks",
+        tool_name="rag_chunks",
+        arguments={"offset": offset, "limit": limit, "query": q},
+    )
+    if not tool_res.success:
+        if _tool_is_offline(tool_res):
+            return _offline_response()
+        raise HTTPException(status_code=500, detail=tool_res.error)
+    return tool_res.result
+
+
 @router.get("/projects/{project_id}/git/status")
 async def get_git_status(
     project_id: str,

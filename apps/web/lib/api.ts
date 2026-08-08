@@ -422,6 +422,39 @@ export function ragSearch(
   })
 }
 
+export interface RagChunk {
+  id: string
+  file_path: string
+  start_line: number
+  end_line: number
+  content: string
+}
+
+export interface RagChunksPage {
+  total: number
+  offset: number
+  limit: number
+  chunks: RagChunk[]
+}
+
+/** GET /api/v1/projects/:id/rag/chunks — paginated browse of indexed chunks */
+export function listRagChunks(
+  id: string,
+  offset = 0,
+  limit = 10,
+  q = '',
+): Promise<RagChunksPage> {
+  const params = new URLSearchParams({
+    offset: String(offset),
+    limit: String(limit),
+  })
+  if (q) params.set('q', q)
+  return request<RagChunksPage>(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(id)}/rag/chunks?${params.toString()}`,
+  )
+}
+
 /** POST /api/v1/projects/:id/rag/reindex — kicks off a background job */
 export function reindexRag(
   id: string,

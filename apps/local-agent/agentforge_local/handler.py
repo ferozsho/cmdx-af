@@ -85,6 +85,16 @@ class ToolHandler:
             elif req.tool_name == "rag_status":
                 indexer = LocalRAGIndexer.get(ws_path)
                 res = indexer.status()
+            elif req.tool_name == "rag_chunks":
+                # Browse the full index: paginated chunk list (with optional
+                # file-path/content substring filter) for the UI's default
+                # "All Chunks" view.
+                indexer = LocalRAGIndexer.get(ws_path)
+                res = indexer.list_chunks(
+                    offset=args.get("offset", 0),
+                    limit=args.get("limit", 10),
+                    query=args.get("query", ""),
+                )
             else:
                 raise ValueError(f"Unknown tool name '{req.tool_name}'")
 

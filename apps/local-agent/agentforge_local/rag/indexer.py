@@ -188,6 +188,31 @@ class LocalRAGIndexer:
         )
         return state
 
+    def list_chunks(
+        self, offset: int = 0, limit: int = 10, query: str = ""
+    ) -> Dict[str, Any]:
+        """Return a paginated slice of the currently indexed chunks.
+
+        ``query`` (optional) filters by file path or content substring.
+        The result shape is stable for the API + web browse view.
+        """
+        chunks = self.indexed_chunks
+        q = (query or "").strip().lower()
+        if q:
+            chunks = [
+                c
+                for c in chunks
+                if q in c["file_path"].lower() or q in c["content"].lower()
+            ]
+        total = len(chunks)
+        page = chunks[offset : offset + limit]
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "chunks": page,
+        }
+
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Semantic (vector) search with keyword fallback."""
         vector_results = self._store.search(query, top_k=top_k)
