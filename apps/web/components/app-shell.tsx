@@ -9,6 +9,7 @@ import { LiveWorkspaceLink } from '@/app/live-workspace-link'
 import { SidebarHealth } from '@/app/sidebar-health'
 import { NavItem } from '@/app/nav-item'
 import LogoutButton from '@/components/logout-button'
+import NotificationBell from '@/components/notification-bell'
 
 const PUBLIC_PATHS = ['/login', '/forgot-password']
 
@@ -117,13 +118,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <HeaderBreadcrumb />
           <div className="flex items-center gap-[10px]">
             <ThemeToggle />
-            <button
-              type="button"
-              className="btn-secondary-af !px-[11px] !py-[9px] text-sm"
-              aria-label="Notifications"
-            >
-              🔔
-            </button>
+            <NotificationBell />
             <LogoutButton />
             <div className="w-9 h-9 rounded-full bg-[#6e37c9] text-white grid place-items-center font-bold text-xs shadow-sm">
               AF
