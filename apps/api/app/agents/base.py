@@ -53,6 +53,22 @@ class BaseAgent(ABC):
                 })
             except Exception as e:
                 results.append({"path": f["path"], "success": False, "error": str(e)})
+            # Audit log each write to the file_operations table
+            try:
+                from app.core.database import AsyncSessionLocal
+                from app.models.file_operation import FileOperation
+
+                async with AsyncSessionLocal() as session:
+                    session.add(
+                        FileOperation(
+                            instruction_id=job,
+                            operation_type="write",
+                            file_path=f["path"],
+                        )
+                    )
+                    await session.commit()
+            except Exception:
+                pass
         return results
 
     async def _run_command(

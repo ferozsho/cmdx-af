@@ -8,9 +8,11 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.models.agent_run import AgentRun
 from app.repositories.project_repo import ProjectRepository
 from app.repositories.device_repo import DeviceRepository
 from app.tools.gateway.tool_gateway import ToolGateway
@@ -186,6 +188,24 @@ def _resolve_workspace(project_id: str) -> str:
     return _DEFAULT_WORKSPACE
 
 
+def _tool_is_offline(tool_res: Any) -> bool:
+    """Detect whether a failed tool result is due to an offline device."""
+    error = (tool_res.error or "").lower() if hasattr(tool_res, "error") else ""
+    return "offline" in error or "not connected" in error
+
+
+def _offline_response() -> dict:
+    """Structured response returned when the local agent is offline."""
+    return {
+        "status": "offline",
+        "online": False,
+        "detail": (
+            "Local agent workstation is offline. Connect a device to use "
+            "this feature."
+        ),
+    }
+
+
 @router.get("/projects/stats/summary")
 async def get_project_stats(db: AsyncSession = Depends(get_db)) -> Any:
     """Get aggregated project stats for dashboard KPIs."""
@@ -194,12 +214,30 @@ async def get_project_stats(db: AsyncSession = Depends(get_db)) -> Any:
     total = await repo.count()
     online = await device_repo.count_online()
     total_devices = await device_repo.count()
+
+    # Real agent run count from agent_runs
+    runs_result = await db.execute(
+        select(func.count(AgentRun.id)).where(AgentRun.status == "COMPLETED")
+    )
+    agent_runs = int(runs_result.scalar() or 0)
+
+    # Real tests-passed sum from Test Agent run metadata
+    tests_passed = 0
+    test_runs = await db.execute(
+        select(AgentRun.metadata_json).where(
+            AgentRun.agent_name == "Test Agent"
+        )
+    )
+    for (meta,) in test_runs.all():
+        if isinstance(meta, dict):
+            tests_passed += int(meta.get("tests_passed") or 0)
+
     return {
         "total_projects": total,
         "online_devices": online,
         "total_devices": total_devices,
-        "agent_runs": 0,
-        "tests_passed": 0,
+        "agent_runs": agent_runs,
+        "tests_passed": tests_passed,
     }
 
 
@@ -440,6 +478,8 @@ async def get_project_tree(project_id: str) -> Any:
         arguments={},
     )
     if not tool_res.success:
+        if _tool_is_offline(tool_res):
+            return _offline_response()
         raise HTTPException(status_code=500, detail=tool_res.error)
     return tool_res.result
 
@@ -455,6 +495,8 @@ async def read_project_file(project_id: str, path: str = Query(...)) -> Any:
         arguments={"path": path},
     )
     if not tool_res.success:
+        if _tool_is_offline(tool_res):
+            return _offline_response()
         raise HTTPException(status_code=500, detail=tool_res.error)
     return {"path": path, "content": tool_res.result}
 
@@ -470,6 +512,8 @@ async def rag_search_project(project_id: str, data: RagQueryRequest) -> Any:
         arguments={"query": data.query, "top_k": data.top_k},
     )
     if not tool_res.success:
+        if _tool_is_offline(tool_res):
+            return _offline_response()
         raise HTTPException(status_code=500, detail=tool_res.error)
     return tool_res.result
 
@@ -485,6 +529,8 @@ async def get_git_status(project_id: str) -> Any:
         arguments={},
     )
     if not tool_res.success:
+        if _tool_is_offline(tool_res):
+            return _offline_response()
         raise HTTPException(status_code=500, detail=tool_res.error)
     return tool_res.result
 
@@ -500,8 +546,42 @@ async def get_git_log(project_id: str, max_count: int = 20) -> Any:
         arguments={"max_count": max_count},
     )
     if not tool_res.success:
+        if _tool_is_offline(tool_res):
+            return _offline_response()
         raise HTTPException(status_code=500, detail=tool_res.error)
     return tool_res.result
+
+
+class GitRollbackRequest(BaseModel):
+    """Schema for git rollback request."""
+
+    commit_hash: str
+
+
+@router.post("/projects/{project_id}/git/rollback")
+async def rollback_git_commit(
+    project_id: str,
+    data: GitRollbackRequest,
+) -> Any:
+    """Hard-reset the workspace to a specified commit hash."""
+    if not data.commit_hash:
+        raise HTTPException(status_code=400, detail="commit_hash is required")
+    tool_res = await ToolGateway.invoke_tool(
+        device_id=_DEFAULT_DEVICE,
+        workspace_id=_DEFAULT_WORKSPACE,
+        job_id="job_git_rollback",
+        tool_name="git_rollback",
+        arguments={"commit_hash": data.commit_hash},
+    )
+    if not tool_res.success:
+        if _tool_is_offline(tool_res):
+            return _offline_response()
+        raise HTTPException(status_code=500, detail=tool_res.error)
+    return {
+        "ok": True,
+        "detail": f"Workspace reset to {data.commit_hash}",
+        "result": tool_res.result,
+    }
 
 
 @router.get("/projects/{project_id}/rag/stats")
@@ -516,15 +596,26 @@ async def get_rag_stats(project_id: str) -> Any:
             arguments={"query": ".", "top_k": 1},
         )
         if not tool_res.success:
-            return {"files_indexed": 0, "chunks": 0, "last_index": None}
+            return {
+                "files_indexed": 0,
+                "chunks": 0,
+                "last_index": None,
+                "online": False,
+            }
         results = tool_res.result if isinstance(tool_res.result, list) else []
         return {
             "files_indexed": len(results),
             "chunks": sum(len(r.get("content", "")) for r in results) if results else 0,
             "last_index": None,
+            "online": True,
         }
     except Exception:
-        return {"files_indexed": 0, "chunks": 0, "last_index": None}
+        return {
+            "files_indexed": 0,
+            "chunks": 0,
+            "last_index": None,
+            "online": False,
+        }
 
 
 @router.post("/projects/{project_id}/rag/reindex")
@@ -538,6 +629,8 @@ async def reindex_project_rag(project_id: str) -> Any:
         arguments={},
     )
     if not tool_res.success:
+        if _tool_is_offline(tool_res):
+            return _offline_response()
         raise HTTPException(status_code=500, detail=tool_res.error)
     return tool_res.result
 
@@ -555,6 +648,8 @@ async def get_file_original(
         arguments={"path": path},
     )
     if not tool_res.success:
+        if _tool_is_offline(tool_res):
+            return _offline_response()
         raise HTTPException(status_code=500, detail=tool_res.error)
     return {"path": path, "content": tool_res.result}
 

@@ -16,8 +16,10 @@ from app.agents.test_agent import TestAgent
 from app.agents.validation import ValidationAgent
 from app.agents.git_agent import GitAgent
 from app.core.database import AsyncSessionLocal
+from app.llm.tracking import current_instruction_id
 from app.models.agent_run import AgentRun
 from app.models.artifact import Artifact
+from app.models.instruction import Instruction
 
 
 # Maps each artifact-producing agent to its Artifact.artifact_type
@@ -116,6 +118,9 @@ class PipelineOrchestrator:
         workspace_id: str = "ws-test",
     ) -> Dict[str, Any]:
         """Execute all sequential agents in order, emitting live progress events."""
+        # Bind instruction_id so LLM usage tracking persists the right FK
+        current_instruction_id.set(instruction_id)
+
         context: Dict[str, Any] = {
             "instruction_id": instruction_id,
             "prompt": prompt,
@@ -174,6 +179,17 @@ class PipelineOrchestrator:
                     f"{agent.agent_name} finished in {duration}s.",
                     data=res,
                 )
+
+        # Mark the instruction as COMPLETED/FAILED based on agent results
+        try:
+            any_failed = any(r.get("status") == "FAILED" for r in results)
+            async with AsyncSessionLocal() as session:
+                instruction = await session.get(Instruction, instruction_id)
+                if instruction:
+                    instruction.status = "FAILED" if any_failed else "COMPLETED"
+                    await session.commit()
+        except Exception:
+            pass
 
         return {
             "instruction_id": instruction_id,

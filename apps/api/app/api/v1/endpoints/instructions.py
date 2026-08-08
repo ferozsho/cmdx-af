@@ -2,7 +2,7 @@
 
 import asyncio
 import uuid
-from typing import Any
+from typing import Any, List
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +28,36 @@ class InstructionResponse(BaseModel):
     project_id: str
     prompt: str
     status: str
+
+
+@router.get(
+    "/projects/{project_id}/instructions",
+    response_model=List[InstructionResponse],
+)
+async def list_instructions(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """List recent instructions for a project with their status."""
+    from sqlalchemy import select
+
+    from app.models.instruction import Instruction
+
+    result = await db.execute(
+        select(Instruction)
+        .where(Instruction.project_id == project_id)
+        .order_by(Instruction.created_at.desc())
+        .limit(50)
+    )
+    return [
+        InstructionResponse(
+            id=i.id,
+            project_id=i.project_id,
+            prompt=i.prompt,
+            status=i.status,
+        )
+        for i in result.scalars().all()
+    ]
 
 
 def _resolve_device_and_workspace(

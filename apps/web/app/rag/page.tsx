@@ -22,6 +22,7 @@ export default function RagManagerPage() {
     files_indexed: number
     chunks: number
     last_index: string | null
+    online?: boolean
   } | null>(null)
   const [reindexing, setReindexing] = useState(false)
   const [reindexMessage, setReindexMessage] = useState<string | null>(null)
@@ -93,12 +94,29 @@ export default function RagManagerPage() {
         </div>
         <button
           onClick={handleReindex}
-          disabled={reindexing || !selectedProject}
+          disabled={reindexing || !selectedProject || ragStats?.online === false}
           className="btn-primary-af text-xs disabled:opacity-50"
         >
           {reindexing ? 'Re-indexing...' : '↻ Re-index Project'}
         </button>
       </div>
+
+      {ragStats?.online === false && (
+        <div className="mb-[18px] rounded-[10px] p-4 bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
+          <span className="text-lg">🖥</span>
+          <div>
+            <div className="text-xs font-bold text-foreground">
+              Local Agent Workstation Offline
+            </div>
+            <p className="text-xs text-muted mt-0.5 m-0">
+              Connect your workstation to index and search this project.{' '}
+              <Link href="/devices" className="text-primary hover:underline font-bold">
+                Go to Devices
+              </Link>
+            </p>
+          </div>
+        </div>
+      )}
 
       {reindexMessage && (
         <div
@@ -164,7 +182,7 @@ export default function RagManagerPage() {
             />
             <button
               type="submit"
-              disabled={searching || !query.trim() || !selectedProject}
+              disabled={searching || !query.trim() || !selectedProject || ragStats?.online === false}
               className="btn-primary-af text-xs disabled:opacity-50"
             >
               {searching ? 'Searching...' : 'Search'}

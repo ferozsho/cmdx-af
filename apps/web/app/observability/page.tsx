@@ -33,6 +33,12 @@ export default function ObservabilityPage() {
     }[]
     total_runs: number
     avg_duration_seconds: number
+    llm_usage: {
+      calls: number
+      total_tokens: number
+      cost: number
+      models: number
+    }
   } | null>(null)
 
   useEffect(() => {
@@ -217,6 +223,47 @@ export default function ObservabilityPage() {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* LLM Usage — real totals from llm_usage table */}
+        <div className="card-af p-[18px]">
+          <h3 className="text-sm font-bold text-foreground m-0 mb-4">
+            LLM Usage
+          </h3>
+          <div className="space-y-1 text-xs">
+            {[
+              ['API Calls', String(agentMetrics?.llm_usage.calls ?? '—')],
+              [
+                'Total Tokens',
+                agentMetrics?.llm_usage.total_tokens
+                  ? agentMetrics.llm_usage.total_tokens.toLocaleString()
+                  : '—',
+              ],
+              [
+                'Estimated Cost',
+                agentMetrics?.llm_usage.cost
+                  ? `$${agentMetrics.llm_usage.cost.toFixed(4)}`
+                  : '—',
+              ],
+              ['Models', String(agentMetrics?.llm_usage.models ?? '—')],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="flex justify-between py-[11px] border-b border-border last:border-0"
+              >
+                <span className="text-muted">{label}</span>
+                <span className="text-foreground font-bold font-mono">
+                  {value}
+                </span>
+              </div>
+            ))}
+          </div>
+          {agentMetrics && agentMetrics.llm_usage.calls === 0 && (
+            <p className="text-[11px] text-muted mt-2">
+              No LLM calls recorded yet — usage appears after the first pipeline
+              run.
+            </p>
+          )}
         </div>
       </div>
     </div>

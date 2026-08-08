@@ -43,7 +43,7 @@ class GitAgent(BaseAgent):
                 workspace_id=workspace,
                 job_id=job,
                 tool_name="git_checkout_branch",
-                arguments={"branch": branch_name},
+                arguments={"branch_name": branch_name},
             )
         except Exception:
             branch_res = None
@@ -76,6 +76,25 @@ class GitAgent(BaseAgent):
             )
             if commit_res.success:
                 commit_hash = str(commit_res.result or "")[:8]
+
+            # Persist the commit to the git_commits audit table
+            if commit_res.success:
+                try:
+                    from app.core.database import AsyncSessionLocal
+                    from app.models.git_commit import GitCommit
+
+                    async with AsyncSessionLocal() as session:
+                        session.add(
+                            GitCommit(
+                                instruction_id=instruction_id,
+                                commit_hash=str(commit_res.result or "")[:8],
+                                branch=branch_name,
+                                message=commit_msg,
+                            )
+                        )
+                        await session.commit()
+                except Exception:
+                    pass
 
             return {
                 "status": "COMPLETED",

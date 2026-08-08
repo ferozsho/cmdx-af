@@ -1,10 +1,12 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
+import Link from 'next/link'
 import {
   listProjects,
   getGitStatus,
   getGitLog,
+  rollbackGit,
   type ProjectResponse,
 } from '@/lib/api'
 
@@ -14,6 +16,8 @@ export default function GitHistoryPage() {
   const [gitStatus, setGitStatusState] = useState<any>(null)
   const [commits, setCommits] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [rollingBack, setRollingBack] = useState<string | null>(null)
+  const [rollbackMsg, setRollbackMsg] = useState<string | null>(null)
 
   useEffect(() => {
     listProjects()
@@ -36,6 +40,38 @@ export default function GitHistoryPage() {
       .then((data) => setCommits(Array.isArray(data) ? data : []))
       .catch(() => setCommits([]))
   }, [selectedProject])
+
+  const handleRollback = async (commit: any) => {
+    if (!selectedProject) return
+    const hash = String(commit.hash || '').slice(0, 8)
+    if (
+      !window.confirm(
+        `Roll back workspace to commit ${hash}?\n\n` +
+          'This is a HARD reset — all uncommitted changes will be lost.',
+      )
+    ) {
+      return
+    }
+    setRollingBack(commit.hash)
+    setRollbackMsg(null)
+    try {
+      const res = await rollbackGit(selectedProject, commit.hash)
+      setRollbackMsg(`✓ ${res.detail}`)
+      // Refresh status + log after rollback
+      const [status, log] = await Promise.all([
+        getGitStatus(selectedProject),
+        getGitLog(selectedProject),
+      ])
+      setGitStatusState(status)
+      setCommits(Array.isArray(log) ? log : [])
+    } catch (err) {
+      setRollbackMsg(
+        `✗ Rollback failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      )
+    } finally {
+      setRollingBack(null)
+    }
+  }
 
   return (
     <div>
@@ -65,7 +101,25 @@ export default function GitHistoryPage() {
       </div>
 
       {/* Current Branch Status */}
-      {gitStatus && (
+      {gitStatus && gitStatus.status === 'offline' && (
+        <div className="card-af p-5 mb-[18px] bg-amber-500/10 border-amber-500/30 flex items-start gap-3">
+          <span className="text-lg">🖥</span>
+          <div>
+            <div className="text-xs font-bold text-foreground">
+              Local Agent Workstation Offline
+            </div>
+            <p className="text-xs text-muted mt-0.5 m-0">
+              {gitStatus.detail ||
+                'Connect your workstation to view live git history.'}{' '}
+              <Link href="/devices" className="text-primary hover:underline font-bold">
+                Go to Devices
+              </Link>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {gitStatus && gitStatus.status !== 'offline' && (
         <div className="card-af p-5 mb-[18px]">
           <div className="flex items-center gap-4 text-sm">
             <div>
@@ -95,6 +149,18 @@ export default function GitHistoryPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {rollbackMsg && (
+        <div
+          className={`card-af p-3 mb-[18px] text-xs font-medium ${
+            rollbackMsg.startsWith('✗')
+              ? 'border-red-500/30 bg-red-500/10 text-red-500'
+              : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          }`}
+        >
+          {rollbackMsg}
         </div>
       )}
 
@@ -134,6 +200,15 @@ export default function GitHistoryPage() {
                     ? new Date(commit.time).toLocaleDateString()
                     : ''}
                 </div>
+                <button
+                  onClick={() => handleRollback(commit)}
+                  disabled={rollingBack === commit.hash}
+                  className="mt-2 text-[10px] font-bold text-red-500 hover:underline disabled:opacity-50"
+                >
+                  {rollingBack === commit.hash
+                    ? 'Rolling back...'
+                    : '⏪ Rollback'}
+                </button>
               </div>
             </div>
           ))

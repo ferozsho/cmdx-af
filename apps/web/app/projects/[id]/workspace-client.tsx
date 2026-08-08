@@ -324,6 +324,10 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       const data = await getFileContent(projectId, targetPath)
       if (data.content !== undefined) {
         setSelectedFileContent(data.content)
+      } else if ((data as any).status === 'offline') {
+        setSelectedFileContent(
+          '// Workstation offline — connect a device to read this file.',
+        )
       } else {
         setSelectedFileContent(`// Unable to load content for ${targetPath}`)
       }
@@ -338,7 +342,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     setSelectedFileOriginal('')
     try {
       const orig = await getFileOriginal(projectId, targetPath)
-      setSelectedFileOriginal(orig.content || '')
+      if ((orig as any).status === 'offline') {
+        setSelectedFileOriginal('')
+      } else {
+        setSelectedFileOriginal(orig.content || '')
+      }
     } catch (err) {
       console.error('Failed to load file baseline:', err)
       setSelectedFileOriginal('')
@@ -351,6 +359,10 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     updateUrl('rag', undefined, queryText)
     try {
       const data = await ragSearch(projectId, queryText)
+      if ((data as any)?.status === 'offline') {
+        setRagResults([])
+        return
+      }
       setRagResults(Array.isArray(data) ? data : [data])
     } catch (err) {
       console.error('Failed to search RAG:', err)
@@ -414,9 +426,16 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     if (activeTab === 'FILES') {
       if (!fileTree && !fileTreeError) {
         getProjectTree(projectId)
-          .then((data) => {
-            setFileTree(data)
-            setFileTreeError(null)
+          .then((data: any) => {
+            if (data?.status === 'offline') {
+              setFileTree(null)
+              setFileTreeError(
+                'Local agent workstation is offline — connect a device to browse files.',
+              )
+            } else {
+              setFileTree(data)
+              setFileTreeError(null)
+            }
           })
           .catch((err) => {
             const msg =
@@ -426,7 +445,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       }
       if (!gitStatus) {
         getGitStatus(projectId)
-          .then((data) => setGitStatus(data))
+          .then((data: any) => {
+            setGitStatus(
+              data?.status === 'offline' ? { ...data, offline: true } : data,
+            )
+          })
           .catch((err) => console.error('Failed to load git status:', err))
       }
       if (urlFile) {
@@ -438,7 +461,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
     }
     if (activeTab === 'GIT' && !gitStatus) {
       getGitStatus(projectId)
-        .then((data) => setGitStatus(data))
+        .then((data: any) => {
+          setGitStatus(
+            data?.status === 'offline' ? { ...data, offline: true } : data,
+          )
+        })
         .catch((err) => console.error('Failed to load git status:', err))
     }
     if (activeTab === 'ARTIFACTS' && artifacts.length === 0 && !artifactsLoading) {
@@ -749,7 +776,20 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           <h2 className="text-sm font-semibold text-foreground">
             Local Git Status
           </h2>
-          {gitStatus ? (
+          {gitStatus?.offline ? (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 flex items-start gap-3">
+              <span className="text-lg">🖥</span>
+              <div>
+                <div className="text-xs font-bold text-foreground">
+                  Local Agent Workstation Offline
+                </div>
+                <p className="text-xs text-muted mt-0.5 m-0">
+                  {gitStatus.detail ||
+                    'Connect your workstation to view live git status.'}
+                </p>
+              </div>
+            </div>
+          ) : gitStatus ? (
             <>
               <div className="bg-surface-secondary border border-border rounded-lg p-4 font-mono space-y-2 text-foreground">
                 <div className="flex items-center justify-between">

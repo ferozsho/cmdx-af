@@ -261,8 +261,25 @@ export function getGitLog(id: string, maxCount = 20): Promise<unknown[]> {
   return request<unknown[]>('GET', `/api/v1/projects/${encodeURIComponent(id)}/git/log?max_count=${maxCount}`)
 }
 
+/** POST /api/v1/projects/:id/git/rollback */
+export function rollbackGit(
+  id: string,
+  commitHash: string,
+): Promise<{ ok: boolean; detail: string; result: unknown }> {
+  return request('POST', `/api/v1/projects/${encodeURIComponent(id)}/git/rollback`, {
+    commit_hash: commitHash,
+  })
+}
+
 /** GET /api/v1/projects/:id/rag/stats */
-export function getRagStats(id: string): Promise<{ files_indexed: number; chunks: number; last_index: string | null }> {
+export function getRagStats(
+  id: string,
+): Promise<{
+  files_indexed: number
+  chunks: number
+  last_index: string | null
+  online?: boolean
+}> {
   return request('GET', `/api/v1/projects/${encodeURIComponent(id)}/rag/stats`)
 }
 
@@ -303,6 +320,12 @@ export function getAgentMetrics(): Promise<{
   }[]
   total_runs: number
   avg_duration_seconds: number
+  llm_usage: {
+    calls: number
+    total_tokens: number
+    cost: number
+    models: number
+  }
 }> {
   return request('GET', '/api/v1/observability/agent-metrics')
 }
@@ -317,6 +340,21 @@ export function submitInstruction(
     `/api/v1/projects/${encodeURIComponent(id)}/instructions`,
     { prompt },
   )
+}
+
+/** GET /api/v1/projects/:id/instructions */
+export function listInstructions(
+  id: string,
+): Promise<
+  {
+    id: string
+    project_id: string
+    prompt: string
+    status: string
+    created_at: string | null
+  }[]
+> {
+  return request('GET', `/api/v1/projects/${encodeURIComponent(id)}/instructions`)
 }
 
 /** GET /api/v1/devices */
