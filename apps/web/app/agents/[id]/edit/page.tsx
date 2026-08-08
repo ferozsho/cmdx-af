@@ -59,7 +59,7 @@ export default function EditAgentPage() {
   if (!agent) return <div className="max-w-2xl p-7"><p className="text-sm text-red-500">Agent not found.</p><Link href="/agents" className="text-xs text-primary hover:underline mt-2 block">← Back to Agents</Link></div>
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="space-y-6">
       <div>
         <Link href="/agents" className="text-sm text-primary hover:underline">← Back to Agents</Link>
         <h1 className="text-2xl font-bold text-foreground mt-2">✏️ Edit Agent</h1>

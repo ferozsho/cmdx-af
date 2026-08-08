@@ -37,7 +37,7 @@ export default function NewAgentPage() {
   }
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="space-y-6">
       <div>
         <Link href="/agents" className="text-sm text-primary hover:underline">← Back to Agents</Link>
         <h1 className="text-2xl font-bold text-foreground mt-2">➕ New Agent</h1>
