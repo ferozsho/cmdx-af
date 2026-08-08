@@ -460,66 +460,51 @@ async def delete_project(
 
 @router.post("/projects/validate-path", response_model=ValidatePathResponse)
 async def validate_project_path(data: ValidatePathRequest) -> Any:
-    """Validate a project directory path and detect its technology stack."""
+    """Validate a project directory path via the connected Local Agent.
+
+    The folder lives on the developer's host machine, so the check is
+    delegated to the local agent over WSS (the API container cannot see
+    the host filesystem).
+    """
     raw_path = data.path.strip()
-    result = ValidatePathResponse(valid=False)
-
-    # Security: block obviously dangerous paths
     if not raw_path:
-        result.warnings.append("Path is empty.")
-        return result
+        return ValidatePathResponse(valid=False, warnings=["Path is empty."])
 
-    try:
-        project_path = Path(raw_path).expanduser().resolve()
-    except (OSError, RuntimeError) as e:
-        result.warnings.append(f"Cannot resolve path: {e}")
-        return result
-
-    # Check existence
-    result.exists = project_path.exists()
-    if not result.exists:
-        result.warnings.append(f"Directory does not exist: {project_path}")
-        return result
-
-    # Check is directory
-    result.is_directory = project_path.is_dir()
-    if not result.is_directory:
-        result.warnings.append(f"Path is not a directory: {project_path}")
-        return result
-
-    # Check readability
-    result.readable = os.access(project_path, os.R_OK)
-    if not result.readable:
-        result.warnings.append(f"Directory is not readable: {project_path}")
-
-    # Check writability
-    result.writable = os.access(project_path, os.W_OK)
-    if not result.writable:
-        result.warnings.append(f"Directory is not writable: {project_path}")
-
-    # Check for git repository
-    result.git_repository = (project_path / ".git").is_dir()
-    if not result.git_repository:
-        result.warnings.append(
-            "No Git repository detected. Git versioning will be unavailable."
+    tool_res = await ToolGateway.invoke_tool(
+        device_id=_DEFAULT_DEVICE,
+        workspace_id=raw_path,
+        job_id="job_validate_path",
+        tool_name="validate_path",
+        arguments={"path": raw_path},
+    )
+    if not tool_res.success:
+        if _tool_is_offline(tool_res):
+            return ValidatePathResponse(
+                valid=False,
+                warnings=[
+                    "Local agent workstation is offline. Connect a device "
+                    "to validate folders."
+                ],
+            )
+        return ValidatePathResponse(
+            valid=False,
+            warnings=[tool_res.error or "Folder validation failed"],
         )
 
-    # Detect tech stack
-    result.detected_stack = _detect_tech_stack(project_path)
-
-    # Count files and dirs (limited depth for performance)
-    try:
-        result.files_count, result.directories_count = _count_files_and_dirs(
-            project_path, max_depth=4
-        )
-    except Exception:
-        pass
-
-    # Project name from directory
-    result.project_name = project_path.name
-
-    result.valid = result.exists and result.is_directory and result.readable
-    return result
+    result = tool_res.result or {}
+    return ValidatePathResponse(
+        valid=bool(result.get("valid")),
+        exists=bool(result.get("exists")),
+        is_directory=bool(result.get("is_directory")),
+        readable=bool(result.get("readable")),
+        writable=bool(result.get("writable")),
+        git_repository=bool(result.get("git_repository")),
+        detected_stack=result.get("detected_stack") or [],
+        project_name=result.get("project_name"),
+        files_count=int(result.get("files_count") or 0),
+        directories_count=int(result.get("directories_count") or 0),
+        warnings=result.get("warnings") or [],
+    )
 
 
 @router.get("/projects/{project_id}/tree")

@@ -32,7 +32,11 @@ class LocalVectorEmbedder:
         self._load_model()
         if self._model != "fallback" and hasattr(self._model, "encode"):
             try:
-                vector = self._model.encode(text)
+                # show_progress_bar=False keeps bulk indexing silent — no
+                # tqdm "Batches:" flood in the daemon logs.
+                vector = self._model.encode(
+                    text, show_progress_bar=False
+                )
                 return (
                     vector.tolist()
                     if hasattr(vector, "tolist")

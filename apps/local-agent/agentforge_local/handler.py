@@ -59,6 +59,8 @@ class ToolHandler:
                 res = GitTools.show_file(ws_path, args["path"])
             elif req.tool_name == "run_command":
                 res = ExecutionRunner.run_command(ws_path, args["cmd_array"])
+            elif req.tool_name == "validate_path":
+                res = FilesystemTools.validate_path(args.get("path", ""))
             elif req.tool_name == "rag_search":
                 # Search only — indexing is done by the file watcher or an
                 # explicit rag_reindex, so searches stay fast on large repos.
