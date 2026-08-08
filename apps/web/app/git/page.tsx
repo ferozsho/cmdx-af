@@ -9,6 +9,7 @@ import {
   rollbackGit,
   type ProjectResponse,
 } from '@/lib/api'
+import ConfirmModal from '@/components/confirm-modal'
 
 export default function GitHistoryPage() {
   const [projects, setProjects] = useState<ProjectResponse[]>([])
@@ -18,6 +19,7 @@ export default function GitHistoryPage() {
   const [loading, setLoading] = useState(true)
   const [rollingBack, setRollingBack] = useState<string | null>(null)
   const [rollbackMsg, setRollbackMsg] = useState<string | null>(null)
+  const [rollbackTarget, setRollbackTarget] = useState<any>(null)
 
   useEffect(() => {
     listProjects()
@@ -41,23 +43,20 @@ export default function GitHistoryPage() {
       .catch(() => setCommits([]))
   }, [selectedProject])
 
-  const handleRollback = async (commit: any) => {
+  const handleRollback = (commit: any) => {
     if (!selectedProject) return
-    const hash = String(commit.hash || '').slice(0, 8)
-    if (
-      !window.confirm(
-        `Roll back workspace to commit ${hash}?\n\n` +
-          'This is a HARD reset — all uncommitted changes will be lost.',
-      )
-    ) {
-      return
-    }
+    setRollbackTarget(commit)
+  }
+
+  const confirmRollback = async () => {
+    if (!selectedProject || !rollbackTarget) return
+    const commit = rollbackTarget
+    setRollbackTarget(null)
     setRollingBack(commit.hash)
     setRollbackMsg(null)
     try {
       const res = await rollbackGit(selectedProject, commit.hash)
       setRollbackMsg(`✓ ${res.detail}`)
-      // Refresh status + log after rollback
       const [status, log] = await Promise.all([
         getGitStatus(selectedProject),
         getGitLog(selectedProject),
@@ -225,6 +224,15 @@ export default function GitHistoryPage() {
           instruction from the workspace to see commits.
         </p>
       </div>
+      <ConfirmModal
+        open={!!rollbackTarget}
+        title="Rollback Workspace"
+        message={`Roll back workspace to commit ${String(rollbackTarget?.hash || '').slice(0, 8)}? This is a HARD reset — all uncommitted changes will be lost.`}
+        confirmLabel="Rollback"
+        variant="danger"
+        onConfirm={confirmRollback}
+        onCancel={() => setRollbackTarget(null)}
+      />
     </div>
   )
 }

@@ -26,6 +26,10 @@ class User(Base):
     )
     # RBAC role: "user" (default) or "admin" (settings/observability).
     role: Mapped[str] = mapped_column(String, default="user", nullable=False)
+    # Extended profile fields for AI agent platform
+    org_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    job_title: Mapped[str | None] = mapped_column(String, nullable=True)
+    agent_quota: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False
     )

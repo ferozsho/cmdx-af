@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { listUsers, deleteUser, type UserResponse } from '@/lib/api'
+import ConfirmModal from '@/components/confirm-modal'
 
 const PER_PAGE_OPTIONS = [5, 10, 20, 50, 100]
 
@@ -20,12 +22,29 @@ function generatePageNumbers(current: number, total: number): (number | '...')[]
 }
 
 export default function UsersPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const urlPage = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1)
+  const urlPerPage = Math.max(1, parseInt(searchParams.get('perPage') || '5', 10) || 5)
+  const urlSearch = searchParams.get('q') || ''
+
   const [users, setUsers] = useState<UserResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
-  const [page, setPage] = useState(1)
-  const [perPage, setPerPage] = useState(5)
+  const [page, setPage] = useState(urlPage)
+  const [perPage, setPerPage] = useState(urlPerPage)
+  const [search, setSearch] = useState(urlSearch)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; email: string } | null>(null)
+
+  const syncUrl = (p: number, pp: number, q: string) => {
+    const params = new URLSearchParams()
+    if (p > 1) params.set('page', String(p))
+    if (pp !== 5) params.set('perPage', String(pp))
+    if (q) params.set('q', q)
+    const qs = params.toString()
+    router.replace(`/users${qs ? `?${qs}` : ''}`, { scroll: false })
+  }
 
   const loadUsers = async () => {
     setLoading(true)
@@ -42,35 +61,56 @@ export default function UsersPage() {
 
   useEffect(() => { loadUsers() }, [])
 
-  const handleDelete = async (userId: string, email: string) => {
-    if (!confirm(`Permanently delete user "${email}"? This cannot be undone.`)) return
+  const handleDelete = (userId: string, email: string) => {
+    setDeleteTarget({ id: userId, email })
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
     setMsg(null)
     try {
-      await deleteUser(userId)
-      setMsg(`User "${email}" deleted.`)
-      // Adjust page if last item on current page was deleted
-      const newTotal = users.length - 1
-      const maxPage = Math.max(1, Math.ceil(newTotal / perPage))
-      if (page > maxPage) setPage(maxPage)
+      await deleteUser(deleteTarget.id)
+      setMsg(`User "${deleteTarget.email}" deleted.`)
       loadUsers()
     } catch (err: any) {
       setMsg(err?.message || 'Delete failed')
+    } finally {
+      setDeleteTarget(null)
     }
   }
 
-  const totalPages = Math.max(1, Math.ceil(users.length / perPage))
-  // Clamp page if users list shrinks
+  // Filter by search
+  const filtered = search
+    ? users.filter(
+        (u) =>
+          u.email.toLowerCase().includes(search.toLowerCase()) ||
+          (u.full_name || '').toLowerCase().includes(search.toLowerCase()),
+      )
+    : users
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage))
   const safePage = Math.min(page, totalPages)
   const pageNumbers = useMemo(
     () => generatePageNumbers(safePage, totalPages),
     [safePage, totalPages],
   )
-  const pageUsers = users.slice((safePage - 1) * perPage, safePage * perPage)
+  const pageUsers = filtered.slice((safePage - 1) * perPage, safePage * perPage)
 
-  // Reset to page 1 when perPage changes
   const handlePerPageChange = (val: number) => {
     setPerPage(val)
     setPage(1)
+    syncUrl(1, val, search)
+  }
+
+  const goToPage = (p: number) => {
+    setPage(p)
+    syncUrl(p, perPage, search)
+  }
+
+  const handleSearch = (q: string) => {
+    setSearch(q)
+    setPage(1)
+    syncUrl(1, perPage, q)
   }
 
   if (loading) {
@@ -84,8 +124,8 @@ export default function UsersPage() {
     )
   }
 
-  const adminCount = users.filter((u) => u.role === 'admin').length
-  const userCount = users.filter((u) => u.role === 'user').length
+  const adminCount = filtered.filter((u) => u.role === 'admin').length
+  const userCount = filtered.filter((u) => u.role === 'user').length
 
   return (
     <div className="space-y-6">
@@ -145,6 +185,17 @@ export default function UsersPage() {
           </div>
         ) : (
           <>
+            {/* Search */}
+            <div className="px-5 pt-4">
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => handleSearch(e.target.value)}
+                placeholder="Search by email or name..."
+                className="input-af w-full sm:w-80 text-sm"
+              />
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -251,15 +302,14 @@ export default function UsersPage() {
                     ))}
                   </select>
                   <span>
-                    {(safePage - 1) * perPage + 1}–{Math.min(safePage * perPage, users.length)} of {users.length}
+                    {(safePage - 1) * perPage + 1}–{Math.min(safePage * perPage, filtered.length)} of {filtered.length}
                   </span>
                 </div>
 
                 <nav className="flex items-center gap-1.5" aria-label="Pagination">
                   {/* Previous */}
                   <button
-                    onClick={() => setPage(safePage - 1)}
-                    disabled={safePage <= 1}
+                      onClick={() => goToPage(safePage - 1)}
                     className="px-3 py-1.5 text-sm rounded-md border border-border text-muted hover:bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     aria-label="Previous page"
                   >
@@ -274,7 +324,7 @@ export default function UsersPage() {
                     ) : (
                       <button
                         key={p}
-                        onClick={() => setPage(p)}
+                        onClick={() => goToPage(p)}
                         className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
                           p === safePage
                             ? 'bg-primary text-white font-semibold'
@@ -290,7 +340,7 @@ export default function UsersPage() {
 
                   {/* Next */}
                   <button
-                    onClick={() => setPage(safePage + 1)}
+                    onClick={() => goToPage(safePage + 1)}
                     disabled={safePage >= totalPages}
                     className="px-3 py-1.5 text-sm rounded-md border border-border text-muted hover:bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     aria-label="Next page"
@@ -303,6 +353,15 @@ export default function UsersPage() {
           </>
         )}
       </div>
+      <ConfirmModal
+        open={!!deleteTarget}
+        title="Delete User"
+        message={`Permanently delete user "${deleteTarget?.email}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }

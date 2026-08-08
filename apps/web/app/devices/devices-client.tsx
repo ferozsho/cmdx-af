@@ -7,6 +7,7 @@ import {
   revokeDevice,
   type DeviceResponse,
 } from '@/lib/api'
+import ConfirmModal from '@/components/confirm-modal'
 
 export default function DevicesClient() {
   const [pairingCode, setPairingCode] = useState<string | null>(null)
@@ -16,6 +17,7 @@ export default function DevicesClient() {
   const [pairingError, setPairingError] = useState<string | null>(null)
   const [revokingId, setRevokingId] = useState<string | null>(null)
   const [revokeError, setRevokeError] = useState<string | null>(null)
+  const [revokeTarget, setRevokeTarget] = useState<DeviceResponse | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -45,26 +47,24 @@ export default function DevicesClient() {
     }
   }
 
-  const handleRevoke = async (device: DeviceResponse) => {
-    if (
-      !window.confirm(
-        `Revoke device "${device.name}" (${device.hostname})?\n\n` +
-          'It will be disconnected and removed from this platform.',
-      )
-    ) {
-      return
-    }
-    setRevokingId(device.id)
+  const handleRevoke = (device: DeviceResponse) => {
+    setRevokeTarget(device)
+  }
+
+  const confirmRevoke = async () => {
+    if (!revokeTarget) return
+    setRevokingId(revokeTarget.id)
     setRevokeError(null)
     try {
-      await revokeDevice(device.id)
-      setDevices((prev) => prev.filter((d) => d.id !== device.id))
+      await revokeDevice(revokeTarget.id)
+      setDevices((prev) => prev.filter((d) => d.id !== revokeTarget.id))
     } catch (err) {
       setRevokeError(
         err instanceof Error ? err.message : 'Failed to revoke device',
       )
     } finally {
       setRevokingId(null)
+      setRevokeTarget(null)
     }
   }
 
@@ -216,6 +216,15 @@ export default function DevicesClient() {
           )}
         </div>
       </div>
+      <ConfirmModal
+        open={!!revokeTarget}
+        title="Revoke Device"
+        message={`Revoke device "${revokeTarget?.name}" (${revokeTarget?.hostname})? It will be disconnected and removed from this platform.`}
+        confirmLabel="Revoke"
+        variant="danger"
+        onConfirm={confirmRevoke}
+        onCancel={() => setRevokeTarget(null)}
+      />
     </div>
   )
 }

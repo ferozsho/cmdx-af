@@ -796,6 +796,9 @@ export interface UserResponse {
   email: string
   full_name: string | null
   role: string
+  org_name?: string | null
+  job_title?: string | null
+  agent_quota?: number
   created_at: string | null
 }
 
@@ -810,6 +813,9 @@ export function createUser(data: {
   password: string
   full_name?: string
   role?: string
+  org_name?: string
+  job_title?: string
+  agent_quota?: number
 }): Promise<UserResponse> {
   return request<UserResponse>('POST', '/api/v1/users', data)
 }
@@ -822,7 +828,7 @@ export function getUser(id: string): Promise<UserResponse> {
 /** PATCH /api/v1/users/:id */
 export function updateUser(
   id: string,
-  data: { full_name?: string; role?: string },
+  data: { full_name?: string; role?: string; org_name?: string | null; job_title?: string | null; agent_quota?: number },
 ): Promise<UserResponse> {
   return request<UserResponse>('PATCH', `/api/v1/users/${encodeURIComponent(id)}`, data)
 }

@@ -22,6 +22,9 @@ class UserResponse(BaseModel):
     email: str
     full_name: str | None
     role: str
+    org_name: str | None = None
+    job_title: str | None = None
+    agent_quota: int = 10
     created_at: str | None
 
 
@@ -30,6 +33,9 @@ class UserCreate(BaseModel):
     password: str
     full_name: str | None = None
     role: str = "user"
+    org_name: str | None = None
+    job_title: str | None = None
+    agent_quota: int = 10
 
     @field_validator("password")
     @classmethod
@@ -42,6 +48,9 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     full_name: str | None = None
     role: str | None = None
+    org_name: str | None = None
+    job_title: str | None = None
+    agent_quota: int | None = None
 
 
 def _to_user_response(u: User) -> UserResponse:
@@ -50,6 +59,9 @@ def _to_user_response(u: User) -> UserResponse:
         email=u.email,
         full_name=u.full_name,
         role=u.role or "user",
+        org_name=u.org_name,
+        job_title=u.job_title,
+        agent_quota=u.agent_quota or 10,
         created_at=u.created_at.isoformat() if u.created_at else None,
     )
 
@@ -83,6 +95,9 @@ async def create_user(
         hashed_password=hash_password(data.password),
         full_name=data.full_name,
         role=data.role,
+        org_name=data.org_name,
+        job_title=data.job_title,
+        agent_quota=data.agent_quota,
     )
     db.add(user)
     await db.commit()
@@ -125,6 +140,12 @@ async def update_user(
         user.full_name = data.full_name
     if data.role is not None:
         user.role = data.role
+    if data.org_name is not None:
+        user.org_name = data.org_name
+    if data.job_title is not None:
+        user.job_title = data.job_title
+    if data.agent_quota is not None:
+        user.agent_quota = data.agent_quota
     await db.commit()
     await db.refresh(user)
     return _to_user_response(user)
