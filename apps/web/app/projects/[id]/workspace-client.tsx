@@ -302,6 +302,8 @@ export default function WorkspaceClient({
 
   const [fileTree, setFileTree] = useState<any>(null)
   const [fileTreeError, setFileTreeError] = useState<string | null>(null)
+  // Global offline state — set when any tool-backed endpoint returns offline
+  const [isOffline, setIsOffline] = useState(false)
   // File tree collapse/expand control + remount key
   const [treeMode, setTreeMode] = useState<'auto' | 'collapsed' | 'expanded'>(
     'auto',
@@ -654,11 +656,13 @@ export default function WorkspaceClient({
         getProjectTree(projectId)
           .then((data: any) => {
             if (data?.status === 'offline') {
+              setIsOffline(true)
               setFileTree(null)
               setFileTreeError(
                 'Local agent workstation is offline — connect a device to browse files.',
               )
             } else {
+              setIsOffline(false)
               setFileTree(data)
               setFileTreeError(null)
             }
@@ -672,9 +676,9 @@ export default function WorkspaceClient({
       if (!gitStatus) {
         getGitStatus(projectId)
           .then((data: any) => {
-            setGitStatus(
-              data?.status === 'offline' ? { ...data, offline: true } : data,
-            )
+            const offline = data?.status === 'offline'
+            setIsOffline(offline)
+            setGitStatus(offline ? { ...data, offline: true } : data)
           })
           .catch((err) => console.error('Failed to load git status:', err))
       }
@@ -697,9 +701,9 @@ export default function WorkspaceClient({
     if (activeTab === 'GIT' && !gitStatus) {
       getGitStatus(projectId)
         .then((data: any) => {
-          setGitStatus(
-            data?.status === 'offline' ? { ...data, offline: true } : data,
-          )
+          const offline = data?.status === 'offline'
+          setIsOffline(offline)
+          setGitStatus(offline ? { ...data, offline: true } : data)
         })
         .catch((err) => console.error('Failed to load git status:', err))
     }
@@ -822,6 +826,21 @@ export default function WorkspaceClient({
           })}
         </nav>
       </header>
+
+      {/* Global Offline Banner — shown on all tabs when workstation is disconnected */}
+      {isOffline && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-5 flex items-start gap-4">
+          <span className="text-2xl flex-shrink-0">🖥</span>
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-foreground">
+              Local Agent Workstation Offline
+            </div>
+            <p className="text-sm text-muted mt-1 m-0">
+              Local agent workstation is offline. Connect a device to use this feature.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Instruction Form — only on the Agents tab (pipeline launcher belongs
           with the agent sequence; other tabs are for browsing/reviewing) */}
@@ -1371,18 +1390,9 @@ export default function WorkspaceClient({
             Local Git Status
           </h2>
           {gitStatus?.offline ? (
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 flex items-start gap-3">
-              <span className="text-lg">🖥</span>
-              <div>
-                <div className="text-xs font-bold text-foreground">
-                  Local Agent Workstation Offline
-                </div>
-                <p className="text-xs text-muted mt-0.5 m-0">
-                  {gitStatus.detail ||
-                    'Connect your workstation to view live git status.'}
-                </p>
-              </div>
-            </div>
+            <p className="text-sm text-muted text-center py-4">
+              Refer to the offline banner above.
+            </p>
           ) : gitStatus ? (
             <>
               <div className="bg-surface-secondary border border-border rounded-lg p-4 font-mono space-y-2 text-foreground">
