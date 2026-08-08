@@ -125,15 +125,23 @@ function FileTreeNode({
           )}
         </button>
         {isOpen && (
-          <div className="border-l border-border pl-2">
-            <TreePager
-              children={node.children || []}
-              parentPath={currentPath}
-              selectedPath={selectedPath}
-              onSelectFile={onSelectFile}
-              gitStatus={gitStatus}
-              mode={mode}
-            />
+          <div className="border-l border-border pl-2 space-y-0.5">
+            {(node.children || []).map((child: any) => {
+              const childPath = currentPath
+                ? `${currentPath}/${child.name}`
+                : child.name
+              return (
+                <FileTreeNode
+                  key={childPath}
+                  node={child}
+                  parentPath={currentPath}
+                  selectedPath={selectedPath}
+                  onSelectFile={onSelectFile}
+                  gitStatus={gitStatus}
+                  mode={mode}
+                />
+              )
+            })}
           </div>
         )}
       </div>
@@ -209,77 +217,6 @@ function FileTreeNode({
   )
 }
 
-function TreePager({
-  children,
-  parentPath,
-  selectedPath,
-  onSelectFile,
-  gitStatus,
-  mode,
-}: {
-  children: any[]
-  parentPath: string
-  selectedPath: string
-  onSelectFile: (path: string) => void
-  gitStatus?: any
-  mode: 'auto' | 'collapsed' | 'expanded'
-}) {
-  const [page, setPage] = useState(0)
-  const perPage = 5
-  const totalPages = Math.max(1, Math.ceil(children.length / perPage))
-  const safePage = Math.min(page, totalPages - 1)
-  const slice = children.slice(
-    safePage * perPage,
-    safePage * perPage + perPage,
-  )
-
-  return (
-    <div className="space-y-0.5">
-      {slice.map((child: any) => {
-        const childPath = parentPath
-          ? `${parentPath}/${child.name}`
-          : child.name
-        return (
-          <FileTreeNode
-            key={childPath}
-            node={child}
-            parentPath={parentPath}
-            selectedPath={selectedPath}
-            onSelectFile={onSelectFile}
-            gitStatus={gitStatus}
-            mode={mode}
-          />
-        )
-      })}
-      {children.length > perPage && (
-        <div className="flex items-center gap-1.5 justify-end pt-1 text-[10px] text-muted select-none">
-          <button
-            type="button"
-            disabled={safePage === 0}
-            onClick={() => setPage(safePage - 1)}
-            className="px-1.5 py-0.5 rounded border border-border hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed"
-            aria-label="Previous page"
-          >
-            ‹
-          </button>
-          <span className="font-mono">
-            {safePage + 1}/{totalPages} · {children.length}
-          </span>
-          <button
-            type="button"
-            disabled={safePage >= totalPages - 1}
-            onClick={() => setPage(safePage + 1)}
-            className="px-1.5 py-0.5 rounded border border-border hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed"
-            aria-label="Next page"
-          >
-            ›
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
 export default function WorkspaceClient({
   projectId,
   initialTab,
@@ -324,6 +261,7 @@ export default function WorkspaceClient({
   const [ragQuery, setRagQuery] = useState(urlQuery)
   const [ragResults, setRagResults] = useState<any[]>([])
   const [ragStats, setRagStats] = useState<RagStats | null>(null)
+  const [ragPage, setRagPage] = useState(0)
 
   const [fileTree, setFileTree] = useState<any>(null)
   const [fileTreeError, setFileTreeError] = useState<string | null>(null)
@@ -453,12 +391,13 @@ export default function WorkspaceClient({
     if (!queryText.trim()) return
     updateUrl('rag', undefined, queryText)
     try {
-      const data = await ragSearch(projectId, queryText)
+      const data = await ragSearch(projectId, queryText, 15)
       if ((data as any)?.status === 'offline') {
         setRagResults([])
         return
       }
       setRagResults(Array.isArray(data) ? data : [data])
+      setRagPage(0)
     } catch (err) {
       console.error('Failed to search RAG:', err)
     }
@@ -832,14 +771,17 @@ export default function WorkspaceClient({
                 <div className="font-bold text-primary flex items-center gap-1.5 pb-1">
                   <span>📁</span> {fileTree.name}/
                 </div>
-                <TreePager
-                  children={fileTree.children || []}
-                  parentPath=""
-                  selectedPath={selectedFilePath}
-                  onSelectFile={handleSelectFile}
-                  gitStatus={gitStatus}
-                  mode={treeMode}
-                />
+                {(fileTree.children || []).map((node: any) => (
+                  <FileTreeNode
+                    key={node.name}
+                    node={node}
+                    parentPath=""
+                    selectedPath={selectedFilePath}
+                    onSelectFile={handleSelectFile}
+                    gitStatus={gitStatus}
+                    mode={treeMode}
+                  />
+                ))}
               </div>
             ) : fileTreeError ? (
               <div className="text-red-500 text-xs font-mono">
@@ -939,17 +881,53 @@ export default function WorkspaceClient({
 
           {ragResults.length > 0 && (
             <div className="space-y-3 pt-2">
-              {ragResults.map((res, i) => (
-                <article key={i} className="bg-surface-secondary border border-border rounded-lg p-3 text-xs space-y-1 font-mono">
-                  <div className="flex justify-between text-primary font-sans font-semibold">
-                    <span>
-                      {res.file_path} (Lines {res.start_line}-{res.end_line})
-                    </span>
-                    <span>Relevance: {(res.score * 100).toFixed(0)}%</span>
-                  </div>
-                  <pre className="text-foreground-secondary bg-[#090d16] p-2 rounded overflow-x-auto text-xs">{res.content}</pre>
-                </article>
-              ))}
+              {ragResults
+                .slice(ragPage * 5, ragPage * 5 + 5)
+                .map((res, i) => (
+                  <article
+                    key={i}
+                    className="bg-surface-secondary border border-border rounded-lg p-3 text-xs space-y-1 font-mono"
+                  >
+                    <div className="flex justify-between text-primary font-sans font-semibold">
+                      <span>
+                        {res.file_path} (Lines {res.start_line}-{res.end_line})
+                      </span>
+                      <span>Relevance: {(res.score * 100).toFixed(0)}%</span>
+                    </div>
+                    <pre className="text-foreground-secondary bg-[#090d16] p-2 rounded overflow-x-auto text-xs">
+                      {res.content}
+                    </pre>
+                  </article>
+                ))}
+              {ragResults.length > 5 && (
+                <div className="flex items-center gap-1.5 justify-end pt-1 text-[10px] text-muted select-none">
+                  <button
+                    type="button"
+                    disabled={ragPage === 0}
+                    onClick={() => setRagPage((p) => Math.max(0, p - 1))}
+                    className="px-1.5 py-0.5 rounded border border-border hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed"
+                    aria-label="Previous results page"
+                  >
+                    ‹
+                  </button>
+                  <span className="font-mono">
+                    {ragPage + 1}/
+                    {Math.ceil(ragResults.length / 5)} · {ragResults.length}{' '}
+                    results
+                  </span>
+                  <button
+                    type="button"
+                    disabled={
+                      ragPage >= Math.ceil(ragResults.length / 5) - 1
+                    }
+                    onClick={() => setRagPage((p) => p + 1)}
+                    className="px-1.5 py-0.5 rounded border border-border hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed"
+                    aria-label="Next results page"
+                  >
+                    ›
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </section>

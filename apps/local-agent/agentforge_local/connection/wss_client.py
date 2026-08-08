@@ -57,16 +57,24 @@ class LocalWSSClient:
         """Execute tool handler and transmit ToolResult back to Cloud."""
         try:
             result = await self.tool_handler(tool_req)
-            await ws.send(result.model_dump_json())
         except Exception as e:
-            err_res = ToolResult(
+            result = ToolResult(
                 request_id=tool_req.request_id,
                 job_id=tool_req.job_id,
                 tool_name=tool_req.tool_name,
                 success=False,
                 error=str(e),
             )
-            await ws.send(err_res.model_dump_json())
+        try:
+            await ws.send(result.model_dump_json())
+        except Exception:
+            # Connection may have dropped while the tool ran (e.g. keepalive
+            # ping timeout or an API container restart). The reconnect loop in
+            # start() restores the connection — nothing useful to send here.
+            logger.warning(
+                "Dropped tool response for %s (connection closed)",
+                tool_req.request_id,
+            )
 
     def stop(self) -> None:
         """Stop client daemon."""
