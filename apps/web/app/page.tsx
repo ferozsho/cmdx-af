@@ -7,6 +7,7 @@ import {
   listDevices,
   updateProject,
   deleteProject,
+  getProjectStats,
   type ProjectResponse,
   type DeviceResponse,
 } from '@/lib/api'
@@ -16,6 +17,7 @@ export default function DashboardPage() {
   const [devices, setDevices] = useState<DeviceResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [stats, setStats] = useState({ agent_runs: 0, tests_passed: 0 })
 
   const TECH_OPTIONS = [
     'Python', 'FastAPI', 'Django', 'Next.js', 'React', 'Node.js',
@@ -38,12 +40,14 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [projData, devData] = await Promise.all([
+        const [projData, devData, statsData] = await Promise.all([
           listProjects(),
           listDevices(),
+          getProjectStats().catch(() => ({ agent_runs: 0, tests_passed: 0 })),
         ])
         setProjects(projData)
         setDevices(devData)
+        setStats(statsData)
       } catch (err) {
         console.error('Failed to load dashboard data:', err)
         setError('Could not load dashboard data. Is the API running?')
@@ -181,14 +185,14 @@ export default function DashboardPage() {
         />
         <StatCard
           label="Agent Runs"
-          value="—"
-          trend="Observability coming soon"
+          value={stats.agent_runs}
+          trend="Since last deploy"
           icon="◉"
         />
         <StatCard
           label="Tests Passed"
-          value="—"
-          trend="Observability coming soon"
+          value={stats.tests_passed}
+          trend="Across all projects"
           icon="✓"
         />
       </div>

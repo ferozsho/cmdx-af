@@ -61,6 +61,9 @@ class PipelineOrchestrator:
             res["agent_name"] = agent.agent_name
 
             context.update(res)
+            # Normalize plan key so all downstream agents can find it
+            if "plan" in res and "plan_json" not in res:
+                context["plan_json"] = res["plan"]
             results.append(res)
 
             if event_callback:

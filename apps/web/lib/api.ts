@@ -122,6 +122,12 @@ export function getSettings(): Promise<{
   deepseek_base_url: string
   chat_model: string
   coder_model: string
+  max_agent_steps: number
+  agent_timeout: number
+  rag_top_k: number
+  rag_similarity_threshold: number
+  context_window_budget: string
+  allowed_commands: string
   has_key: boolean
 }> {
   return request('GET', '/api/v1/settings')

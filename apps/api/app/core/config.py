@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "AgentForge Cloud Control Plane"
     APP_ENV: str = "development"
-    APP_MODE: str = "mock"  # mock or production
+    APP_MODE: str = "production"  # production or mock
     API_PREFIX: str = "/api/v1"
 
     SECRET_KEY: str = "agentforge-super-secret-key-change-in-production-2026"

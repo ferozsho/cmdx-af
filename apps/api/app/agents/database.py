@@ -29,14 +29,18 @@ class DatabaseAgent(BaseAgent):
                     f"User instruction: {prompt}\n\n"
                     f"Implementation plan: {plan}\n\n"
                     "Generate required SQLAlchemy ORM models and Alembic migration. "
-                    "Follow existing model conventions in the project."
+                    "Include COMPLETE file content for each generated file. "
+                    "Return each file as {path, content}."
                 ),
                 system_prompt=SYSTEM_PROMPT,
                 json_mode=True,
             )
+            files = response.content.get("files", [])
+            write_results = await self._write_files(context, files) if files else []
             return {
                 "status": "COMPLETED",
-                "files_generated": response.content.get("files_generated", []),
+                "files_generated": [f["path"] for f in files],
+                "files_written": write_results,
                 "tables_created": response.content.get("tables_created", []),
                 "relationships": response.content.get("relationships", []),
                 "summary": response.content.get("summary", ""),

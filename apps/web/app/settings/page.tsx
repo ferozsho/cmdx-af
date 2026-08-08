@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useCallback, useRef, useState } from 'react'
-import { getFullHealth, updateSettings, type ComponentHealth } from '@/lib/api'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { getFullHealth, getSettings, updateSettings, type ComponentHealth } from '@/lib/api'
 
 type TestStatus = 'idle' | 'testing' | 'success' | 'error'
 
@@ -33,6 +33,34 @@ export default function SettingsPage() {
     status: 'idle',
     message: '',
   })
+
+  // Load current settings from API on mount
+  useEffect(() => {
+    getSettings()
+      .then((s) => {
+        if (baseUrlRef.current && s.deepseek_base_url)
+          baseUrlRef.current.value = s.deepseek_base_url
+        if (chatModelRef.current && s.chat_model)
+          chatModelRef.current.value = s.chat_model
+        if (coderModelRef.current && s.coder_model)
+          coderModelRef.current.value = s.coder_model
+        if (maxStepsRef.current)
+          maxStepsRef.current.value = String(s.max_agent_steps ?? 10)
+        if (timeoutRef.current)
+          timeoutRef.current.value = String(s.agent_timeout ?? 600)
+        if (ragTopKRef.current)
+          ragTopKRef.current.value = String(s.rag_top_k ?? 5)
+        if (ragThresholdRef.current)
+          ragThresholdRef.current.value = String(
+            s.rag_similarity_threshold ?? 0.65,
+          )
+        if (contextBudgetRef.current && s.context_window_budget)
+          contextBudgetRef.current.value = s.context_window_budget
+        if (allowedCommandsRef.current && s.allowed_commands)
+          allowedCommandsRef.current.value = s.allowed_commands
+      })
+      .catch(() => {})
+  }, [])
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()

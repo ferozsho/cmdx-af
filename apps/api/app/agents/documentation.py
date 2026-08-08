@@ -32,14 +32,17 @@ class DocumentationAgent(BaseAgent):
                     f"Backend files generated: {backend_files}\n"
                     f"Frontend files generated: {frontend_files}\n\n"
                     "Generate documentation updates (README.md, API docs, etc.) "
-                    "covering the implemented changes."
+                    "with COMPLETE file content. Return each as {path, content}."
                 ),
                 system_prompt=SYSTEM_PROMPT,
                 json_mode=True,
             )
+            files = response.content.get("files", [])
+            write_results = await self._write_files(context, files) if files else []
             return {
                 "status": "COMPLETED",
-                "docs_updated": response.content.get("docs_updated", []),
+                "docs_updated": [f["path"] for f in files],
+                "files_written": write_results,
                 "sections_added": response.content.get("sections_added", []),
                 "summary": response.content.get("summary", ""),
                 "tokens_used": response.total_tokens,
