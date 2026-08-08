@@ -297,16 +297,27 @@ export function rollbackGit(
   })
 }
 
-/** GET /api/v1/projects/:id/rag/stats */
-export function getRagStats(
-  id: string,
-): Promise<{
+export interface RagStats {
+  online?: boolean
+  state?: string
+  indexing?: boolean
+  progress?: number
+  files_scanned?: number
+  total_files?: number
   files_indexed: number
   chunks: number
   last_index: string | null
-  online?: boolean
-}> {
-  return request('GET', `/api/v1/projects/${encodeURIComponent(id)}/rag/stats`)
+  current_file?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+}
+
+/** GET /api/v1/projects/:id/rag/stats */
+export function getRagStats(id: string): Promise<RagStats> {
+  return request<RagStats>(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(id)}/rag/stats`,
+  )
 }
 
 /** GET /api/v1/projects/:id/files/original */

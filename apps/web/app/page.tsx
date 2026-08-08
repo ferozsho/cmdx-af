@@ -11,10 +11,12 @@ import {
   validateProjectPath,
   reindexRag,
   getReindexStatus,
+  getRagStats,
   type ProjectResponse,
   type DeviceResponse,
   type ValidatePathResponse,
   type ReindexJob,
+  type RagStats,
 } from '@/lib/api'
 
 export default function DashboardPage() {
@@ -58,6 +60,9 @@ export default function DashboardPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
 
+  // Live RAG index progress per project (for background-indexing badges)
+  const [ragIndex, setRagIndex] = useState<Record<string, RagStats>>({})
+
   useEffect(() => {
     async function load() {
       try {
@@ -78,6 +83,34 @@ export default function DashboardPage() {
     }
     load()
   }, [])
+
+  // Poll live RAG progress for local-path projects so cards show when the
+  // background index is running (startup / watcher / explicit re-index)
+  useEffect(() => {
+    if (loading) return
+    const local = projects.filter((p) => p.local_path)
+    if (local.length === 0) return
+    let timer: number | null = null
+    const tick = async () => {
+      const updates: Record<string, RagStats> = {}
+      await Promise.all(
+        local.map(async (p) => {
+          try {
+            const s = await getRagStats(p.id)
+            updates[p.id] = s
+          } catch {
+            // ignore offline / transient errors
+          }
+        }),
+      )
+      setRagIndex((prev) => ({ ...prev, ...updates }))
+    }
+    tick()
+    timer = window.setInterval(tick, 5000)
+    return () => {
+      if (timer) window.clearInterval(timer)
+    }
+  }, [loading, projects])
 
   const handleEdit = (project: ProjectResponse) => {
     setEditingId(project.id)
@@ -405,6 +438,34 @@ export default function DashboardPage() {
                   title={project.local_path}
                 >
                   📁 {project.local_path}
+                </div>
+              )}
+              {ragIndex[project.id]?.indexing && (
+                <div className="mb-[10px]">
+                  <div className="flex items-center justify-between text-[10px] text-muted mb-1">
+                    <span className="font-semibold text-foreground">
+                      ⚡ Indexing workspace…
+                    </span>
+                    <span className="font-mono">
+                      {Math.round(ragIndex[project.id]?.progress ?? 0)}%
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-surface-secondary rounded-full overflow-hidden border border-border/50">
+                    <div
+                      className="h-full bg-gradient-to-r from-primary to-primary-hover rounded-full transition-all duration-500"
+                      style={{
+                        width: `${Math.max(
+                          2,
+                          ragIndex[project.id]?.progress ?? 0,
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  {ragIndex[project.id]?.current_file && (
+                    <p className="text-[10px] text-muted mt-1 m-0 truncate">
+                      {ragIndex[project.id]?.current_file}
+                    </p>
+                  )}
                 </div>
               )}
               <div className="flex justify-between pt-[14px] border-t border-border text-xs text-muted">

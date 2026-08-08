@@ -45,3 +45,21 @@ class LocalVectorEmbedder:
             except Exception:
                 return self._fallback_embed(text)
         return self._fallback_embed(text)
+
+    def embed_batch(self, texts: List[str]) -> List[List[float]]:
+        """Embed multiple texts in one batched model call (much faster)."""
+        self._load_model()
+        if self._model != "fallback" and hasattr(self._model, "encode"):
+            try:
+                vectors = self._model.encode(
+                    list(texts),
+                    batch_size=32,
+                    show_progress_bar=False,
+                )
+                return [
+                    v.tolist() if hasattr(v, "tolist") else list(v)
+                    for v in vectors
+                ]
+            except Exception:
+                pass
+        return [self._fallback_embed(t) for t in texts]

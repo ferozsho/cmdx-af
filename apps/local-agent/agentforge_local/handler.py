@@ -79,6 +79,9 @@ class ToolHandler:
                     "chunks": len(indexer.indexed_chunks),
                     "last_index": time.strftime("%Y-%m-%d %H:%M:%S"),
                 }
+            elif req.tool_name == "rag_status":
+                indexer = LocalRAGIndexer.get(ws_path)
+                res = indexer.status()
             else:
                 raise ValueError(f"Unknown tool name '{req.tool_name}'")
 

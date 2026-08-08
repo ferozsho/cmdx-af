@@ -10,6 +10,7 @@ import {
   getReindexStatus,
   type ProjectResponse,
   type ReindexJob,
+  type RagStats,
 } from '@/lib/api'
 
 export default function RagManagerPage() {
@@ -20,12 +21,7 @@ export default function RagManagerPage() {
   const [searching, setSearching] = useState(false)
   const [loadingProjects, setLoadingProjects] = useState(true)
   const [searchError, setSearchError] = useState<string | null>(null)
-  const [ragStats, setRagStats] = useState<{
-    files_indexed: number
-    chunks: number
-    last_index: string | null
-    online?: boolean
-  } | null>(null)
+  const [ragStats, setRagStats] = useState<RagStats | null>(null)
   const [reindexing, setReindexing] = useState(false)
   const [reindexJob, setReindexJob] = useState<ReindexJob | null>(null)
   const [reindexMessage, setReindexMessage] = useState<string | null>(null)
@@ -48,13 +44,28 @@ export default function RagManagerPage() {
       .finally(() => setLoadingProjects(false))
   }, [])
 
-  // Fetch RAG stats when project changes
+  // Poll live RAG stats; keep polling every 2s while indexing so the UI
+  // shows real background progress (startup / watcher / explicit re-index)
   useEffect(() => {
     if (!selectedProject) return
-    getRagStats(selectedProject)
-      .then((data) => setRagStats(data))
-      .catch(() => setRagStats(null))
-  }, [selectedProject])
+    let timer: number | null = null
+    const tick = async () => {
+      try {
+        const s = await getRagStats(selectedProject)
+        setRagStats(s)
+      } catch {
+        // ignore transient errors
+      }
+    }
+    tick()
+    const shouldPoll = reindexing || ragStats?.indexing
+    if (shouldPoll) {
+      timer = window.setInterval(tick, 2000)
+    }
+    return () => {
+      if (timer) window.clearInterval(timer)
+    }
+  }, [selectedProject, reindexing, ragStats?.indexing])
 
   const handleReindex = async () => {
     if (!selectedProject) return
@@ -179,20 +190,28 @@ export default function RagManagerPage() {
               <span className="font-semibold text-foreground">
                 Re-indexing project in background…
               </span>
-              {reindexJob && (
-                <span className="text-muted font-mono">
-                  {reindexJob.files_indexed} files · {reindexJob.chunks} chunks
-                </span>
-              )}
+              <span className="text-muted font-mono">
+                {ragStats?.indexing
+                  ? `${ragStats.files_scanned ?? 0} / ${ragStats.total_files ?? 0} files · ${ragStats.chunks ?? 0} chunks · ${Math.round(ragStats.progress ?? 0)}%`
+                  : reindexJob
+                    ? `${reindexJob.files_indexed} files · ${reindexJob.chunks} chunks`
+                    : ''}
+              </span>
             </div>
             <div className="h-2 bg-surface-secondary rounded-full overflow-hidden border border-border/50">
               <div
-                className="h-full bg-gradient-to-r from-[#1b78d2] to-[#6e38c7] rounded-full animate-pulse"
-                style={{ width: '100%' }}
+                className="h-full bg-gradient-to-r from-[#1b78d2] to-[#6e38c7] rounded-full transition-all duration-500"
+                style={{
+                  width: ragStats?.indexing
+                    ? `${Math.max(2, ragStats.progress ?? 0)}%`
+                    : '100%',
+                }}
               />
             </div>
             <p className="text-[11px] text-muted mt-2 m-0">
-              You can keep working — indexing continues in the background.
+              {ragStats?.indexing && ragStats.current_file
+                ? `Indexing ${ragStats.current_file} — you can keep working, it continues in the background.`
+                : 'You can keep working — indexing continues in the background.'}
             </p>
           </div>
         </div>

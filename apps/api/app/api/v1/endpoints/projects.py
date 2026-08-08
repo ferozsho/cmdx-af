@@ -654,36 +654,49 @@ async def get_rag_stats(
     project_id: str,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get RAG indexing stats by searching with empty query."""
+    """Get live RAG indexing stats + progress from the Local Agent."""
     try:
         workspace = await _resolve_workspace(project_id, db)
         tool_res = await ToolGateway.invoke_tool(
             device_id=_DEFAULT_DEVICE,
             workspace_id=workspace,
             job_id="job_rag_stats",
-            tool_name="rag_search",
-            arguments={"query": ".", "top_k": 1},
+            tool_name="rag_status",
+            arguments={},
         )
         if not tool_res.success:
             return {
+                "online": False,
+                "state": "offline",
+                "indexing": False,
+                "progress": 0,
                 "files_indexed": 0,
                 "chunks": 0,
                 "last_index": None,
-                "online": False,
             }
-        results = tool_res.result if isinstance(tool_res.result, list) else []
+        result = tool_res.result if isinstance(tool_res.result, dict) else {}
         return {
-            "files_indexed": len(results),
-            "chunks": sum(len(r.get("content", "")) for r in results) if results else 0,
-            "last_index": None,
             "online": True,
+            "state": result.get("state", "idle"),
+            "indexing": bool(result.get("indexing")),
+            "progress": float(result.get("progress") or 0),
+            "files_scanned": int(result.get("scanned_files") or 0),
+            "total_files": int(result.get("total_files") or 0),
+            "files_indexed": int(result.get("files_indexed") or 0),
+            "chunks": int(result.get("chunks") or 0),
+            "last_index": result.get("finished_at"),
+            "current_file": result.get("current_file"),
+            "started_at": result.get("started_at"),
         }
     except Exception:
         return {
+            "online": False,
+            "state": "offline",
+            "indexing": False,
+            "progress": 0,
             "files_indexed": 0,
             "chunks": 0,
             "last_index": None,
-            "online": False,
         }
 
 

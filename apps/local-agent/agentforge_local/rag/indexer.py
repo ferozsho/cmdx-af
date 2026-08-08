@@ -1,12 +1,30 @@
 """Local RAG Vector Indexer & Search Engine."""
 
 import hashlib
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
 from agentforge_local.config import local_settings
 from agentforge_local.rag.chunker import CodeChunker
 from agentforge_local.rag.qdrant_store import QdrantStore
+
+# Path segments that are never indexed (virtualenvs, build caches, VCS)
+_IGNORED_PARTS = frozenset(
+    {
+        ".git",
+        "node_modules",
+        "venv",
+        ".venv",
+        "__pycache__",
+        ".next",
+        "dist",
+        "build",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+    }
+)
 
 
 class LocalRAGIndexer:
@@ -31,22 +49,57 @@ class LocalRAGIndexer:
     def __init__(self, workspace_path: str) -> None:
         self.workspace_path = Path(workspace_path).resolve()
         self.indexed_chunks: List[Dict[str, Any]] = []
+        # Live progress shared with rag_status / watcher / UI polling
+        self.index_state: Dict[str, Any] = {
+            "state": "idle",  # idle | indexing | complete | failed
+            "total_files": 0,
+            "scanned_files": 0,
+            "chunks": 0,
+            "current_file": None,
+            "started_at": None,
+            "finished_at": None,
+        }
         self._store = QdrantStore(
             str(self.workspace_path),
             url=local_settings.QDRANT_URL,
             api_key=local_settings.QDRANT_API_KEY,
         )
 
+    def _iter_files(self):
+        """Yield indexable files under the workspace (noise dirs skipped)."""
+        for item in self.workspace_path.rglob("*"):
+            if item.is_file() and not (set(item.parts) & _IGNORED_PARTS):
+                yield item
+
     def index_workspace(self) -> int:
         """Scan workspace, generate chunks, and index into vector storage."""
         self.indexed_chunks.clear()
+        files = list(self._iter_files())
+        self.index_state.update(
+            {
+                "state": "indexing",
+                "total_files": len(files),
+                "scanned_files": 0,
+                "chunks": 0,
+                "current_file": None,
+                "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "finished_at": None,
+            }
+        )
         chunks: List[Dict[str, Any]] = []
-        for item in self.workspace_path.rglob("*"):
-            if item.is_file() and not any(
-                part in item.parts
-                for part in (".git", "node_modules", "venv")
-            ):
-                chunked = CodeChunker.chunk_file(item)
+        try:
+            for idx, item in enumerate(files, start=1):
+                self.index_state["scanned_files"] = idx
+                try:
+                    self.index_state["current_file"] = str(
+                        item.relative_to(self.workspace_path)
+                    )
+                except ValueError:
+                    self.index_state["current_file"] = str(item)
+                try:
+                    chunked = CodeChunker.chunk_file(item)
+                except Exception:
+                    chunked = []
                 rel_path = str(item.relative_to(self.workspace_path))
                 for chunk in chunked:
                     chunk_id = hashlib.md5(
@@ -61,12 +114,39 @@ class LocalRAGIndexer:
                             "content": chunk["content"],
                         }
                     )
+                self.index_state["chunks"] = len(chunks)
 
-        # Persistent vector store when available; in-memory chunks always kept
-        # for the keyword-search fallback path.
-        self._store.upsert_chunks(chunks)
-        self.indexed_chunks = chunks
-        return len(self.indexed_chunks)
+            # Persistent vector store when available; in-memory chunks always
+            # kept for the keyword-search fallback path.
+            self._store.upsert_chunks(chunks)
+            self.indexed_chunks = chunks
+            self.index_state.update(
+                {
+                    "state": "complete",
+                    "scanned_files": len(files),
+                    "chunks": len(chunks),
+                    "finished_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            )
+            return len(chunks)
+        except Exception:
+            self.index_state["state"] = "failed"
+            self.index_state["finished_at"] = time.strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            raise
+
+    def status(self) -> Dict[str, Any]:
+        """Return current index state + summary for live progress UI."""
+        state = dict(self.index_state)
+        total = int(state.get("total_files") or 0)
+        scanned = int(state.get("scanned_files") or 0)
+        state["progress"] = round((scanned / total) * 100, 1) if total else 0
+        state["indexing"] = state.get("state") == "indexing"
+        state["files_indexed"] = len(
+            {c["file_path"] for c in self.indexed_chunks}
+        )
+        return state
 
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Semantic (vector) search with keyword fallback."""

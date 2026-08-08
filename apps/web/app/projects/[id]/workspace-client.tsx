@@ -11,10 +11,12 @@ import {
   getFileOriginal,
   listArtifacts,
   ragSearch,
+  getRagStats,
   getGitStatus,
   submitInstruction,
   buildSSEUrl,
   type ProjectResponse,
+  type RagStats,
 } from '@/lib/api'
 
 function formatFileSize(bytes?: number): string {
@@ -240,6 +242,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
   const [events, setEvents] = useState<any[]>([])
   const [ragQuery, setRagQuery] = useState(urlQuery)
   const [ragResults, setRagResults] = useState<any[]>([])
+  const [ragStats, setRagStats] = useState<RagStats | null>(null)
 
   const [fileTree, setFileTree] = useState<any>(null)
   const [fileTreeError, setFileTreeError] = useState<string | null>(null)
@@ -368,6 +371,31 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
       console.error('Failed to search RAG:', err)
     }
   }
+
+  // Poll live RAG index progress while on the RAG tab (covers the startup
+  // background index, watcher re-index, and explicit re-index)
+  useEffect(() => {
+    let timer: number | null = null
+    const tick = async () => {
+      try {
+        const s = await getRagStats(projectId)
+        setRagStats(s)
+        if (!s.indexing && timer) {
+          window.clearInterval(timer)
+          timer = null
+        }
+      } catch {
+        // ignore transient errors
+      }
+    }
+    if (activeTab === 'RAG') {
+      tick()
+      timer = window.setInterval(tick, 2000)
+    }
+    return () => {
+      if (timer) window.clearInterval(timer)
+    }
+  }, [activeTab, projectId])
 
   // Subscribe to SSE events
   useEffect(() => {
@@ -736,7 +764,53 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
 
       {activeTab === 'RAG' && (
         <section className="card-af p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Local RAG Semantic Search</h2>
+          <h2 className="text-sm font-semibold text-foreground">
+            Local RAG Semantic Search
+          </h2>
+
+          {/* Live index status / background progress */}
+          {ragStats?.indexing ? (
+            <div className="rounded-[10px] p-4 bg-primary/5 border border-primary/20">
+              <div className="flex items-center justify-between text-xs mb-2">
+                <span className="font-semibold text-foreground">
+                  ⚡ Indexing workspace in background…
+                </span>
+                <span className="text-muted font-mono">
+                  {ragStats.files_scanned ?? 0} / {ragStats.total_files ?? 0}{' '}
+                  files · {ragStats.chunks ?? 0} chunks ·{' '}
+                  {Math.round(ragStats.progress ?? 0)}%
+                </span>
+              </div>
+              <div className="h-2 bg-surface-secondary rounded-full overflow-hidden border border-border/50">
+                <div
+                  className="h-full bg-gradient-to-r from-primary to-primary-hover rounded-full transition-all duration-500"
+                  style={{ width: `${Math.max(2, ragStats.progress ?? 0)}%` }}
+                />
+              </div>
+              {ragStats.current_file && (
+                <p className="text-[11px] text-muted mt-2 m-0 truncate">
+                  Now indexing: {ragStats.current_file}
+                </p>
+              )}
+            </div>
+          ) : ragStats && ragStats.online !== false ? (
+            <div className="flex items-center justify-between text-xs text-muted bg-surface-secondary border border-border rounded-[10px] px-4 py-3">
+              <span>
+                <span className="font-semibold text-foreground">
+                  {ragStats.files_indexed ?? 0}
+                </span>{' '}
+                files indexed ·{' '}
+                <span className="font-semibold text-foreground">
+                  {ragStats.chunks ?? 0}
+                </span>{' '}
+                chunks
+              </span>
+              {ragStats.last_index && (
+                <span>Last indexed: {ragStats.last_index}</span>
+              )}
+            </div>
+          ) : null}
+
           <form
             onSubmit={(e) => {
               e.preventDefault()

@@ -89,9 +89,13 @@ class QdrantStore:
             from qdrant_client.models import PointStruct
 
             client = self._get_client()
+            # Batch-embed all chunks in one pass (per-chunk calls made full
+            # workspace indexing take many minutes on large repos).
+            vectors = self.embedder.embed_batch(
+                [chunk["content"] for chunk in chunks]
+            )
             points = []
-            for chunk in chunks:
-                vector = self.embedder.embed_text(chunk["content"])
+            for chunk, vector in zip(chunks, vectors):
                 point_id = hashlib.md5(
                     f"{chunk['file_path']}:{chunk['start_line']}".encode()
                 ).hexdigest()
@@ -108,6 +112,32 @@ class QdrantStore:
                     )
                 )
             client.upsert(collection_name=name, points=points)
+            # Drop stale points (files no longer part of the index) so a
+            # re-index reflects the current workspace, not old content.
+            try:
+                from qdrant_client.models import (
+                    FieldCondition,
+                    Filter,
+                    FilterSelector,
+                    MatchAny,
+                )
+
+                new_paths = list({c["file_path"] for c in chunks})
+                client.delete(
+                    collection_name=name,
+                    points_selector=FilterSelector(
+                        filter=Filter(
+                            must_not=[
+                                FieldCondition(
+                                    key="file_path",
+                                    match=MatchAny(any=new_paths),
+                                )
+                            ]
+                        )
+                    ),
+                )
+            except Exception:
+                pass
             return len(points)
         except Exception:
             return 0
