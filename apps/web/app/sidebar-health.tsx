@@ -12,22 +12,20 @@ export function SidebarHealth() {
     getFullHealth()
       .then((data) => {
         const comps = data.components || {}
-        const statuses = Object.values(comps).map((c: any) => c.status)
+        const statuses: string[] = Object.values(comps).map((c: any) => c.status)
         const hasProblem = statuses.some(
-          (s) => s === 'unhealthy' || s === 'degraded',
+          (s: string) => s === 'unhealthy' || s === 'degraded',
         )
-        const hasNotConfigured = statuses.some((s) => s === 'not_configured')
-        const allHealthy = statuses.every((s) => s === 'healthy')
+        const healthyOrUnconfigured = statuses.every(
+          (s: string) => s === 'healthy' || s === 'not_configured',
+        )
 
-        if (allHealthy) {
+        if (healthyOrUnconfigured) {
           setStatus('healthy')
           setMessage('All services healthy')
         } else if (hasProblem) {
           setStatus('degraded')
           setMessage('Some services degraded')
-        } else if (hasNotConfigured) {
-          setStatus('degraded')
-          setMessage('Some services not configured')
         } else {
           setStatus('degraded')
           setMessage('Some services unavailable')
