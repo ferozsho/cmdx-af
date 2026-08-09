@@ -22,6 +22,9 @@ class Instruction(Base):
     user_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("users.id"), nullable=True
     )
+    session_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("sessions.id"), nullable=True
+    )
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     image_data: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String, default="PENDING")
@@ -31,4 +34,5 @@ class Instruction(Base):
 
     project = relationship("Project", back_populates="instructions")
     user = relationship("User")
+    session = relationship("Session", back_populates="instructions")
     runs = relationship("AgentRun", back_populates="instruction", cascade="all, delete-orphan")

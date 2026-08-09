@@ -174,6 +174,9 @@ class PipelineOrchestrator:
         workspace_id: str = "ws-test",
         image_bytes: str | None = None,
         image_mime_type: str | None = None,
+        previous_context: list[dict] | None = None,
+        session_model_name: str | None = None,
+        session_context_limit: int | None = None,
     ) -> Dict[str, Any]:
         """Execute all sequential agents in order, emitting live progress events."""
         # Bind instruction_id so LLM usage tracking persists the right FK
@@ -203,6 +206,11 @@ class PipelineOrchestrator:
         if image_bytes:
             context["image_bytes"] = image_bytes
             context["image_mime_type"] = image_mime_type or "image/png"
+        # Inject session context (previous instructions in this session)
+        if previous_context:
+            context["session_context"] = previous_context
+            context["session_model_name"] = session_model_name
+            context["session_context_limit"] = session_context_limit
         results: List[Dict[str, Any]] = []
 
         for agent in agents:

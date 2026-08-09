@@ -1,6 +1,10 @@
 from fastapi import FastAPI
-from app.routers import health
+from app.api.routes.session import router as session_router
 
-app = FastAPI()
+app = FastAPI(title="Session Context Tracking API", version="1.0.0")
 
-app.include_router(health.router, tags=["health"])
+app.include_router(session_router)
+
+@app.get("/")
+async def root():
+    return {"message": "Session Context Tracking API"}

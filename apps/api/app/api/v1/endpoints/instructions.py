@@ -23,6 +23,7 @@ class InstructionSubmit(BaseModel):
     prompt: str
     image_bytes: Optional[str] = None
     image_mime_type: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 class InstructionResponse(BaseModel):
@@ -243,6 +244,7 @@ async def submit_instruction(
         id=ins_id,
         project_id=project_id,
         user_id=current_user.id,
+        session_id=data.session_id,
         prompt=data.prompt,
         image_data=data.image_bytes,
         status="RUNNING",
@@ -292,6 +294,46 @@ async def submit_instruction(
                 payload["data"] = data
             await broadcaster.broadcast(project_id, payload)
 
+        # Build previous context from session if applicable
+        previous_context: list[dict] = []
+        session_model_name: str | None = None
+        session_context_limit: int | None = None
+        if data.session_id:
+            try:
+                from sqlalchemy import select as sa_select
+                from sqlalchemy.orm import selectinload
+                from app.models.session import Session as SessionModel
+                from app.core.database import AsyncSessionLocal
+
+                async with AsyncSessionLocal() as sdb:
+                    sess = await sdb.get(SessionModel, data.session_id)
+                    if sess and sess.project_id == project_id:
+                        session_model_name = sess.model_name
+                        session_context_limit = sess.context_limit
+                        # Fetch last 5 completed instructions for context
+                        result = await sdb.execute(
+                            sa_select(Instruction)
+                            .where(
+                                Instruction.session_id == data.session_id,
+                                Instruction.status.in_(
+                                    ["COMPLETED", "FAILED"]
+                                ),
+                            )
+                            .order_by(Instruction.created_at.desc())
+                            .limit(5)
+                        )
+                        prev = result.scalars().all()
+                        previous_context = [
+                            {
+                                "instruction_id": p.id,
+                                "prompt": p.prompt,
+                                "status": p.status,
+                            }
+                            for p in reversed(prev)
+                        ]
+            except Exception:
+                pass
+
         await orchestrator.run_pipeline(
             ins_id,
             data.prompt,
@@ -300,6 +342,9 @@ async def submit_instruction(
             workspace_id=workspace_id,
             image_bytes=data.image_bytes,
             image_mime_type=data.image_mime_type,
+            previous_context=previous_context,
+            session_model_name=session_model_name,
+            session_context_limit=session_context_limit,
         )
 
     asyncio.create_task(_run_async_pipeline())

@@ -17,6 +17,11 @@ import {
   updateProject,
   listInstructionHistory,
   listUserInstructions,
+  listSessions,
+  createSession,
+  getSessionContext,
+  type SessionResponse,
+  type SessionContextResponse,
   type AgentRun,
   type ProjectAgentResponse,
   ragSearch,
@@ -342,6 +347,9 @@ export default function WorkspaceClient({
     { name: string; dataUrl: string; mimeType: string }[]
   >([])
   const [isRunning, setIsRunning] = useState(false)
+  const [sessions, setSessions] = useState<SessionResponse[]>([])
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [sessionContext, setSessionContext] = useState<SessionContextResponse | null>(null)
   const [events, setEvents] = useState<any[]>([])
   const [ragQuery, setRagQuery] = useState(urlQuery)
   const [ragResults, setRagResults] = useState<any[]>([])
@@ -504,6 +512,29 @@ export default function WorkspaceClient({
       })
       .catch(() => {})
   }, [projectId])
+
+  // Load sessions for this project
+  useEffect(() => {
+    listSessions(projectId)
+      .then((data) => {
+        setSessions(data)
+        if (data.length > 0 && !activeSessionId) {
+          setActiveSessionId(data[0].id)
+        }
+      })
+      .catch(() => {})
+  }, [projectId])
+
+  // Load session context when active session changes
+  useEffect(() => {
+    if (activeSessionId) {
+      getSessionContext(projectId, activeSessionId)
+        .then(setSessionContext)
+        .catch(() => setSessionContext(null))
+    } else {
+      setSessionContext(null)
+    }
+  }, [activeSessionId, projectId])
 
   // Refresh history after pipeline completes
   useEffect(() => {
@@ -1010,8 +1041,57 @@ export default function WorkspaceClient({
 
       {/* Instruction Form — only on the Agents tab */}
       {activeTab === 'AGENTS' && (
-        <section
-          className="card-af p-4"
+        <>
+          {/* Session Selector + Context Bar */}
+          <section className="card-af p-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-muted uppercase tracking-wider font-semibold">Session</span>
+                <select
+                  value={activeSessionId || ''}
+                  onChange={async (e) => {
+                    const val = e.target.value
+                    if (val === '__new__') {
+                      try {
+                        const s = await createSession(projectId, { name: `Session ${sessions.length + 1}`, model_name: 'deepseek-chat' })
+                        setSessions((prev) => [s, ...prev])
+                        setActiveSessionId(s.id)
+                      } catch (err) { console.error('Failed to create session:', err) }
+                    } else {
+                      setActiveSessionId(val || null)
+                    }
+                  }}
+                  className="input-af text-xs py-1 px-2 w-[170px]"
+                >
+                  <option value="">No Session</option>
+                  {sessions.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+                  <option value="__new__">+ New Session</option>
+                </select>
+              </div>
+              {sessionContext ? (
+                <div className="flex-1 min-w-[200px] flex items-center gap-2">
+                  <div className="flex-1 h-2.5 bg-surface-secondary rounded-full overflow-hidden border border-border/50">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        sessionContext.context_used_pct > 80 ? 'bg-red-500' : sessionContext.context_used_pct > 50 ? 'bg-amber-500' : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min(sessionContext.context_used_pct, 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted font-mono whitespace-nowrap">
+                    {(sessionContext.total_tokens_used / 1000).toFixed(0)}K / {(sessionContext.context_limit / 1000).toFixed(0)}K
+                  </span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-semibold">
+                    {sessionContext.model_name}
+                  </span>
+                </div>
+              ) : (
+                <span className="text-[10px] text-muted italic">Create a session to track context window usage</span>
+              )}
+            </div>
+          </section>
+
+          <section className="card-af p-4"
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
           onDrop={(e) => {
             e.preventDefault()
@@ -1069,7 +1149,7 @@ export default function WorkspaceClient({
               const imageMimeType = attachments.length > 0
                 ? attachments[0].mimeType
                 : undefined
-              submitInstruction(projectId, prompt, imageBytes, imageMimeType)
+              submitInstruction(projectId, prompt, imageBytes, imageMimeType, activeSessionId || undefined)
                 .then(() => {
                   setAttachments([])
                   setPrompt('')
@@ -1241,14 +1321,10 @@ export default function WorkspaceClient({
               >
                 {isRunning ? 'Running...' : 'Run Instruction'}
               </button>
-              {/* 1M Context Window badge */}
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-semibold whitespace-nowrap">
-                1M Context
-              </span>
             </div>
           </form>
         </section>
-      )}
+      </>)}
 
       {/* Pipeline Progress Bar */}
       {isRunning && (

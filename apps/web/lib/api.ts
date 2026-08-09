@@ -618,11 +618,15 @@ export function submitInstruction(
   prompt: string,
   imageBytes?: string,
   imageMimeType?: string,
+  sessionId?: string,
 ): Promise<{ id: string; project_id: string; prompt: string; status: string }> {
   const body: Record<string, unknown> = { prompt }
   if (imageBytes) {
     body.image_bytes = imageBytes
     body.image_mime_type = imageMimeType || 'image/png'
+  }
+  if (sessionId) {
+    body.session_id = sessionId
   }
   return request<{ id: string; project_id: string; prompt: string; status: string }>(
     'POST',
@@ -653,6 +657,57 @@ export function listUserInstructions(
   return request(
     'GET',
     `/api/v1/users/me/instructions?limit=${limit}`,
+  )
+}
+
+// ── Sessions ─────────────────────────────────────────────────────────────
+
+export interface SessionResponse {
+  id: string
+  project_id: string
+  user_id: string | null
+  name: string
+  model_name: string
+  context_limit: number
+  total_tokens_used: number
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface SessionContextResponse {
+  session_id: string
+  model_name: string
+  context_limit: number
+  total_tokens_used: number
+  context_used_pct: number
+  previous_instructions: {
+    instruction_id: string
+    prompt: string
+    status: string
+    created_at: string | null
+  }[]
+}
+
+export function listSessions(
+  projectId: string,
+): Promise<SessionResponse[]> {
+  return request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/sessions`)
+}
+
+export function createSession(
+  projectId: string,
+  data: { name: string; model_name: string },
+): Promise<SessionResponse> {
+  return request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/sessions`, data)
+}
+
+export function getSessionContext(
+  projectId: string,
+  sessionId: string,
+): Promise<SessionContextResponse> {
+  return request(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/context`,
   )
 }
 
