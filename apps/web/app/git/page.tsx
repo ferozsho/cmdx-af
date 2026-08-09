@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   listProjects,
   getGitStatus,
@@ -12,8 +13,12 @@ import {
 import ConfirmModal from '@/components/confirm-modal'
 
 export default function GitHistoryPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const urlProject = searchParams.get('project') || ''
+
   const [projects, setProjects] = useState<ProjectResponse[]>([])
-  const [selectedProject, setSelectedProject] = useState<string>('')
+  const [selectedProject, setSelectedProject] = useState(urlProject)
   const [gitStatus, setGitStatusState] = useState<any>(null)
   const [commits, setCommits] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -21,13 +26,23 @@ export default function GitHistoryPage() {
   const [rollbackMsg, setRollbackMsg] = useState<string | null>(null)
   const [rollbackTarget, setRollbackTarget] = useState<any>(null)
 
+  // Sync project to URL
+  useEffect(() => {
+    if (selectedProject === urlProject) return
+    const params = new URLSearchParams(searchParams.toString())
+    if (selectedProject) {
+      params.set('project', selectedProject)
+    } else {
+      params.delete('project')
+    }
+    const qs = params.toString()
+    router.replace(`/git${qs ? `?${qs}` : ''}`, { scroll: false })
+  }, [selectedProject])
+
   useEffect(() => {
     listProjects()
       .then((data) => {
         setProjects(data)
-        if (data.length > 0) {
-          setSelectedProject(data[0].id)
-        }
       })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -91,6 +106,7 @@ export default function GitHistoryPage() {
           disabled={loading}
         >
           {loading && <option>Loading...</option>}
+          <option value="">— None —</option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}

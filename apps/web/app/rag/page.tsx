@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   listProjects,
   ragSearch,
@@ -14,8 +15,12 @@ import {
 } from '@/lib/api'
 
 export default function RagManagerPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const urlProject = searchParams.get('project') || ''
+
   const [projects, setProjects] = useState<ProjectResponse[]>([])
-  const [selectedProject, setSelectedProject] = useState<string>('')
+  const [selectedProject, setSelectedProject] = useState(urlProject)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<any[]>([])
   const [searching, setSearching] = useState(false)
@@ -26,6 +31,19 @@ export default function RagManagerPage() {
   const [reindexJob, setReindexJob] = useState<ReindexJob | null>(null)
   const [reindexMessage, setReindexMessage] = useState<string | null>(null)
   const pollRef = useRef<number | null>(null)
+
+  // Sync project to URL
+  useEffect(() => {
+    if (selectedProject === urlProject) return
+    const params = new URLSearchParams(searchParams.toString())
+    if (selectedProject) {
+      params.set('project', selectedProject)
+    } else {
+      params.delete('project')
+    }
+    const qs = params.toString()
+    router.replace(`/rag${qs ? `?${qs}` : ''}`, { scroll: false })
+  }, [selectedProject])
 
   useEffect(() => {
     return () => {
@@ -38,7 +56,6 @@ export default function RagManagerPage() {
     listProjects()
       .then((data) => {
         setProjects(data)
-        if (data.length > 0) setSelectedProject(data[0].id)
       })
       .catch(console.error)
       .finally(() => setLoadingProjects(false))
@@ -254,6 +271,7 @@ export default function RagManagerPage() {
               {!loadingProjects && projects.length === 0 && (
                 <option>No projects</option>
               )}
+              <option value="">— None —</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}

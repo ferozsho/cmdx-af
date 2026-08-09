@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   listProjects,
   getProjectLlmLogs,
@@ -9,15 +10,21 @@ import {
   type LlmLogEntry,
   type LlmLogStats,
 } from '@/lib/api'
+import Pagination from '@/components/pagination'
 
 const STATUS_COLORS: Record<string, string> = {
-  success: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+  success:
+    'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
   error: 'bg-red-500/10 text-red-500 border-red-500/30',
 }
 
 export default function AiLogsPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const urlProject = searchParams.get('project') || ''
+
   const [projects, setProjects] = useState<ProjectResponse[]>([])
-  const [selectedProject, setSelectedProject] = useState<string>('')
+  const [selectedProject, setSelectedProject] = useState(urlProject)
   const [logs, setLogs] = useState<LlmLogEntry[]>([])
   const [stats, setStats] = useState<LlmLogStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -29,22 +36,32 @@ export default function AiLogsPage() {
   const [filterProvider, setFilterProvider] = useState<string>('')
   const [filterModel, setFilterModel] = useState<string>('')
 
-  // Pagination
+  // Pagination (server-side)
+  const [perPage, setPerPage] = useState(50)
   const [offset, setOffset] = useState(0)
   const [total, setTotal] = useState(0)
-  const limit = 50
 
   // Detail modal
   const [selectedLog, setSelectedLog] = useState<LlmLogEntry | null>(null)
+
+  // Sync project to URL
+  useEffect(() => {
+    if (selectedProject === urlProject) return
+    const params = new URLSearchParams(searchParams.toString())
+    if (selectedProject) {
+      params.set('project', selectedProject)
+    } else {
+      params.delete('project')
+    }
+    const qs = params.toString()
+    router.replace(`/ai-logs${qs ? `?${qs}` : ''}`, { scroll: false })
+  }, [selectedProject])
 
   // Load projects on mount
   useEffect(() => {
     listProjects()
       .then((data) => {
         setProjects(data)
-        if (data.length > 0) {
-          setSelectedProject(data[0].id)
-        }
       })
       .catch((err) => {
         console.error('Failed to load projects:', err)
@@ -64,7 +81,7 @@ export default function AiLogsPage() {
         status: filterStatus || undefined,
         provider: filterProvider || undefined,
         model: filterModel || undefined,
-        limit,
+        limit: perPage,
         offset: 0,
       }),
       getLlmLogStats(selectedProject).catch(() => null),
@@ -79,10 +96,12 @@ export default function AiLogsPage() {
         setError('Could not load AI interaction logs.')
       })
       .finally(() => setLogsLoading(false))
-  }, [selectedProject, filterStatus, filterProvider, filterModel])
+  }, [selectedProject, filterStatus, filterProvider, filterModel, perPage])
 
-  const loadPage = (newOffset: number) => {
+  const loadPage = (page: number, pp?: number) => {
     if (!selectedProject) return
+    const limit = pp ?? perPage
+    const newOffset = (page - 1) * limit
     setLogsLoading(true)
     setOffset(newOffset)
     getProjectLlmLogs(selectedProject, {
@@ -102,8 +121,8 @@ export default function AiLogsPage() {
       .finally(() => setLogsLoading(false))
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / limit))
-  const currentPage = Math.floor(offset / limit) + 1
+  const totalPages = Math.max(1, Math.ceil(total / perPage))
+  const currentPage = Math.floor(offset / perPage) + 1
 
   // Collect unique providers and models from logs for filter dropdowns
   const uniqueProviders = Array.from(new Set(logs.map((l) => l.provider))).sort()
@@ -134,6 +153,7 @@ export default function AiLogsPage() {
           disabled={loading}
         >
           {loading && <option>Loading...</option>}
+          <option value="">— None —</option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -315,46 +335,19 @@ export default function AiLogsPage() {
             </div>
           </div>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4 text-xs">
-              <span className="text-muted">
-                Page {currentPage} of {totalPages} ({total} total)
-              </span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => loadPage(0)}
-                  disabled={offset === 0}
-                  className="px-3 py-1.5 rounded-[8px] border border-border disabled:opacity-30 hover:bg-surface-secondary transition-colors"
-                >
-                  First
-                </button>
-                <button
-                  onClick={() => loadPage(Math.max(0, offset - limit))}
-                  disabled={offset === 0}
-                  className="px-3 py-1.5 rounded-[8px] border border-border disabled:opacity-30 hover:bg-surface-secondary transition-colors"
-                >
-                  Prev
-                </button>
-                <button
-                  onClick={() =>
-                    loadPage(Math.min(offset + limit, (totalPages - 1) * limit))
-                  }
-                  disabled={currentPage >= totalPages}
-                  className="px-3 py-1.5 rounded-[8px] border border-border disabled:opacity-30 hover:bg-surface-secondary transition-colors"
-                >
-                  Next
-                </button>
-                <button
-                  onClick={() => loadPage((totalPages - 1) * limit)}
-                  disabled={currentPage >= totalPages}
-                  className="px-3 py-1.5 rounded-[8px] border border-border disabled:opacity-30 hover:bg-surface-secondary transition-colors"
-                >
-                  Last
-                </button>
-              </div>
-            </div>
-          )}
+          {/* Pagination — branded component */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={total}
+            perPage={perPage}
+            onPageChange={(page) => loadPage(page)}
+            onPerPageChange={(pp) => {
+              setPerPage(pp)
+              setOffset(0)
+              loadPage(1, pp)
+            }}
+          />
         </>
       )}
 

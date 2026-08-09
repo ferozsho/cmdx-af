@@ -1,25 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { listUsers, deleteUser, type UserResponse } from '@/lib/api'
 import ConfirmModal from '@/components/confirm-modal'
-
-const PER_PAGE_OPTIONS = [5, 10, 20, 50, 100]
-
-function generatePageNumbers(current: number, total: number): (number | '...')[] {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
-  const pages: (number | '...')[] = []
-  pages.push(1)
-  if (current > 3) pages.push('...')
-  const start = Math.max(2, current - 1)
-  const end = Math.min(total - 1, current + 1)
-  for (let i = start; i <= end; i++) pages.push(i)
-  if (current < total - 2) pages.push('...')
-  pages.push(total)
-  return pages
-}
+import Pagination from '@/components/pagination'
 
 export default function UsersPage() {
   const router = useRouter()
@@ -90,10 +76,6 @@ export default function UsersPage() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / perPage))
   const safePage = Math.min(page, totalPages)
-  const pageNumbers = useMemo(
-    () => generatePageNumbers(safePage, totalPages),
-    [safePage, totalPages],
-  )
   const pageUsers = filtered.slice((safePage - 1) * perPage, safePage * perPage)
 
   const handlePerPageChange = (val: number) => {
@@ -286,70 +268,14 @@ export default function UsersPage() {
             </div>
 
             {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-border px-5 py-4">
-                <div className="flex items-center gap-3 text-sm text-muted">
-                  <span>Rows per page:</span>
-                  <select
-                    value={perPage}
-                    onChange={(e) => handlePerPageChange(Number(e.target.value))}
-                    className="bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  >
-                    {PER_PAGE_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
-                  <span>
-                    {(safePage - 1) * perPage + 1}–{Math.min(safePage * perPage, filtered.length)} of {filtered.length}
-                  </span>
-                </div>
-
-                <nav className="flex items-center gap-1.5" aria-label="Pagination">
-                  {/* Previous */}
-                  <button
-                      onClick={() => goToPage(safePage - 1)}
-                    className="px-3 py-1.5 text-sm rounded-md border border-border text-muted hover:bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    aria-label="Previous page"
-                  >
-                    ‹
-                  </button>
-
-                  {pageNumbers.map((p, i) =>
-                    p === '...' ? (
-                      <span key={`ellipsis-${i}`} className="px-1.5 text-sm text-muted select-none">
-                        …
-                      </span>
-                    ) : (
-                      <button
-                        key={p}
-                        onClick={() => goToPage(p)}
-                        className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                          p === safePage
-                            ? 'bg-primary text-white font-semibold'
-                            : 'border border-border text-muted hover:bg-surface-secondary'
-                        }`}
-                        aria-label={`Page ${p}`}
-                        aria-current={p === safePage ? 'page' : undefined}
-                      >
-                        {p}
-                      </button>
-                    ),
-                  )}
-
-                  {/* Next */}
-                  <button
-                    onClick={() => goToPage(safePage + 1)}
-                    disabled={safePage >= totalPages}
-                    className="px-3 py-1.5 text-sm rounded-md border border-border text-muted hover:bg-surface-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    aria-label="Next page"
-                  >
-                    ›
-                  </button>
-                </nav>
-              </div>
-            )}
+            <Pagination
+              currentPage={safePage}
+              totalPages={totalPages}
+              totalItems={filtered.length}
+              perPage={perPage}
+              onPageChange={(p) => goToPage(p)}
+              onPerPageChange={(pp) => handlePerPageChange(pp)}
+            />
           </>
         )}
       </div>
