@@ -9,10 +9,14 @@ import {
   getRagStats,
   reindexRag,
   getReindexStatus,
+  listRagChunks,
   type ProjectResponse,
+  type RagChunk,
+  type RagChunksPage,
   type ReindexJob,
   type RagStats,
 } from '@/lib/api'
+import Pagination from '@/components/pagination'
 
 export default function RagManagerPage() {
   const router = useRouter()
@@ -31,6 +35,13 @@ export default function RagManagerPage() {
   const [reindexJob, setReindexJob] = useState<ReindexJob | null>(null)
   const [reindexMessage, setReindexMessage] = useState<string | null>(null)
   const pollRef = useRef<number | null>(null)
+
+  // Chunks default list + pagination
+  const [chunks, setChunks] = useState<RagChunk[]>([])
+  const [chunksTotal, setChunksTotal] = useState(0)
+  const [chunksLoading, setChunksLoading] = useState(false)
+  const [chunksPage, setChunksPage] = useState(1)
+  const [chunksPerPage, setChunksPerPage] = useState(10)
 
   // Sync project to URL
   useEffect(() => {
@@ -60,6 +71,41 @@ export default function RagManagerPage() {
       .catch(console.error)
       .finally(() => setLoadingProjects(false))
   }, [])
+
+  // Load chunks when project changes (default list with pagination)
+  useEffect(() => {
+    if (!selectedProject || ragStats?.online === false) return
+    setChunksLoading(true)
+    setChunksPage(1)
+    listRagChunks(selectedProject, 0, chunksPerPage, '')
+      .then((data) => {
+        setChunks(data.chunks || [])
+        setChunksTotal(data.total || 0)
+      })
+      .catch(() => {
+        setChunks([])
+        setChunksTotal(0)
+      })
+      .finally(() => setChunksLoading(false))
+  }, [selectedProject, ragStats?.online])
+
+  const loadChunksPage = (p: number, pp?: number) => {
+    if (!selectedProject) return
+    const limit = pp ?? chunksPerPage
+    const offset = (p - 1) * limit
+    setChunksLoading(true)
+    setChunksPage(p)
+    listRagChunks(selectedProject, offset, limit, '')
+      .then((data) => {
+        setChunks(data.chunks || [])
+        setChunksTotal(data.total || 0)
+      })
+      .catch(() => {
+        setChunks([])
+        setChunksTotal(0)
+      })
+      .finally(() => setChunksLoading(false))
+  }
 
   // Poll live RAG stats; keep polling every 2s while indexing so the UI
   // shows real background progress (startup / watcher / explicit re-index)
@@ -348,6 +394,69 @@ export default function RagManagerPage() {
           </div>
         )}
       </div>
+
+      {/* Default Chunks List — shown when no search query */}
+      {results.length === 0 && selectedProject && (
+        <div className="card-af p-5 mt-[18px]">
+          <h3 className="text-sm font-bold text-foreground m-0 mb-4">
+            Indexed Chunks
+            {chunksTotal > 0 && (
+              <span className="font-normal text-muted ml-2">
+                ({chunksTotal} total)
+              </span>
+            )}
+          </h3>
+          {chunksLoading ? (
+            <div className="text-sm text-muted animate-pulse py-8 text-center">
+              Loading chunks…
+            </div>
+          ) : chunks.length === 0 ? (
+            <p className="text-sm text-muted py-8 text-center m-0">
+              No chunks indexed yet. Re-index the project to populate data.
+            </p>
+          ) : (
+            <>
+              <div className="space-y-2">
+                {chunks.map((chunk) => (
+                  <div
+                    key={chunk.id}
+                    className="flex gap-3 py-2 border-b border-border last:border-0"
+                  >
+                    <div className="w-8 h-8 rounded-[8px] bg-surface-secondary grid place-items-center flex-shrink-0 text-xs font-bold text-muted">
+                      ◫
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-sm font-mono font-bold text-foreground truncate">
+                          {chunk.file_path || '—'}
+                        </span>
+                        <span className="text-xs text-muted whitespace-nowrap">
+                          L{chunk.start_line}–L{chunk.end_line}
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted line-clamp-2 m-0">
+                        {chunk.content || '—'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <Pagination
+                storageKey="rag-chunks-perpage"
+                currentPage={chunksPage}
+                totalPages={Math.max(1, Math.ceil(chunksTotal / chunksPerPage))}
+                totalItems={chunksTotal}
+                perPage={chunksPerPage}
+                onPageChange={(p) => loadChunksPage(p)}
+                onPerPageChange={(pp) => {
+                  setChunksPerPage(pp)
+                  loadChunksPage(1, pp)
+                }}
+              />
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
