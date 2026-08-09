@@ -1,5 +1,7 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+
 const PER_PAGE_OPTIONS = [5, 10, 20, 50, 100]
 
 function generatePageNumbers(
@@ -24,6 +26,8 @@ export interface PaginationProps {
   totalItems: number
   perPage: number
   perPageOptions?: number[]
+  /** localStorage key to persist the per-page preference across visits. */
+  storageKey?: string
   onPageChange: (page: number) => void
   onPerPageChange: (perPage: number) => void
 }
@@ -34,9 +38,45 @@ export default function Pagination({
   totalItems,
   perPage,
   perPageOptions = PER_PAGE_OPTIONS,
+  storageKey,
   onPageChange,
   onPerPageChange,
 }: PaginationProps) {
+  const [hydrated, setHydrated] = useState(false)
+
+  // On mount, load saved per-page preference from localStorage
+  useEffect(() => {
+    if (!storageKey) {
+      setHydrated(true)
+      return
+    }
+    try {
+      const saved = localStorage.getItem(storageKey)
+      if (saved) {
+        const val = Number(saved)
+        if (perPageOptions.includes(val) && val !== perPage) {
+          onPerPageChange(val)
+        }
+      }
+    } catch {
+      // localStorage unavailable (SSR / private browsing)
+    }
+    setHydrated(true)
+    // Only run on mount — storageKey and perPageOptions are stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const handlePerPageChange = (val: number) => {
+    if (storageKey) {
+      try {
+        localStorage.setItem(storageKey, String(val))
+      } catch {
+        // ignore
+      }
+    }
+    onPerPageChange(val)
+  }
+
   const safePage = Math.min(currentPage, totalPages)
   const pageNumbers = generatePageNumbers(safePage, totalPages)
   const startItem = Math.min((safePage - 1) * perPage + 1, totalItems)
@@ -47,8 +87,8 @@ export default function Pagination({
       <div className="flex items-center gap-3 text-sm text-muted">
         <span>Rows per page:</span>
         <select
-          value={perPage}
-          onChange={(e) => onPerPageChange(Number(e.target.value))}
+          value={hydrated ? perPage : perPageOptions[0]}
+          onChange={(e) => handlePerPageChange(Number(e.target.value))}
           className="bg-surface border border-border rounded-md px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
         >
           {perPageOptions.map((opt) => (

@@ -269,6 +269,7 @@ export default function UsersPage() {
 
             {/* Pagination */}
             <Pagination
+              storageKey="users-perpage"
               currentPage={safePage}
               totalPages={totalPages}
               totalItems={filtered.length}

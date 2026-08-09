@@ -22,6 +22,11 @@ export default function AiLogsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const urlProject = searchParams.get('project') || ''
+  const urlPage = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1)
+  const urlPerPage = Math.max(
+    5,
+    parseInt(searchParams.get('perPage') || '50', 10) || 50,
+  )
 
   const [projects, setProjects] = useState<ProjectResponse[]>([])
   const [selectedProject, setSelectedProject] = useState(urlProject)
@@ -36,9 +41,9 @@ export default function AiLogsPage() {
   const [filterProvider, setFilterProvider] = useState<string>('')
   const [filterModel, setFilterModel] = useState<string>('')
 
-  // Pagination (server-side)
-  const [perPage, setPerPage] = useState(50)
-  const [offset, setOffset] = useState(0)
+  // Pagination (server-side) — seeded from URL
+  const [perPage, setPerPage] = useState(urlPerPage)
+  const [page, setPage] = useState(urlPage)
   const [total, setTotal] = useState(0)
 
   // Detail modal
@@ -70,11 +75,11 @@ export default function AiLogsPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  // Load logs and stats when project or filters change
+  // Load logs and stats when project or filters change — reset to page 1
   useEffect(() => {
     if (!selectedProject) return
     setLogsLoading(true)
-    setOffset(0)
+    setPage(1)
 
     Promise.all([
       getProjectLlmLogs(selectedProject, {
@@ -98,12 +103,41 @@ export default function AiLogsPage() {
       .finally(() => setLogsLoading(false))
   }, [selectedProject, filterStatus, filterProvider, filterModel, perPage])
 
-  const loadPage = (page: number, pp?: number) => {
+  // Load initial page from URL on first mount (after perPage is known)
+  useEffect(() => {
+    if (!selectedProject || !loading) return
+    if (urlPage > 1) {
+      loadPage(urlPage)
+    }
+    // Only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading])
+
+  const syncPageUrl = (p: number, pp: number) => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (selectedProject) {
+      params.set('project', selectedProject)
+    }
+    if (p > 1) {
+      params.set('page', String(p))
+    } else {
+      params.delete('page')
+    }
+    if (pp !== 50) {
+      params.set('perPage', String(pp))
+    } else {
+      params.delete('perPage')
+    }
+    const qs = params.toString()
+    router.replace(`/ai-logs${qs ? `?${qs}` : ''}`, { scroll: false })
+  }
+
+  const loadPage = (p: number, pp?: number) => {
     if (!selectedProject) return
     const limit = pp ?? perPage
-    const newOffset = (page - 1) * limit
+    const newOffset = (p - 1) * limit
     setLogsLoading(true)
-    setOffset(newOffset)
+    setPage(p)
     getProjectLlmLogs(selectedProject, {
       status: filterStatus || undefined,
       provider: filterProvider || undefined,
@@ -119,10 +153,11 @@ export default function AiLogsPage() {
         console.error('Failed to load page:', err)
       })
       .finally(() => setLogsLoading(false))
+    syncPageUrl(p, limit)
   }
 
   const totalPages = Math.max(1, Math.ceil(total / perPage))
-  const currentPage = Math.floor(offset / perPage) + 1
+  const currentPage = page
 
   // Collect unique providers and models from logs for filter dropdowns
   const uniqueProviders = Array.from(new Set(logs.map((l) => l.provider))).sort()
@@ -275,7 +310,7 @@ export default function AiLogsPage() {
         <>
           <div className="card-af overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-muted">
                     <th className="text-left py-3 px-4 font-medium">Time</th>
@@ -285,7 +320,6 @@ export default function AiLogsPage() {
                     <th className="text-right py-3 px-4 font-medium">Tokens</th>
                     <th className="text-right py-3 px-4 font-medium">Cost</th>
                     <th className="text-right py-3 px-4 font-medium">Duration</th>
-                    <th className="text-left py-3 px-4 font-medium">Prompt</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -302,7 +336,7 @@ export default function AiLogsPage() {
                       </td>
                       <td className="py-3 px-4">
                         <span
-                          className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                          className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold border ${
                             STATUS_COLORS[log.status] ||
                             'bg-muted/10 text-muted border-muted/30'
                           }`}
@@ -325,9 +359,6 @@ export default function AiLogsPage() {
                           ? `${(log.duration_ms / 1000).toFixed(1)}s`
                           : `${log.duration_ms}ms`}
                       </td>
-                      <td className="py-3 px-4 text-muted max-w-[300px] truncate">
-                        {log.prompt_text || '—'}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -337,6 +368,7 @@ export default function AiLogsPage() {
 
           {/* Pagination — branded component */}
           <Pagination
+            storageKey="ai-logs-perpage"
             currentPage={currentPage}
             totalPages={totalPages}
             totalItems={total}
@@ -344,7 +376,6 @@ export default function AiLogsPage() {
             onPageChange={(page) => loadPage(page)}
             onPerPageChange={(pp) => {
               setPerPage(pp)
-              setOffset(0)
               loadPage(1, pp)
             }}
           />
@@ -368,10 +399,10 @@ export default function AiLogsPage() {
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-surface-secondary/50 flex-shrink-0">
               <div>
-                <h3 className="text-sm font-semibold text-foreground">
+                <h3 className="text-base font-semibold text-foreground">
                   AI Interaction Detail
                 </h3>
-                <p className="text-[11px] text-muted mt-0.5">
+                <p className="text-sm text-muted mt-0.5">
                   {selectedLog.provider} / {selectedLog.model} —{' '}
                   {selectedLog.created_at
                     ? new Date(selectedLog.created_at).toLocaleString()
@@ -420,10 +451,10 @@ export default function AiLogsPage() {
                   ],
                 ].map(([label, value]) => (
                   <div key={label}>
-                    <div className="text-[10px] uppercase tracking-[.1em] text-muted mb-0.5">
+                    <div className="text-[11px] uppercase tracking-[.1em] text-muted mb-0.5">
                       {label}
                     </div>
-                    <div className="text-xs font-mono text-foreground break-all">
+                    <div className="text-sm font-mono text-foreground break-all">
                       {value}
                     </div>
                   </div>
@@ -433,10 +464,10 @@ export default function AiLogsPage() {
               {/* Error message (if any) */}
               {selectedLog.error_message && (
                 <div>
-                  <div className="text-xs font-bold text-red-500 mb-1.5">
+                  <div className="text-sm font-bold text-red-500 mb-1.5">
                     Error
                   </div>
-                  <pre className="text-xs bg-red-500/5 border border-red-500/20 rounded-[8px] p-3 whitespace-pre-wrap break-all font-mono text-red-600 dark:text-red-400">
+                  <pre className="text-sm bg-red-500/5 border border-red-500/20 rounded-[8px] p-3 whitespace-pre-wrap break-all font-mono text-red-600 dark:text-red-400">
                     {selectedLog.error_message}
                   </pre>
                 </div>
@@ -444,30 +475,30 @@ export default function AiLogsPage() {
 
               {/* System Prompt */}
               <div>
-                <div className="text-xs font-bold text-foreground mb-1.5">
+                <div className="text-sm font-bold text-foreground mb-1.5">
                   System Prompt
                 </div>
-                <pre className="text-xs bg-surface-secondary rounded-[8px] p-3 whitespace-pre-wrap break-all font-mono text-muted max-h-[30vh] overflow-y-auto border border-border">
+                <pre className="text-sm bg-surface-secondary rounded-[8px] p-3 whitespace-pre-wrap break-all font-mono text-muted max-h-[30vh] overflow-y-auto border border-border">
                   {selectedLog.system_prompt_text || '(none)'}
                 </pre>
               </div>
 
               {/* User Prompt */}
               <div>
-                <div className="text-xs font-bold text-foreground mb-1.5">
+                <div className="text-sm font-bold text-foreground mb-1.5">
                   Prompt
                 </div>
-                <pre className="text-xs bg-surface-secondary rounded-[8px] p-3 whitespace-pre-wrap break-all font-mono text-foreground max-h-[30vh] overflow-y-auto border border-border">
+                <pre className="text-sm bg-surface-secondary rounded-[8px] p-3 whitespace-pre-wrap break-all font-mono text-foreground max-h-[30vh] overflow-y-auto border border-border">
                   {selectedLog.prompt_text || '(none)'}
                 </pre>
               </div>
 
               {/* Response */}
               <div>
-                <div className="text-xs font-bold text-foreground mb-1.5">
+                <div className="text-sm font-bold text-foreground mb-1.5">
                   Response
                 </div>
-                <pre className="text-xs bg-surface-secondary rounded-[8px] p-3 whitespace-pre-wrap break-all font-mono text-foreground max-h-[30vh] overflow-y-auto border border-border">
+                <pre className="text-sm bg-surface-secondary rounded-[8px] p-3 whitespace-pre-wrap break-all font-mono text-foreground max-h-[30vh] overflow-y-auto border border-border">
                   {selectedLog.response_text || '(none)'}
                 </pre>
               </div>
@@ -477,7 +508,7 @@ export default function AiLogsPage() {
             <div className="flex justify-end gap-3 px-5 py-3 border-t border-border bg-surface-secondary/30 flex-shrink-0">
               <button
                 onClick={() => setSelectedLog(null)}
-                className="px-4 py-2 text-xs font-medium rounded-[8px] border border-border hover:bg-surface-secondary transition-colors"
+                className="px-4 py-2 text-sm font-medium rounded-[8px] border border-border hover:bg-surface-secondary transition-colors"
               >
                 Close
               </button>

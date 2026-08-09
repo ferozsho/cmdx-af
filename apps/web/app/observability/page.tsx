@@ -78,8 +78,39 @@ export default function ObservabilityPage() {
       </div>
 
       {error && (
-        <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/30 rounded-[10px] p-3 mb-4">
+        <div className="text-sm text-red-500 bg-red-500/10 border border-red-500/30 rounded-[10px] p-3 mb-4">
           {error}
+        </div>
+      )}
+
+      {/* LLM Usage Stats Bar */}
+      {agentMetrics && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-[18px]">
+          {[
+            ['API Calls', String(agentMetrics?.llm_usage.calls ?? '—')],
+            [
+              'Total Tokens',
+              agentMetrics?.llm_usage.total_tokens
+                ? agentMetrics.llm_usage.total_tokens.toLocaleString()
+                : '—',
+            ],
+            [
+              'Estimated Cost',
+              agentMetrics?.llm_usage.cost
+                ? `$${agentMetrics.llm_usage.cost.toFixed(4)}`
+                : '—',
+            ],
+            ['Models', String(agentMetrics?.llm_usage.models ?? '—')],
+          ].map(([label, value]) => (
+            <div key={label} className="card-af p-4 text-center">
+              <div className="text-xs uppercase tracking-[.12em] text-muted mb-1">
+                {label}
+              </div>
+              <div className="text-base font-bold font-mono text-foreground">
+                {value}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -87,11 +118,11 @@ export default function ObservabilityPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-[18px]">
         {/* Infrastructure Health — real data from /health/full */}
         <div className="card-af p-[18px]">
-          <h3 className="text-sm font-bold text-foreground m-0 mb-4">
+          <h3 className="text-base font-bold text-foreground m-0 mb-4">
             Infrastructure Health
           </h3>
           {health?.components ? (
-            <div className="space-y-1 text-xs">
+            <div className="space-y-1 text-sm">
               {Object.entries(health.components).map(([name, comp]) => (
                 <div
                   key={name}
@@ -108,7 +139,7 @@ export default function ObservabilityPage() {
               ))}
             </div>
           ) : (
-            <div className="text-xs text-muted animate-pulse">
+            <div className="text-sm text-muted animate-pulse">
               Loading infrastructure status...
             </div>
           )}
@@ -116,10 +147,10 @@ export default function ObservabilityPage() {
 
         {/* Platform Info */}
         <div className="card-af p-[18px]">
-          <h3 className="text-sm font-bold text-foreground m-0 mb-4">
+          <h3 className="text-base font-bold text-foreground m-0 mb-4">
             Platform Info
           </h3>
-          <div className="space-y-1 text-xs">
+          <div className="space-y-1 text-sm">
             {[
               ['App Name', health?.app_name || '—'],
               ['Environment', health?.environment || '—'],
@@ -140,10 +171,10 @@ export default function ObservabilityPage() {
 
         {/* Agent Duration — real data from /observability/agent-metrics */}
         <div className="card-af p-[18px]">
-          <h3 className="text-sm font-bold text-foreground m-0 mb-4">
+          <h3 className="text-base font-bold text-foreground m-0 mb-4">
             Agent Pipeline (11 Agents)
           </h3>
-          <p className="text-xs text-muted mb-3">
+          <p className="text-sm text-muted mb-3">
             Sequential execution: Planning → Architecture → Visual Analysis →
             UI/UX → Documentation → Frontend → Backend → Database → Test →
             Validation → Git
@@ -158,7 +189,7 @@ export default function ObservabilityPage() {
             return (
               <div
                 key={name}
-                className="grid grid-cols-[110px_1fr_40px] gap-[10px] items-center my-[10px] text-[11px]"
+                className="grid grid-cols-[120px_1fr_50px] gap-[10px] items-center my-[10px] text-sm"
               >
                 <span className="text-foreground truncate">{name}</span>
                 <div className="h-1.5 bg-surface-secondary rounded-full overflow-hidden border border-border/50">
@@ -176,7 +207,7 @@ export default function ObservabilityPage() {
             )
           })}
           {agentMetrics && agentMetrics.total_runs === 0 && (
-            <p className="text-[11px] text-muted mt-2">
+            <p className="text-sm text-muted mt-2">
               No pipeline runs recorded yet — durations appear after the first
               run.
             </p>
@@ -185,10 +216,10 @@ export default function ObservabilityPage() {
 
         {/* Pipeline Stats — real totals from agent-metrics */}
         <div className="card-af p-[18px]">
-          <h3 className="text-sm font-bold text-foreground m-0 mb-4">
+          <h3 className="text-base font-bold text-foreground m-0 mb-4">
             Pipeline Stats
           </h3>
-          <div className="space-y-1 text-xs">
+          <div className="space-y-1 text-sm">
             {[
               ['Total Agents', '11'],
               ['Total Runs', String(agentMetrics?.total_runs ?? '—')],
@@ -223,47 +254,6 @@ export default function ObservabilityPage() {
               </div>
             ))}
           </div>
-        </div>
-
-        {/* LLM Usage — real totals from llm_usage table */}
-        <div className="card-af p-[18px]">
-          <h3 className="text-sm font-bold text-foreground m-0 mb-4">
-            LLM Usage
-          </h3>
-          <div className="space-y-1 text-xs">
-            {[
-              ['API Calls', String(agentMetrics?.llm_usage.calls ?? '—')],
-              [
-                'Total Tokens',
-                agentMetrics?.llm_usage.total_tokens
-                  ? agentMetrics.llm_usage.total_tokens.toLocaleString()
-                  : '—',
-              ],
-              [
-                'Estimated Cost',
-                agentMetrics?.llm_usage.cost
-                  ? `$${agentMetrics.llm_usage.cost.toFixed(4)}`
-                  : '—',
-              ],
-              ['Models', String(agentMetrics?.llm_usage.models ?? '—')],
-            ].map(([label, value]) => (
-              <div
-                key={label}
-                className="flex justify-between py-[11px] border-b border-border last:border-0"
-              >
-                <span className="text-muted">{label}</span>
-                <span className="text-foreground font-bold font-mono">
-                  {value}
-                </span>
-              </div>
-            ))}
-          </div>
-          {agentMetrics && agentMetrics.llm_usage.calls === 0 && (
-            <p className="text-[11px] text-muted mt-2">
-              No LLM calls recorded yet — usage appears after the first pipeline
-              run.
-            </p>
-          )}
         </div>
       </div>
     </div>

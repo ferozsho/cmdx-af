@@ -11,6 +11,7 @@ import {
   type ProjectResponse,
 } from '@/lib/api'
 import ConfirmModal from '@/components/confirm-modal'
+import Pagination from '@/components/pagination'
 
 export default function GitHistoryPage() {
   const router = useRouter()
@@ -25,6 +26,10 @@ export default function GitHistoryPage() {
   const [rollingBack, setRollingBack] = useState<string | null>(null)
   const [rollbackMsg, setRollbackMsg] = useState<string | null>(null)
   const [rollbackTarget, setRollbackTarget] = useState<any>(null)
+
+  // Pagination (client-side)
+  const [perPage, setPerPage] = useState(10)
+  const [page, setPage] = useState(1)
 
   // Sync project to URL
   useEffect(() => {
@@ -50,6 +55,7 @@ export default function GitHistoryPage() {
 
   useEffect(() => {
     if (!selectedProject) return
+    setPage(1)
     getGitStatus(selectedProject)
       .then((data) => setGitStatusState(data))
       .catch(console.error)
@@ -190,43 +196,70 @@ export default function GitHistoryPage() {
             </p>
           </div>
         ) : (
-          commits.map((commit: any) => (
-            <div
-              key={commit.hash}
-              className="card-af p-4 flex items-start gap-3"
-            >
-              <div className="w-9 h-9 rounded-[9px] bg-primary/10 text-primary grid place-items-center flex-shrink-0 text-sm font-bold">
-                ⑂
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-bold text-foreground m-0">
-                  {commit.message}
-                </h4>
-                <p className="text-xs text-muted mt-1 m-0">
-                  {commit.author} · {commit.files ?? 0} files
-                </p>
-              </div>
-              <div className="text-right flex-shrink-0">
-                <div className="text-xs font-mono font-bold text-foreground">
-                  {(commit.hash || '').slice(0, 7)}
-                </div>
-                <div className="text-[10px] text-muted mt-0.5">
-                  {commit.time
-                    ? new Date(commit.time).toLocaleDateString()
-                    : ''}
-                </div>
-                <button
-                  onClick={() => handleRollback(commit)}
-                  disabled={rollingBack === commit.hash}
-                  className="mt-2 text-[10px] font-bold text-red-500 hover:underline disabled:opacity-50"
-                >
-                  {rollingBack === commit.hash
-                    ? 'Rolling back...'
-                    : '⏪ Rollback'}
-                </button>
-              </div>
-            </div>
-          ))
+          (() => {
+            const totalPages = Math.max(1, Math.ceil(commits.length / perPage))
+            const safePage = Math.min(page, totalPages)
+            const pagedCommits = commits.slice(
+              (safePage - 1) * perPage,
+              safePage * perPage,
+            )
+            return (
+              <>
+                {pagedCommits.map((commit: any) => (
+                  <div
+                    key={commit.hash}
+                    className="card-af p-4 flex items-start gap-3"
+                  >
+                    <div className="w-9 h-9 rounded-[9px] bg-primary/10 text-primary grid place-items-center flex-shrink-0 text-sm font-bold">
+                      ⑂
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm font-bold text-foreground m-0">
+                        {commit.message}
+                      </h4>
+                      <p className="text-sm text-muted mt-1 m-0">
+                        {commit.author}
+                        {commit.files != null && commit.files > 0
+                          ? ` · ${commit.files} files`
+                          : ''}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-sm font-mono font-bold text-foreground">
+                        {(commit.hash || '').slice(0, 7)}
+                      </div>
+                      <div className="text-xs text-muted mt-0.5">
+                        {commit.time
+                          ? new Date(commit.time).toLocaleDateString()
+                          : ''}
+                      </div>
+                      <button
+                        onClick={() => handleRollback(commit)}
+                        disabled={rollingBack === commit.hash}
+                        className="mt-2 text-xs font-bold text-red-500 hover:underline disabled:opacity-50"
+                      >
+                        {rollingBack === commit.hash
+                          ? 'Rolling back...'
+                          : '⏪ Rollback'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <Pagination
+                  storageKey="git-perpage"
+                  currentPage={safePage}
+                  totalPages={totalPages}
+                  totalItems={commits.length}
+                  perPage={perPage}
+                  onPageChange={(p) => setPage(p)}
+                  onPerPageChange={(pp) => {
+                    setPerPage(pp)
+                    setPage(1)
+                  }}
+                />
+              </>
+            )
+          })()
         )}
       </div>
 

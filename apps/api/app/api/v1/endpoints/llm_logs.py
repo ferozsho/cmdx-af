@@ -8,11 +8,50 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.models.instruction import Instruction
 from app.models.llm_usage import LLMUsage
 from app.models.project import Project
 from app.models.user import User
 
 router = APIRouter()
+
+
+async def _build_log_item(
+    r: LLMUsage, db: AsyncSession, prompt_cache: dict[str, str]
+) -> dict:
+    """Build a log dict, falling back to instructions.prompt for old rows."""
+    prompt_text = r.prompt_text
+    if not prompt_text and r.instruction_id:
+        # Check cache first
+        if r.instruction_id in prompt_cache:
+            prompt_text = prompt_cache[r.instruction_id]
+        else:
+            inst = await db.get(Instruction, r.instruction_id)
+            if inst and inst.prompt:
+                prompt_text = inst.prompt
+                prompt_cache[r.instruction_id] = inst.prompt
+
+    return {
+        "id": r.id,
+        "instruction_id": r.instruction_id,
+        "project_id": r.project_id,
+        "provider": r.provider,
+        "model": r.model,
+        "prompt_text": prompt_text,
+        "system_prompt_text": r.system_prompt_text,
+        "response_text": r.response_text,
+        "prompt_tokens": r.prompt_tokens,
+        "completion_tokens": r.completion_tokens,
+        "total_tokens": r.total_tokens,
+        "cost": r.cost,
+        "duration_ms": r.duration_ms,
+        "status": r.status,
+        "error_message": r.error_message,
+        "request_id": r.request_id,
+        "temperature": r.temperature,
+        "json_mode": r.json_mode,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
 
 
 @router.get("/projects/{project_id}/llm-logs")
@@ -31,7 +70,8 @@ async def list_llm_logs(
     """List LLM call logs for a project with pagination and filters.
 
     Returns full prompt_text, system_prompt_text, and response_text —
-    no truncation. The list endpoint returns complete data for every row.
+    no truncation. Falls back to instructions.prompt for rows logged
+    before the schema expansion.
     """
     # Verify project exists and belongs to the current user
     project = await db.get(Project, project_id)
@@ -66,34 +106,16 @@ async def list_llm_logs(
     result = await db.execute(query)
     rows = result.scalars().all()
 
+    prompt_cache: dict[str, str] = {}
+    items = [
+        await _build_log_item(r, db, prompt_cache) for r in rows
+    ]
+
     return {
         "total": total,
         "limit": limit,
         "offset": offset,
-        "items": [
-            {
-                "id": r.id,
-                "instruction_id": r.instruction_id,
-                "project_id": r.project_id,
-                "provider": r.provider,
-                "model": r.model,
-                "prompt_text": r.prompt_text,
-                "system_prompt_text": r.system_prompt_text,
-                "response_text": r.response_text,
-                "prompt_tokens": r.prompt_tokens,
-                "completion_tokens": r.completion_tokens,
-                "total_tokens": r.total_tokens,
-                "cost": r.cost,
-                "duration_ms": r.duration_ms,
-                "status": r.status,
-                "error_message": r.error_message,
-                "request_id": r.request_id,
-                "temperature": r.temperature,
-                "json_mode": r.json_mode,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            }
-            for r in rows
-        ],
+        "items": items,
     }
 
 
@@ -113,13 +135,20 @@ async def get_llm_log(
     if not log or log.project_id != project_id:
         raise HTTPException(status_code=404, detail="Log entry not found")
 
+    # Fallback prompt_text from instructions for old rows
+    prompt_text = log.prompt_text
+    if not prompt_text and log.instruction_id:
+        inst = await db.get(Instruction, log.instruction_id)
+        if inst and inst.prompt:
+            prompt_text = inst.prompt
+
     return {
         "id": log.id,
         "instruction_id": log.instruction_id,
         "project_id": log.project_id,
         "provider": log.provider,
         "model": log.model,
-        "prompt_text": log.prompt_text,
+        "prompt_text": prompt_text,
         "system_prompt_text": log.system_prompt_text,
         "response_text": log.response_text,
         "prompt_tokens": log.prompt_tokens,
