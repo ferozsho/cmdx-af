@@ -49,7 +49,6 @@ function Sidebar() {
       <NavItem href="/git" label="Git History" icon="⑂" />
       <NavItem href="/observability" label="Observability" icon="⌁" />
       <NavItem href="/ai-logs" label="AI Logs" icon="🤖" />
-      <NavItem href="/architecture" label="Architecture" icon="⬡" />
 
       {/* System Section */}
       <div className="text-[10px] uppercase tracking-[.16em] text-[#677493] my-[18px] mx-3 font-semibold">
