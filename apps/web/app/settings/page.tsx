@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   changePassword,
   getFullHealth,
+  getModels,
   getSettings,
   setTokens,
   testProviderConnection,
@@ -24,17 +25,13 @@ export default function SettingsPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const apiKeyRef = useRef<HTMLInputElement>(null)
   const baseUrlRef = useRef<HTMLInputElement>(null)
-  const chatModelRef = useRef<HTMLInputElement>(null)
   // OpenAI
   const oaiKeyRef = useRef<HTMLInputElement>(null)
   const oaiBaseUrlRef = useRef<HTMLInputElement>(null)
-  const oaiChatModelRef = useRef<HTMLInputElement>(null)
   // Gemini
   const gemKeyRef = useRef<HTMLInputElement>(null)
-  const gemChatModelRef = useRef<HTMLInputElement>(null)
   // Claude
   const claudeKeyRef = useRef<HTMLInputElement>(null)
-  const claudeChatModelRef = useRef<HTMLInputElement>(null)
   // General
   const maxStepsRef = useRef<HTMLInputElement>(null)
   const timeoutRef = useRef<HTMLInputElement>(null)
@@ -47,10 +44,15 @@ export default function SettingsPage() {
 
   const [activeProvider, setActiveProvider] = useState('deepseek')
 
-  // Masked key display values (loaded from API)
-  const [maskedKeys, setMaskedKeys] = useState<Record<string, string>>({})
+  // Model selection state (replaces refs for selects)
+  const [dsModel, setDsModel] = useState('deepseek-chat')
+  const [oaiModel, setOaiModel] = useState('gpt-4o')
+  const [gemModel, setGemModel] = useState('gemini-2.5-pro')
+  const [claudeModel, setClaudeModel] = useState('claude-3-5-sonnet-20241022')
+  const [allModels, setAllModels] = useState<any[]>([])
 
-  // Test results per provider
+  // Masked key display values
+  const [maskedKeys, setMaskedKeys] = useState<Record<string, string>>({})
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({})
 
   const [deepseekResult, setDeepseekResult] = useState<TestResult>({
@@ -105,13 +107,14 @@ export default function SettingsPage() {
 
   // Load current settings from API on mount
   useEffect(() => {
+    getModels().then(setAllModels).catch(() => {})
     getSettings().then((s) => {
       if (baseUrlRef.current) baseUrlRef.current.value = s.deepseek_base_url || ''
-      if (chatModelRef.current) chatModelRef.current.value = s.deepseek_chat_model || ''
+      setDsModel(s.deepseek_chat_model || 'deepseek-chat')
       if (oaiBaseUrlRef.current) oaiBaseUrlRef.current.value = s.openai_base_url || ''
-      if (oaiChatModelRef.current) oaiChatModelRef.current.value = s.openai_chat_model || ''
-      if (gemChatModelRef.current) gemChatModelRef.current.value = s.gemini_chat_model || ''
-      if (claudeChatModelRef.current) claudeChatModelRef.current.value = s.claude_chat_model || ''
+      setOaiModel(s.openai_chat_model || 'gpt-4o')
+      setGemModel(s.gemini_chat_model || 'gemini-2.5-pro')
+      setClaudeModel(s.claude_chat_model || 'claude-3-5-sonnet-20241022')
       // Store masked keys for display
       setMaskedKeys({
         deepseek: s.deepseek_api_key_masked || '',
@@ -144,14 +147,14 @@ export default function SettingsPage() {
       await updateSettings({
         deepseek_api_key: apiKeyRef.current?.value || '',
         deepseek_base_url: baseUrlRef.current?.value || '',
-        deepseek_chat_model: chatModelRef.current?.value || '',
+        deepseek_chat_model: dsModel,
         openai_api_key: oaiKeyRef.current?.value || '',
         openai_base_url: oaiBaseUrlRef.current?.value || '',
-        openai_chat_model: oaiChatModelRef.current?.value || '',
+        openai_chat_model: oaiModel,
         gemini_api_key: gemKeyRef.current?.value || '',
-        gemini_chat_model: gemChatModelRef.current?.value || '',
+        gemini_chat_model: gemModel,
         claude_api_key: claudeKeyRef.current?.value || '',
-        claude_chat_model: claudeChatModelRef.current?.value || '',
+        claude_chat_model: claudeModel,
         max_agent_steps: parseInt(maxStepsRef.current?.value || '10', 10),
         agent_timeout: parseInt(timeoutRef.current?.value || '600', 10),
         rag_top_k: parseInt(ragTopKRef.current?.value || '5', 10),
@@ -323,7 +326,14 @@ export default function SettingsPage() {
               )}
             </div>
             <Field label="Base URL" inputRef={baseUrlRef} defaultValue="https://api.deepseek.com/v1" />
-            <Field label="Chat Model" inputRef={chatModelRef} defaultValue="deepseek-chat" />
+            <div>
+              <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
+              <select value={dsModel} onChange={(e) => setDsModel(e.target.value)} className="input-af">
+                {allModels.filter(m => m.provider === 'deepseek').map(m => (
+                  <option key={m.name} value={m.name}>{m.label} ({(m.context_limit/1000).toFixed(0)}K){m.vision ? ' 👁' : ''}</option>
+                ))}
+              </select>
+            </div>
             <div className="flex flex-wrap gap-2">
               <button type="button" className="btn-secondary-af text-xs" onClick={() => testProviderConn('deepseek')} disabled={testResults['deepseek']?.status === 'testing'}>
                 {testResults['deepseek']?.status === 'testing' ? 'Testing...' : 'Test Connection'}
@@ -350,7 +360,14 @@ export default function SettingsPage() {
               )}
             </div>
             <Field label="Base URL" inputRef={oaiBaseUrlRef} defaultValue="https://api.openai.com/v1" />
-            <Field label="Chat Model" inputRef={oaiChatModelRef} defaultValue="gpt-4o" />
+            <div>
+              <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
+              <select value={oaiModel} onChange={(e) => setOaiModel(e.target.value)} className="input-af">
+                {allModels.filter(m => m.provider === 'openai').map(m => (
+                  <option key={m.name} value={m.name}>{m.label} ({(m.context_limit/1000).toFixed(0)}K){m.vision ? ' 👁' : ''}</option>
+                ))}
+              </select>
+            </div>
             <p className="text-[10px] text-muted">Supports: gpt-4o, gpt-4-turbo, gpt-3.5-turbo</p>
             <button type="button" className="btn-secondary-af text-xs" onClick={() => testProviderConn('openai')} disabled={testResults['openai']?.status === 'testing'}>
               {testResults['openai']?.status === 'testing' ? 'Testing...' : 'Test Connection'}
@@ -371,7 +388,14 @@ export default function SettingsPage() {
                 <p className="text-[10px] text-emerald-500 mt-1">✓ Key configured</p>
               )}
             </div>
-            <Field label="Chat Model" inputRef={gemChatModelRef} defaultValue="gemini-2.5-pro" />
+            <div>
+              <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
+              <select value={gemModel} onChange={(e) => setGemModel(e.target.value)} className="input-af">
+                {allModels.filter(m => m.provider === 'gemini').map(m => (
+                  <option key={m.name} value={m.name}>{m.label} ({(m.context_limit/1000).toFixed(0)}K){m.vision ? ' 👁' : ''}</option>
+                ))}
+              </select>
+            </div>
             <p className="text-[10px] text-muted">Supports: gemini-2.5-pro, gemini-2.5-flash, gemini-1.5-pro</p>
             <button type="button" className="btn-secondary-af text-xs" onClick={() => testProviderConn('gemini')} disabled={testResults['gemini']?.status === 'testing'}>
               {testResults['gemini']?.status === 'testing' ? 'Testing...' : 'Test Connection'}
@@ -392,7 +416,14 @@ export default function SettingsPage() {
                 <p className="text-[10px] text-emerald-500 mt-1">✓ Key configured</p>
               )}
             </div>
-            <Field label="Chat Model" inputRef={claudeChatModelRef} defaultValue="claude-3-5-sonnet-20241022" />
+            <div>
+              <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
+              <select value={claudeModel} onChange={(e) => setClaudeModel(e.target.value)} className="input-af">
+                {allModels.filter(m => m.provider === 'claude').map(m => (
+                  <option key={m.name} value={m.name}>{m.label} ({(m.context_limit/1000).toFixed(0)}K){m.vision ? ' 👁' : ''}</option>
+                ))}
+              </select>
+            </div>
             <p className="text-[10px] text-muted">Supports: claude-3-5-sonnet, claude-3-opus, claude-3-haiku</p>
             <button type="button" className="btn-secondary-af text-xs" onClick={() => testProviderConn('claude')} disabled={testResults['claude']?.status === 'testing'}>
               {testResults['claude']?.status === 'testing' ? 'Testing...' : 'Test Connection'}
