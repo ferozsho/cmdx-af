@@ -16,14 +16,18 @@ router = APIRouter()
 
 # Model context window limits (tokens)
 MODEL_CONTEXT_LIMITS = {
-    "deepseek-chat": 65536,       # DeepSeek-V3
-    "deepseek-reasoner": 65536,   # DeepSeek-R1
-    "deepseek-coder": 131072,     # DeepSeek-Coder (128K)
-    "gpt-4o": 131072,             # GPT-4o (128K)
-    "gpt-4-turbo": 131072,        # GPT-4 Turbo (128K)
-    "gemini-2.5-pro": 1048576,    # Gemini 2.5 Pro (1M)
-    "claude-3.5-sonnet": 204800,  # Claude 3.5 Sonnet (200K)
-    "claude-3-opus": 204800,      # Claude 3 Opus (200K)
+    "deepseek-chat": 65536,         # DeepSeek-V3
+    "deepseek-reasoner": 65536,     # DeepSeek-R1
+    "deepseek-coder": 131072,       # DeepSeek-Coder (128K)
+    "gpt-4o": 131072,               # GPT-4o (128K)
+    "gpt-4-turbo": 131072,          # GPT-4 Turbo (128K)
+    "gpt-3.5-turbo": 16385,         # GPT-3.5 Turbo (16K)
+    "gemini-2.5-pro": 1048576,      # Gemini 2.5 Pro (1M)
+    "gemini-2.5-flash": 1048576,    # Gemini 2.5 Flash (1M)
+    "gemini-1.5-pro": 2097152,      # Gemini 1.5 Pro (2M)
+    "claude-3.5-sonnet": 204800,    # Claude 3.5 Sonnet (200K)
+    "claude-3-opus": 204800,        # Claude 3 Opus (200K)
+    "claude-3-haiku": 204800,       # Claude 3 Haiku (200K)
 }
 
 
@@ -178,3 +182,44 @@ async def get_session_context(
         ),
         "previous_instructions": context_entries,
     }
+
+
+class SessionUpdate(BaseModel):
+    """Fields allowed when renaming a session."""
+
+    name: Optional[str] = None
+
+
+@router.patch("/projects/{project_id}/sessions/{session_id}")
+async def update_session(
+    project_id: str,
+    session_id: str,
+    data: SessionUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Rename a session."""
+    session = await db.get(Session, session_id)
+    if not session or session.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if data.name is not None:
+        session.name = data.name
+        await db.commit()
+    return {"ok": True, "id": session.id, "name": session.name}
+
+
+@router.delete("/projects/{project_id}/sessions/{session_id}")
+async def delete_session(
+    project_id: str,
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Delete a session and its associated instructions."""
+    session = await db.get(Session, session_id)
+    if not session or session.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    # Cascade delete handles instructions and their dependent rows
+    await db.delete(session)
+    await db.commit()
+    return {"ok": True}

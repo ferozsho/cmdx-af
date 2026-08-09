@@ -83,6 +83,12 @@ MODEL_REGISTRY = {
         "vision": True,
         "label": "Claude 3.5 Sonnet",
     },
+    "claude-3-5-sonnet-20241022": {
+        "provider": "claude",
+        "context_limit": 204800,
+        "vision": True,
+        "label": "Claude 3.5 Sonnet",
+    },
     "claude-3-opus": {
         "provider": "claude",
         "context_limit": 204800,

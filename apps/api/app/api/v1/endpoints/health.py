@@ -104,8 +104,9 @@ async def _check_llm(provider: str) -> ComponentHealth:
         "claude": {
             "key_setting": "CLAUDE_API_KEY",
             "url_setting": None,
-            "default_url": "https://api.anthropic.com/v1",
+            "default_url": "https://api.anthropic.com/v1/messages",
             "label": "Claude API",
+            "health_method": "post",
         },
         "gemini": {
             "key_setting": "GEMINI_API_KEY",
@@ -133,14 +134,34 @@ async def _check_llm(provider: str) -> ComponentHealth:
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                f"{base_url}/models",
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-            if resp.status_code in (200, 401):
-                return ComponentHealth(
-                    status="healthy", message="API reachable"
+            method = cfg.get("health_method", "get")
+            if method == "post":
+                resp = await client.post(
+                    base_url,
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "claude-3-5-sonnet-20241022",
+                        "max_tokens": 1,
+                        "messages": [{"role": "user", "content": "hi"}],
+                    },
                 )
+                if resp.status_code in (200, 400, 401):
+                    return ComponentHealth(
+                        status="healthy", message="API reachable"
+                    )
+            else:
+                resp = await client.get(
+                    f"{base_url}/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                if resp.status_code in (200, 401):
+                    return ComponentHealth(
+                        status="healthy", message="API reachable"
+                    )
             return ComponentHealth(
                 status="degraded", message=f"HTTP {resp.status_code}",
             )

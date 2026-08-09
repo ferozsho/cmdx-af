@@ -850,6 +850,17 @@ export default function WorkspaceClient({
       }
     }
 
+    eventSource.onerror = () => {
+      // SSE connection failed — will auto-retry via browser
+      setEvents((prev) => [
+        ...prev,
+        {
+          time: new Date().toLocaleTimeString(),
+          text: '[System] ⚠ Live connection lost — retrying…',
+        },
+      ])
+    }
+
     return () => {
       eventSource.close()
     }
@@ -1242,7 +1253,7 @@ export default function WorkspaceClient({
                     const val = e.target.value
                     if (val === '__new__') {
                       try {
-                        const s = await createSession(projectId, { name: `Session ${sessions.length + 1}`, model_name: 'deepseek-chat' })
+                        const s = await createSession(projectId, { name: `Session ${sessions.length + 1}`, model_name: project?.default_model || 'deepseek-chat' })
                         setSessions((prev) => [s, ...prev])
                         setActiveSessionId(s.id)
                       } catch (err) { console.error('Failed to create session:', err) }
@@ -1252,7 +1263,7 @@ export default function WorkspaceClient({
                   }}
                   className="input-af text-xs py-1 px-2 w-[170px]"
                 >
-                  <option value="">No Session</option>
+                  <option value="">— None —</option>
                   {sessions.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
                   <option value="__new__">+ New Session</option>
                 </select>

@@ -30,7 +30,15 @@ class ClaudeProvider(BaseLLMProvider):
             "CLAUDE_CHAT_MODEL", "claude-3-5-sonnet-20241022"
         )
 
-        messages = [{"role": "user", "content": prompt}]
+        # Claude doesn't have native json_mode — prepend instruction
+        effective_prompt = prompt
+        if json_mode:
+            effective_prompt = (
+                "You must respond with valid JSON only. "
+                "Do not include any explanatory text outside the JSON object.\n\n"
+                + prompt
+            )
+        messages = [{"role": "user", "content": effective_prompt}]
 
         payload: dict = {
             "model": target_model,

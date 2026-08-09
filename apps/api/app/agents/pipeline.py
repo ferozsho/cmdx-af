@@ -241,7 +241,7 @@ class PipelineOrchestrator:
                             instruction_id=instruction_id,
                             agent_name=agent.agent_name,
                             status=str(res.get("status", "COMPLETED")),
-                            output=json.dumps(res, default=str)[:10000],
+                            output=json.dumps(res, default=str)[:100000],
                             metadata_json=res,
                             duration_seconds=duration,
                         )

@@ -4,6 +4,7 @@ import type { Metadata } from 'next'
 import { ThemeProvider } from '@/components/theme-provider'
 import AuthGuard from '@/components/auth-guard'
 import AppShell from '@/components/app-shell'
+import ErrorBoundary from '@/components/error-boundary'
 
 export const metadata: Metadata = {
   title: {
@@ -51,9 +52,11 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen bg-background text-foreground flex font-sans antialiased">
         <ThemeProvider>
-          <AppShell>
-            <AuthGuard>{children}</AuthGuard>
-          </AppShell>
+          <ErrorBoundary>
+            <AppShell>
+              <AuthGuard>{children}</AuthGuard>
+            </AppShell>
+          </ErrorBoundary>
         </ThemeProvider>
       </body>
     </html>

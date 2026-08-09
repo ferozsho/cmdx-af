@@ -732,6 +732,30 @@ export function createSession(
   return request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/sessions`, data)
 }
 
+/** PATCH /api/v1/projects/:id/sessions/:sid — rename a session */
+export function updateSession(
+  projectId: string,
+  sessionId: string,
+  data: { name: string },
+): Promise<{ ok: boolean; id: string; name: string }> {
+  return request(
+    'PATCH',
+    `/api/v1/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}`,
+    data,
+  )
+}
+
+/** DELETE /api/v1/projects/:id/sessions/:sid — delete a session */
+export function deleteSession(
+  projectId: string,
+  sessionId: string,
+): Promise<{ ok: boolean }> {
+  return request(
+    'DELETE',
+    `/api/v1/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}`,
+  )
+}
+
 export function getSessionContext(
   projectId: string,
   sessionId: string,
