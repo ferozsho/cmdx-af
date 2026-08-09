@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from app.agents.registry import AGENT_REGISTRY, DEFAULT_AGENT_ORDER
 from app.core.database import AsyncSessionLocal
-from app.llm.tracking import current_instruction_id
+from app.llm.tracking import current_instruction_id, current_project_id
 from app.models.agent_run import AgentRun
 
 logger = logging.getLogger(__name__)
@@ -179,8 +179,10 @@ class PipelineOrchestrator:
         session_context_limit: int | None = None,
     ) -> Dict[str, Any]:
         """Execute all sequential agents in order, emitting live progress events."""
-        # Bind instruction_id so LLM usage tracking persists the right FK
+        # Bind instruction_id and project_id so LLM usage tracking persists
+        # the right FKs in the background task.
         current_instruction_id.set(instruction_id)
+        current_project_id.set(self.project_id)
 
         # Load per-project agent config (or defaults)
         agents = await self._load_agents()

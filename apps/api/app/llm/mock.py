@@ -33,6 +33,7 @@ class MockLLMProvider(BaseLLMProvider):
             prompt_tokens=150,
             completion_tokens=80,
             total_tokens=230,
-            cost=0.00005,
-            model=model or "mock-deepseek",
+            cost=0.0,
+            model=model or "mock-model",
+            provider_name="mock",
         )

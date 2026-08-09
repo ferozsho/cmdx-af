@@ -18,6 +18,7 @@ class LLMResponse(BaseModel):
     total_tokens: int = 0
     cost: float = 0.0
     model: str = ""
+    provider_name: str = ""
 
 
 class BaseLLMProvider(ABC):

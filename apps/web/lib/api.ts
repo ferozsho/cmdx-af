@@ -986,3 +986,93 @@ export function updateUser(
 export function deleteUser(id: string): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>('DELETE', `/api/v1/users/${encodeURIComponent(id)}`)
 }
+
+// ── LLM Logs ───────────────────────────────────────────────────────────────
+
+export interface LlmLogEntry {
+  id: string
+  instruction_id: string | null
+  project_id: string | null
+  provider: string
+  model: string
+  prompt_text: string | null
+  system_prompt_text: string | null
+  response_text: string | null
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  cost: number
+  duration_ms: number
+  status: string
+  error_message: string | null
+  request_id: string | null
+  temperature: number | null
+  json_mode: boolean
+  created_at: string | null
+}
+
+export interface LlmLogListResponse {
+  total: number
+  limit: number
+  offset: number
+  items: LlmLogEntry[]
+}
+
+export interface LlmLogStats {
+  total_calls: number
+  error_count: number
+  total_tokens: number
+  total_cost: number
+  total_duration_ms: number
+  unique_models: number
+  unique_providers: number
+}
+
+export interface LlmLogFilters {
+  status?: string
+  provider?: string
+  model?: string
+  sort_by?: string
+  sort_order?: string
+  limit?: number
+  offset?: number
+}
+
+/** GET /api/v1/projects/:id/llm-logs — list LLM call logs for a project */
+export function getProjectLlmLogs(
+  projectId: string,
+  filters: LlmLogFilters = {},
+): Promise<LlmLogListResponse> {
+  const params = new URLSearchParams()
+  if (filters.status) params.set('status', filters.status)
+  if (filters.provider) params.set('provider', filters.provider)
+  if (filters.model) params.set('model', filters.model)
+  if (filters.sort_by) params.set('sort_by', filters.sort_by)
+  if (filters.sort_order) params.set('sort_order', filters.sort_order)
+  if (filters.limit) params.set('limit', String(filters.limit))
+  if (filters.offset) params.set('offset', String(filters.offset))
+  const qs = params.toString()
+  return request<LlmLogListResponse>(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(projectId)}/llm-logs${qs ? `?${qs}` : ''}`,
+  )
+}
+
+/** GET /api/v1/projects/:id/llm-logs/:logId — single log detail */
+export function getLlmLogDetail(
+  projectId: string,
+  logId: string,
+): Promise<LlmLogEntry> {
+  return request<LlmLogEntry>(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(projectId)}/llm-logs/${encodeURIComponent(logId)}`,
+  )
+}
+
+/** GET /api/v1/projects/:id/llm-logs/stats — aggregate stats for a project */
+export function getLlmLogStats(projectId: string): Promise<LlmLogStats> {
+  return request<LlmLogStats>(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(projectId)}/llm-logs/stats`,
+  )
+}

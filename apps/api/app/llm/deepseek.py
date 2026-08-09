@@ -90,4 +90,5 @@ class DeepSeekProvider(BaseLLMProvider):
             total_tokens=tot_tokens,
             cost=round(cost, 6),
             model=target_model,
+            provider_name="deepseek",
         )
