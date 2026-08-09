@@ -59,10 +59,33 @@ export default function ObservabilityPage() {
         ? 'text-amber-500'
         : status === 'unhealthy'
           ? 'text-red-500'
-          : 'text-muted'
+          : status === 'not_configured'
+            ? 'text-amber-600 dark:text-amber-400'
+            : 'text-muted'
 
   const statusIcon = (status: string) =>
-    status === 'healthy' ? '●' : status === 'degraded' ? '◐' : '○'
+    status === 'healthy'
+      ? '●'
+      : status === 'degraded'
+        ? '◐'
+        : status === 'unhealthy'
+          ? '✕'
+          : status === 'not_configured'
+            ? '○'
+            : '○'
+
+  const formatComponentName = (key: string) => {
+    const names: Record<string, string> = {
+      postgresql: 'PostgreSQL',
+      redis: 'Redis',
+      qdrant: 'Qdrant',
+      deepseek_api: 'DeepSeek API',
+      openai_api: 'OpenAI API',
+      claude_api: 'Claude API',
+      gemini_api: 'Gemini API',
+    }
+    return names[key] || key.replace(/_/g, ' ')
+  }
 
   return (
     <div>
@@ -128,8 +151,8 @@ export default function ObservabilityPage() {
                   key={name}
                   className="flex justify-between py-[11px] border-b border-border last:border-0"
                 >
-                  <span className="text-muted capitalize">
-                    {name.replace('_', ' ')}
+                  <span className="text-muted">
+                    {formatComponentName(name)}
                   </span>
                   <span className={`font-bold ${statusColor(comp.status)}`}>
                     <span className="mr-1">{statusIcon(comp.status)}</span>
