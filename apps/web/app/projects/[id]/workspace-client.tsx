@@ -21,6 +21,7 @@ import {
   ragSearch,
   getRagStats,
   getGitStatus,
+  getGitLog,
   submitInstruction,
   buildSSEUrl,
   type ProjectResponse,
@@ -311,6 +312,8 @@ export default function WorkspaceClient({
   )
   const [treeKey, setTreeKey] = useState(0)
   const [gitStatus, setGitStatus] = useState<any>(null)
+  const [gitLog, setGitLog] = useState<any[]>([])
+  const [gitLogLoading, setGitLogLoading] = useState(false)
   const [selectedFilePath, setSelectedFilePath] = useState<string>(cleanPath(urlFile))
   const [selectedFileContent, setSelectedFileContent] = useState<string>('')
   const [selectedFileOriginal, setSelectedFileOriginal] = useState<string>('')
@@ -737,6 +740,18 @@ export default function WorkspaceClient({
           setGitStatus(offline ? { ...data, offline: true } : data)
         })
         .catch((err) => console.error('Failed to load git status:', err))
+      // Also fetch git log
+      if (gitLog.length === 0 && !gitLogLoading) {
+        setGitLogLoading(true)
+        getGitLog(projectId, 10)
+          .then((data: any) => {
+            if (Array.isArray(data)) {
+              setGitLog(data)
+            }
+          })
+          .catch((err) => console.error('Failed to load git log:', err))
+          .finally(() => setGitLogLoading(false))
+      }
     }
     if (activeTab === 'ARTIFACTS' && artifacts.length === 0 && !artifactsLoading) {
       setArtifactsLoading(true)
@@ -1627,6 +1642,50 @@ export default function WorkspaceClient({
                   </div>
                 </div>
               )}
+
+              {/* Commit History Log */}
+              <div className="bg-surface-secondary border border-border rounded-lg p-4 space-y-3">
+                <div className="text-xs font-semibold text-foreground flex items-center gap-2">
+                  <span>⎇ Commit History</span>
+                  <span className="text-[10px] text-muted font-normal">
+                    (last {gitLog.length > 0 ? gitLog.length : '—'} commits)
+                  </span>
+                </div>
+                {gitLogLoading ? (
+                  <div className="flex items-center gap-2.5 text-xs text-muted py-2">
+                    <span className="h-3.5 w-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                    Loading commit log…
+                  </div>
+                ) : gitLog.length > 0 ? (
+                  <div className="font-mono text-xs space-y-1.5 max-h-[400px] overflow-y-auto">
+                    {gitLog.map((commit: any, i: number) => (
+                      <div
+                        key={commit.hash || i}
+                        className="flex items-start gap-3 py-1.5 border-b border-border/50 last:border-0"
+                      >
+                        <span className="text-primary font-bold flex-shrink-0 w-7 text-right">
+                          {commit.hash
+                            ? commit.hash.substring(0, 7)
+                            : '—'}
+                        </span>
+                        <span className="text-foreground flex-1 min-w-0 break-words">
+                          {commit.message || commit.subject || '—'}
+                        </span>
+                        <span className="text-muted flex-shrink-0 text-[10px]">
+                          {commit.author || ''}
+                          {commit.time
+                            ? ` · ${new Date(commit.time).toLocaleDateString()}`
+                            : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted py-2">
+                    No commits found in this workspace.
+                  </p>
+                )}
+              </div>
             </>
           ) : (
             <div className="text-muted font-mono animate-pulse">
