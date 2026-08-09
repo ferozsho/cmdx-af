@@ -43,6 +43,7 @@ class ProjectCreate(BaseModel):
     fs_read_enabled: bool = True
     fs_write_enabled: bool = True
     fs_delete_enabled: bool = True
+    default_model: str | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -54,6 +55,7 @@ class ProjectResponse(BaseModel):
     execution_target: str
     local_path: str | None = None
     tech_stack: dict | None = None
+    default_model: str | None = None
     status: str = "ACTIVE"
     created_at: str | None = None
     updated_at: str | None = None
@@ -85,6 +87,7 @@ class ProjectUpdate(BaseModel):
     fs_read_enabled: bool | None = None
     fs_write_enabled: bool | None = None
     fs_delete_enabled: bool | None = None
+    default_model: str | None = None
 
 
 class ValidatePathRequest(BaseModel):
@@ -348,6 +351,7 @@ async def list_projects(
             fs_read_enabled=bool(p.fs_read_enabled),
             fs_write_enabled=bool(p.fs_write_enabled),
             fs_delete_enabled=bool(p.fs_delete_enabled),
+            default_model=p.default_model,
         )
         for p in projects
     ]
@@ -376,6 +380,7 @@ async def create_project(
         fs_read_enabled=data.fs_read_enabled,
         fs_write_enabled=data.fs_write_enabled,
         fs_delete_enabled=data.fs_delete_enabled,
+        default_model=data.default_model,
     )
     await db.commit()
     await db.refresh(project)
@@ -449,6 +454,7 @@ async def create_project(
         fs_read_enabled=bool(project.fs_read_enabled),
         fs_write_enabled=bool(project.fs_write_enabled),
         fs_delete_enabled=bool(project.fs_delete_enabled),
+        default_model=project.default_model,
     )
 
 
@@ -480,6 +486,7 @@ async def get_project(
         fs_read_enabled=bool(project.fs_read_enabled),
         fs_write_enabled=bool(project.fs_write_enabled),
         fs_delete_enabled=bool(project.fs_delete_enabled),
+        default_model=project.default_model,
     )
 
 
@@ -509,6 +516,7 @@ async def update_project(
         fs_read_enabled=data.fs_read_enabled,
         fs_write_enabled=data.fs_write_enabled,
         fs_delete_enabled=data.fs_delete_enabled,
+        default_model=data.default_model,
     )
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -529,6 +537,7 @@ async def update_project(
         fs_read_enabled=bool(project.fs_read_enabled),
         fs_write_enabled=bool(project.fs_write_enabled),
         fs_delete_enabled=bool(project.fs_delete_enabled),
+        default_model=project.default_model,
     )
 
 

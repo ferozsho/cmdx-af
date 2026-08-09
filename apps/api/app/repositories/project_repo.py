@@ -81,6 +81,7 @@ class ProjectRepository:
         fs_read_enabled: bool = True,
         fs_write_enabled: bool = True,
         fs_delete_enabled: bool = True,
+        default_model: str | None = None,
     ) -> Project:
         """Create and persist a new project."""
         if not user_id:
@@ -100,6 +101,7 @@ class ProjectRepository:
             fs_read_enabled=fs_read_enabled,
             fs_write_enabled=fs_write_enabled,
             fs_delete_enabled=fs_delete_enabled,
+            default_model=default_model,
         )
         self.db.add(project)
         await self.db.flush()
@@ -141,6 +143,7 @@ class ProjectRepository:
         fs_read_enabled: bool | None = None,
         fs_write_enabled: bool | None = None,
         fs_delete_enabled: bool | None = None,
+        default_model: str | None = None,
     ) -> Project | None:
         """Update an existing project. Returns updated project or None if not found."""
         project = await self.get_by_id(project_id)
@@ -170,5 +173,7 @@ class ProjectRepository:
             project.fs_write_enabled = fs_write_enabled
         if fs_delete_enabled is not None:
             project.fs_delete_enabled = fs_delete_enabled
+        if default_model is not None:
+            project.default_model = default_model
         await self.db.flush()
         return project

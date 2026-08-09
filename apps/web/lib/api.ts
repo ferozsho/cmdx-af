@@ -239,6 +239,7 @@ export interface ProjectResponse {
   fs_read_enabled?: boolean
   fs_write_enabled?: boolean
   fs_delete_enabled?: boolean
+  default_model?: string | null
 }
 
 export interface DeviceResponse {
@@ -298,12 +299,36 @@ export function getFullHealth(): Promise<FullHealthResponse> {
   return request<FullHealthResponse>('GET', '/api/v1/health/full')
 }
 
+/** POST /api/v1/settings/test-connection/:provider */
+export function testProviderConnection(
+  provider: string,
+): Promise<{ ok: boolean; detail?: string; error?: string }> {
+  return request('POST', `/api/v1/settings/test-connection/${provider}`)
+}
+
+/** GET /api/v1/settings/models — list all LLM models with capabilities */
+export function getModels(visionOnly = false): Promise<
+  { name: string; provider: string; context_limit: number; vision: boolean; label: string }[]
+> {
+  return request('GET', `/api/v1/settings/models${visionOnly ? '?vision_only=true' : ''}`)
+}
+
 /** GET /api/v1/settings */
 export function getSettings(): Promise<{
   deepseek_api_key_masked: string
   deepseek_base_url: string
-  chat_model: string
-  coder_model: string
+  deepseek_chat_model: string
+  has_deepseek_key: boolean
+  openai_api_key_masked: string
+  openai_base_url: string
+  openai_chat_model: string
+  has_openai_key: boolean
+  gemini_api_key_masked: string
+  gemini_chat_model: string
+  has_gemini_key: boolean
+  claude_api_key_masked: string
+  claude_chat_model: string
+  has_claude_key: boolean
   max_agent_steps: number
   agent_timeout: number
   rag_top_k: number
@@ -312,7 +337,6 @@ export function getSettings(): Promise<{
   rag_similarity_threshold: number
   context_window_budget: string
   allowed_commands: string
-  has_key: boolean
 }> {
   return request('GET', '/api/v1/settings')
 }
@@ -321,8 +345,14 @@ export function getSettings(): Promise<{
 export function updateSettings(data: {
   deepseek_api_key?: string
   deepseek_base_url?: string
-  chat_model?: string
-  coder_model?: string
+  deepseek_chat_model?: string
+  openai_api_key?: string
+  openai_base_url?: string
+  openai_chat_model?: string
+  gemini_api_key?: string
+  gemini_chat_model?: string
+  claude_api_key?: string
+  claude_chat_model?: string
   max_agent_steps?: number
   agent_timeout?: number
   rag_top_k?: number
@@ -386,6 +416,7 @@ export function updateProject(
     fs_read_enabled?: boolean
     fs_write_enabled?: boolean
     fs_delete_enabled?: boolean
+    default_model?: string | null
   },
 ): Promise<ProjectResponse> {
   return request<ProjectResponse>(

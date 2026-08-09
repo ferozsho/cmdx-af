@@ -33,6 +33,7 @@ class Project(Base):
     fs_read_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     fs_write_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     fs_delete_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    default_model: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False
     )

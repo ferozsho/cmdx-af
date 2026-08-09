@@ -2668,8 +2668,17 @@ function SettingsPanel({
   const [fsRead, setFsRead] = useState(project?.fs_read_enabled ?? true)
   const [fsWrite, setFsWrite] = useState(project?.fs_write_enabled ?? true)
   const [fsDelete, setFsDelete] = useState(project?.fs_delete_enabled ?? true)
+  const [defaultModel, setDefaultModel] = useState(project?.default_model || '')
+  const [availableModels, setAvailableModels] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // Fetch available models
+  useEffect(() => {
+    import('@/lib/api').then(({ getModels }) =>
+      getModels().then(setAvailableModels).catch(() => {}),
+    )
+  }, [])
 
   // Sync state when project loads/changes
   useEffect(() => {
@@ -2681,6 +2690,7 @@ function SettingsPanel({
       setFsRead(project.fs_read_enabled ?? true)
       setFsWrite(project.fs_write_enabled ?? true)
       setFsDelete(project.fs_delete_enabled ?? true)
+      setDefaultModel(project.default_model || '')
     }
   }, [project])
 
@@ -2700,6 +2710,7 @@ function SettingsPanel({
         fs_read_enabled: fsRead,
         fs_write_enabled: fsWrite,
         fs_delete_enabled: fsDelete,
+        default_model: defaultModel || null,
       })
       onSaved(updated)
       setSaved(true)
@@ -2853,6 +2864,64 @@ function SettingsPanel({
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Default LLM Model */}
+      <div className="card-af p-6">
+        <h2 className="text-base font-semibold text-foreground mb-4">
+          🤖 Default LLM Model
+        </h2>
+        <p className="text-[11px] text-muted mb-3">
+          Select which model new sessions in this project will use by default.
+          Configure API keys on the Settings page.
+        </p>
+        <select
+          value={defaultModel}
+          onChange={(e) => setDefaultModel(e.target.value)}
+          className="input-af text-sm max-w-[380px]"
+        >
+          <option value="">Platform default (DeepSeek)</option>
+          {availableModels.length > 0 ? (
+            ['deepseek', 'openai', 'gemini', 'claude'].map((provider) => {
+              const groupModels = availableModels.filter((m) => m.provider === provider)
+              if (groupModels.length === 0) return null
+              const label = provider === 'deepseek' ? 'DeepSeek' : provider === 'openai' ? 'OpenAI' : provider === 'gemini' ? 'Gemini' : 'Claude'
+              return (
+                <optgroup key={provider} label={label}>
+                  {groupModels.map((m) => (
+                    <option key={m.name} value={m.name}>
+                      {m.label} ({(m.context_limit / 1000).toFixed(0)}K)
+                      {m.vision ? ' 👁' : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              )
+            })
+          ) : (
+            <>
+              <optgroup label="DeepSeek">
+                <option value="deepseek-chat">DeepSeek-V3 (64K)</option>
+                <option value="deepseek-coder">DeepSeek-Coder (128K)</option>
+                <option value="deepseek-reasoner">DeepSeek-R1 (64K)</option>
+              </optgroup>
+              <optgroup label="OpenAI">
+                <option value="gpt-4o">GPT-4o (128K) 👁</option>
+                <option value="gpt-4-turbo">GPT-4 Turbo (128K) 👁</option>
+                <option value="gpt-3.5-turbo">GPT-3.5 Turbo (16K)</option>
+              </optgroup>
+              <optgroup label="Gemini">
+                <option value="gemini-2.5-pro">Gemini 2.5 Pro (1M) 👁</option>
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash (1M) 👁</option>
+                <option value="gemini-1.5-pro">Gemini 1.5 Pro (2M) 👁</option>
+              </optgroup>
+              <optgroup label="Claude">
+                <option value="claude-3.5-sonnet">Claude 3.5 Sonnet (200K) 👁</option>
+                <option value="claude-3-opus">Claude 3 Opus (200K) 👁</option>
+                <option value="claude-3-haiku">Claude 3 Haiku (200K) 👁</option>
+              </optgroup>
+            </>
+          )}
+        </select>
       </div>
 
       {/* Save button */}
