@@ -1,6 +1,7 @@
 """Multi-Agent Orchestration Pipeline."""
 
 import json
+import logging
 import time
 from typing import Any, Dict, List, Optional
 
@@ -8,6 +9,8 @@ from app.agents.registry import AGENT_REGISTRY, DEFAULT_AGENT_ORDER
 from app.core.database import AsyncSessionLocal
 from app.llm.tracking import current_instruction_id
 from app.models.agent_run import AgentRun
+
+logger = logging.getLogger(__name__)
 from app.models.artifact import Artifact
 from app.models.instruction import Instruction
 from app.repositories.agent_template_repo import AgentTemplateRepository
@@ -97,36 +100,46 @@ class PipelineOrchestrator:
         self.agents: list = []  # Populated lazily in _load_agents()
 
     async def _load_agents(self) -> list:
-        """Build the agent instance list from per-project config or defaults."""
+        """Build the agent instance list from per-project config or defaults.
+
+        Merges project_agent overrides with the full template list so that
+        unconfigured agents default to enabled (matching the frontend's
+        behavior). When ALL configured agents are disabled, no agents run
+        — we never fall back to defaults once a project has any config.
+        """
         if not self.project_id:
             return self._default_agents()
 
         try:
             async with AsyncSessionLocal() as session:
                 template_repo = AgentTemplateRepository(session)
+                templates = await template_repo.list_all()
+                templates = [t for t in templates if t.is_active]
+
+                if not templates:
+                    return []
+
                 project_agents = await template_repo.list_project_agents(
                     self.project_id
                 )
 
+                # No per-project config at all → use all defaults
                 if not project_agents:
                     return self._default_agents()
 
-                # Load templates to check global is_active and get names
-                templates = await template_repo.list_all()
-                tmpl_map = {t.id: t for t in templates}
-
+                # Merge: project_agent overrides win; unconfigured agents
+                # default to enabled (consistent with the frontend).
+                pa_map = {pa.template_id: pa for pa in project_agents}
                 agents: list = []
-                for pa in sorted(project_agents, key=lambda x: x.sort_order):
-                    if not pa.enabled:
+                for t in templates:
+                    pa = pa_map.get(t.id)
+                    enabled = pa.enabled if pa else True
+                    if not enabled:
                         continue
-                    tmpl = tmpl_map.get(pa.template_id)
-                    if not tmpl or not tmpl.is_active:
-                        continue
-                    agent_cls = AGENT_REGISTRY.get(tmpl.name)
+                    agent_cls = AGENT_REGISTRY.get(t.name)
                     if not agent_cls:
                         continue
-                    # Build overrides from custom_config
-                    overrides = pa.custom_config or {}
+                    overrides = (pa.custom_config or {}) if pa else {}
                     agents.append(
                         agent_cls(
                             system_prompt_override=overrides.get("system_prompt"),
@@ -134,11 +147,19 @@ class PipelineOrchestrator:
                         )
                     )
 
-                if agents:
-                    return agents
-                return self._default_agents()
-        except Exception:
-            return self._default_agents()
+                # If the project has any config at all, respect it — never
+                # fall back to defaults. An empty list means the user disabled
+                # every single agent.
+                logger.info(
+                    "_load_agents: project=%s configured=%d enabled=%d",
+                    self.project_id, len(project_agents), len(agents),
+                )
+                return agents
+        except Exception as exc:
+            logger.exception(
+                "_load_agents failed for project=%s, falling back to defaults",
+                self.project_id,
+            )
 
     def _default_agents(self) -> list:
         """Return the hardcoded default agent list (backward compat)."""

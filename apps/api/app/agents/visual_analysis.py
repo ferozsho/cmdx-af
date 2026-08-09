@@ -199,8 +199,17 @@ class VisualAnalysisService:
 class VisualAnalysisAgent(BaseAgent):
     """Visual Analysis Agent processing screenshots into UI specifications."""
 
-    def __init__(self) -> None:
-        super().__init__("Visual Analysis Agent", capability="reasoning")
+    def __init__(
+        self,
+        system_prompt_override: str | None = None,
+        tools_override: list[str] | None = None,
+    ) -> None:
+        super().__init__(
+            "Visual Analysis Agent",
+            capability="reasoning",
+            system_prompt_override=system_prompt_override,
+            tools_override=tools_override,
+        )
 
     async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Perform visual analysis if image context is provided."""
