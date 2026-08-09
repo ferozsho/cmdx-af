@@ -330,7 +330,7 @@ export default function SettingsPage() {
               <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
               <select value={dsModel} onChange={(e) => setDsModel(e.target.value)} className="input-af">
                 {allModels.filter(m => m.provider === 'deepseek').map(m => (
-                  <option key={m.name} value={m.name}>{m.label} ({(m.context_limit/1000).toFixed(0)}K){m.vision ? ' 👁' : ''}</option>
+                  <option key={m.name} value={m.name}>{m.label} ({(m.context_limit/1000).toFixed(0)}K){m.vision ? ' ●' : ''}</option>
                 ))}
               </select>
             </div>
@@ -364,7 +364,7 @@ export default function SettingsPage() {
               <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
               <select value={oaiModel} onChange={(e) => setOaiModel(e.target.value)} className="input-af">
                 {allModels.filter(m => m.provider === 'openai').map(m => (
-                  <option key={m.name} value={m.name}>{m.label} ({(m.context_limit/1000).toFixed(0)}K){m.vision ? ' 👁' : ''}</option>
+                  <option key={m.name} value={m.name}>{m.label} ({(m.context_limit/1000).toFixed(0)}K){m.vision ? ' ●' : ''}</option>
                 ))}
               </select>
             </div>
@@ -392,7 +392,7 @@ export default function SettingsPage() {
               <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
               <select value={gemModel} onChange={(e) => setGemModel(e.target.value)} className="input-af">
                 {allModels.filter(m => m.provider === 'gemini').map(m => (
-                  <option key={m.name} value={m.name}>{m.label} ({(m.context_limit/1000).toFixed(0)}K){m.vision ? ' 👁' : ''}</option>
+                  <option key={m.name} value={m.name}>{m.label} ({(m.context_limit/1000).toFixed(0)}K){m.vision ? ' ●' : ''}</option>
                 ))}
               </select>
             </div>
@@ -420,7 +420,7 @@ export default function SettingsPage() {
               <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
               <select value={claudeModel} onChange={(e) => setClaudeModel(e.target.value)} className="input-af">
                 {allModels.filter(m => m.provider === 'claude').map(m => (
-                  <option key={m.name} value={m.name}>{m.label} ({(m.context_limit/1000).toFixed(0)}K){m.vision ? ' 👁' : ''}</option>
+                  <option key={m.name} value={m.name}>{m.label} ({(m.context_limit/1000).toFixed(0)}K){m.vision ? ' ●' : ''}</option>
                 ))}
               </select>
             </div>

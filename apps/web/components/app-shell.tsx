@@ -10,6 +10,7 @@ import { SidebarHealth } from '@/app/sidebar-health'
 import { NavItem } from '@/app/nav-item'
 import LogoutButton from '@/components/logout-button'
 import NotificationBell from '@/components/notification-bell'
+import ProviderBadge from '@/components/provider-badge'
 
 const PUBLIC_PATHS = ['/login', '/forgot-password']
 
@@ -49,22 +50,12 @@ function Sidebar() {
       <NavItem href="/observability" label="Observability" icon="⌁" />
       <NavItem href="/architecture" label="Architecture" icon="⬡" />
 
-      {/* Infrastructure Section */}
-      <div className="text-[10px] uppercase tracking-[.16em] text-[#677493] my-[18px] mx-3 font-semibold">
-        Infrastructure
-      </div>
-      <NavItem href="/devices" label="Devices" icon="🖥" />
-
-      {/* Admin Section */}
-      <div className="text-[10px] uppercase tracking-[.16em] text-[#677493] my-[18px] mx-3 font-semibold">
-        Admin
-      </div>
-      <NavItem href="/users" label="Users" icon="👥" />
-
       {/* System Section */}
       <div className="text-[10px] uppercase tracking-[.16em] text-[#677493] my-[18px] mx-3 font-semibold">
         System
       </div>
+      <NavItem href="/devices" label="Devices" icon="🖥" />
+      <NavItem href="/users" label="Users" icon="👥" />
       <NavItem href="/settings" label="Settings" icon="⚙" />
 
       {/* Sidebar Footer — live health */}
@@ -116,7 +107,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {/* Top Header Bar */}
         <header className="h-[74px] bg-surface border-b border-border text-foreground flex items-center justify-between px-7 sticky top-0 z-20 transition-colors">
           <HeaderBreadcrumb />
-          <div className="flex items-center gap-[10px]">
+          <div className="flex items-center gap-3">
+            <ProviderBadge />
             <ThemeToggle />
             <NotificationBell />
             <LogoutButton />
