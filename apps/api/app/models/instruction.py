@@ -23,6 +23,7 @@ class Instruction(Base):
         String, ForeignKey("users.id"), nullable=True
     )
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    image_data: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String, default="PENDING")
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False

@@ -16,6 +16,7 @@ import {
   configureProjectAgent,
   updateProject,
   listInstructionHistory,
+  listUserInstructions,
   type AgentRun,
   type ProjectAgentResponse,
   ragSearch,
@@ -334,6 +335,12 @@ export default function WorkspaceClient({
   )
 
   const [prompt, setPrompt] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [historyIndex, setHistoryIndex] = useState(-1)
+  const [historyList, setHistoryList] = useState<string[]>([])
+  const [attachments, setAttachments] = useState<
+    { name: string; dataUrl: string; mimeType: string }[]
+  >([])
   const [isRunning, setIsRunning] = useState(false)
   const [events, setEvents] = useState<any[]>([])
   const [ragQuery, setRagQuery] = useState(urlQuery)
@@ -477,6 +484,25 @@ export default function WorkspaceClient({
   useEffect(() => {
     loadHistory(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
+
+  // Load user-wide instruction prompts for UP/DOWN arrow key cycling
+  useEffect(() => {
+    listUserInstructions(50)
+      .then((data) => {
+        // Deduplicate by prompt text, keep most recent first
+        const seen = new Set<string>()
+        const unique = data
+          .filter((i) => {
+            const p = i.prompt.trim()
+            if (seen.has(p)) return false
+            seen.add(p)
+            return true
+          })
+          .map((i) => i.prompt.trim())
+        setHistoryList(unique)
+      })
+      .catch(() => {})
   }, [projectId])
 
   // Refresh history after pipeline completes
@@ -982,25 +1008,244 @@ export default function WorkspaceClient({
         </div>
       )}
 
-      {/* Instruction Form — only on the Agents tab (pipeline launcher belongs
-          with the agent sequence; other tabs are for browsing/reviewing) */}
+      {/* Instruction Form — only on the Agents tab */}
       {activeTab === 'AGENTS' && (
-        <section className="card-af p-4">
-          <form onSubmit={handleStartPipeline} className="flex gap-3">
-            <input
-              type="text"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g. Create payment management module with FastAPI endpoints, React admin table, unit tests, and git commit..."
-              className="input-af flex-1"
-            />
-            <button
-              type="submit"
-              disabled={isRunning}
-              className="btn-primary-af text-xs disabled:opacity-50 whitespace-nowrap"
-            >
-              {isRunning ? 'Running Pipeline...' : 'Run Instruction'}
-            </button>
+        <section
+          className="card-af p-4"
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
+          onDrop={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            const files = Array.from(e.dataTransfer.files || []).filter(
+              (f) => f.type.startsWith('image/'),
+            )
+            if (files.length === 0) return
+            Promise.all(
+              files.map(
+                (f) =>
+                  new Promise<{ name: string; dataUrl: string; mimeType: string }>(
+                    (resolve) => {
+                      const reader = new FileReader()
+                      reader.onload = () =>
+                        resolve({
+                          name: f.name,
+                          dataUrl: reader.result as string,
+                          mimeType: f.type,
+                        })
+                      reader.readAsDataURL(f)
+                    },
+                  ),
+              ),
+            ).then((newAttachments) => {
+              setAttachments((prev) =>
+                [...prev, ...newAttachments].slice(0, 3),
+              )
+            })
+          }}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (!prompt.trim()) return
+              setIsRunning(true)
+              setEvents((prev) => [
+                ...prev,
+                {
+                  time: new Date().toLocaleTimeString(),
+                  text: `[Instruction Submitted] ${prompt}`,
+                },
+              ])
+              setAgentsState((prev) =>
+                prev.map((ag) =>
+                  ag.enabled
+                    ? { ...ag, status: 'PENDING', duration: '-' }
+                    : ag,
+                ),
+              )
+              // Collect base64 image data (strip data: URL prefix)
+              const imageBytes = attachments.length > 0
+                ? attachments[0].dataUrl.split(',')[1] || undefined
+                : undefined
+              const imageMimeType = attachments.length > 0
+                ? attachments[0].mimeType
+                : undefined
+              submitInstruction(projectId, prompt, imageBytes, imageMimeType)
+                .then(() => {
+                  setAttachments([])
+                  setPrompt('')
+                  setHistoryIndex(-1)
+                })
+                .catch((err) => {
+                  console.error(
+                    'Failed to trigger instruction pipeline:',
+                    err,
+                  )
+                  setIsRunning(false)
+                })
+            }}
+            className="flex gap-3 items-start"
+          >
+            <div className="flex-1 space-y-2">
+              <textarea
+                ref={textareaRef}
+                value={prompt}
+                onChange={(e) => {
+                  setPrompt(e.target.value)
+                  setHistoryIndex(-1)
+                  // Auto-resize
+                  const el = e.target
+                  el.style.height = 'auto'
+                  el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+                }}
+                onKeyDown={(e) => {
+                  const el = e.target as HTMLTextAreaElement
+                  const atTop = el.selectionStart === 0
+                  const atBottom =
+                    el.selectionStart === el.value.length
+                  if (e.key === 'ArrowUp' && atTop && historyList.length > 0) {
+                    e.preventDefault()
+                    const nextIdx = Math.min(
+                      historyIndex + 1,
+                      historyList.length - 1,
+                    )
+                    setHistoryIndex(nextIdx)
+                    setPrompt(historyList[nextIdx])
+                  } else if (
+                    e.key === 'ArrowDown' &&
+                    atBottom &&
+                    historyIndex >= 0
+                  ) {
+                    e.preventDefault()
+                    const prevIdx = historyIndex - 1
+                    if (prevIdx < 0) {
+                      setHistoryIndex(-1)
+                      setPrompt('')
+                    } else {
+                      setHistoryIndex(prevIdx)
+                      setPrompt(historyList[prevIdx])
+                    }
+                  } else if (e.key === 'Escape') {
+                    setHistoryIndex(-1)
+                    setPrompt('')
+                    el.style.height = 'auto'
+                  }
+                  // Enter to submit (without Shift)
+                  if (e.key === 'Enter' && !e.shiftKey && prompt.trim()) {
+                    e.preventDefault()
+                    el.form?.requestSubmit()
+                  }
+                }}
+                onPaste={(e) => {
+                  const items = e.clipboardData?.items
+                  if (!items) return
+                  for (let i = 0; i < items.length; i++) {
+                    if (items[i].type.startsWith('image/')) {
+                      e.preventDefault()
+                      const blob = items[i].getAsFile()
+                      if (!blob) continue
+                      const reader = new FileReader()
+                      reader.onload = () => {
+                        setAttachments((prev) =>
+                          [
+                            ...prev,
+                            {
+                              name: 'pasted-image.png',
+                              dataUrl: reader.result as string,
+                              mimeType: blob.type,
+                            },
+                          ].slice(0, 3),
+                        )
+                      }
+                      reader.readAsDataURL(blob)
+                      break
+                    }
+                  }
+                }}
+                placeholder="e.g. Create payment management module with FastAPI endpoints, React admin table, unit tests, and git commit..."
+                className="input-af flex-1 resize-none"
+                rows={2}
+                disabled={isRunning}
+              />
+              {/* Attachment thumbnails + add button */}
+              <div className="flex gap-2 flex-wrap">
+                {attachments.map((att, i) => (
+                  <div
+                    key={i}
+                    className="relative group w-16 h-16 rounded-lg border border-border overflow-hidden bg-surface-secondary"
+                  >
+                    <img
+                      src={att.dataUrl}
+                      alt={att.name}
+                      className="w-full h-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAttachments((prev) =>
+                          prev.filter((_, j) => j !== i),
+                        )
+                      }
+                      className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                {attachments.length < 3 && (
+                  <label className="w-16 h-16 rounded-lg border border-dashed border-border flex items-center justify-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors">
+                    <span className="text-muted text-lg">+</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = Array.from(
+                          e.target.files || [],
+                        ).filter((f) => f.type.startsWith('image/'))
+                        if (files.length === 0) return
+                        Promise.all(
+                          files.map(
+                            (f) =>
+                              new Promise<{
+                                name: string
+                                dataUrl: string
+                                mimeType: string
+                              }>((resolve) => {
+                                const reader = new FileReader()
+                                reader.onload = () =>
+                                  resolve({
+                                    name: f.name,
+                                    dataUrl: reader.result as string,
+                                    mimeType: f.type,
+                                  })
+                                reader.readAsDataURL(f)
+                              }),
+                          ),
+                        ).then((newAtts) => {
+                          setAttachments((prev) =>
+                            [...prev, ...newAtts].slice(0, 3),
+                          )
+                        })
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-col items-center gap-2 flex-shrink-0 pt-0.5">
+              <button
+                type="submit"
+                disabled={isRunning}
+                className="btn-primary-af text-xs disabled:opacity-50 whitespace-nowrap"
+              >
+                {isRunning ? 'Running...' : 'Run Instruction'}
+              </button>
+              {/* 1M Context Window badge */}
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-semibold whitespace-nowrap">
+                1M Context
+              </span>
+            </div>
           </form>
         </section>
       )}
@@ -1057,9 +1302,14 @@ export default function WorkspaceClient({
               <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">
                 Agent Sequence
               </h2>
-              {agentsLoading && (
-                <span className="text-[10px] text-muted animate-pulse">Loading...</span>
-              )}
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-semibold">
+                  1M Context
+                </span>
+                {agentsLoading && (
+                  <span className="text-[10px] text-muted animate-pulse">Loading...</span>
+                )}
+              </div>
             </div>
             {!agentsLoading && agentsState.length === 0 && (
               <p className="text-xs text-muted">

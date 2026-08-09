@@ -172,6 +172,8 @@ class PipelineOrchestrator:
         event_callback: Any = None,
         device_id: str = "dev_feroz_pc",
         workspace_id: str = "ws-test",
+        image_bytes: str | None = None,
+        image_mime_type: str | None = None,
     ) -> Dict[str, Any]:
         """Execute all sequential agents in order, emitting live progress events."""
         # Bind instruction_id so LLM usage tracking persists the right FK
@@ -197,6 +199,10 @@ class PipelineOrchestrator:
             "workspace_id": workspace_id,
             "project_config": project_config,
         }
+        # Inject image attachment for Visual Analysis Agent
+        if image_bytes:
+            context["image_bytes"] = image_bytes
+            context["image_mime_type"] = image_mime_type or "image/png"
         results: List[Dict[str, Any]] = []
 
         for agent in agents:

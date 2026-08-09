@@ -21,6 +21,8 @@ class InstructionSubmit(BaseModel):
     """Instruction submission request payload."""
 
     prompt: str
+    image_bytes: Optional[str] = None
+    image_mime_type: Optional[str] = None
 
 
 class InstructionResponse(BaseModel):
@@ -34,6 +36,15 @@ class InstructionResponse(BaseModel):
     created_at: str | None = None
 
 
+class UserInstructionItem(BaseModel):
+    """Lightweight instruction for user-wide history cycling."""
+
+    id: str
+    prompt: str
+    project_id: str
+    created_at: str | None = None
+
+
 class InstructionDetailResponse(BaseModel):
     """Detailed instruction with agent runs for history view."""
 
@@ -44,6 +55,36 @@ class InstructionDetailResponse(BaseModel):
     status: str
     created_at: str | None = None
     runs: list[dict] = []
+
+
+@router.get(
+    "/users/me/instructions",
+    response_model=List[UserInstructionItem],
+)
+async def list_user_instructions(
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """List recent instructions across all projects for the current user."""
+    from sqlalchemy import select
+    from app.models.instruction import Instruction
+
+    result = await db.execute(
+        select(Instruction)
+        .where(Instruction.user_id == current_user.id)
+        .order_by(Instruction.created_at.desc())
+        .limit(limit)
+    )
+    return [
+        UserInstructionItem(
+            id=i.id,
+            prompt=i.prompt,
+            project_id=i.project_id,
+            created_at=i.created_at.isoformat() if i.created_at else None,
+        )
+        for i in result.scalars().all()
+    ]
 
 
 @router.get(
@@ -203,6 +244,7 @@ async def submit_instruction(
         project_id=project_id,
         user_id=current_user.id,
         prompt=data.prompt,
+        image_data=data.image_bytes,
         status="RUNNING",
     )
     db.add(instruction)
@@ -256,6 +298,8 @@ async def submit_instruction(
             event_callback=_event_cb,
             device_id=device_id,
             workspace_id=workspace_id,
+            image_bytes=data.image_bytes,
+            image_mime_type=data.image_mime_type,
         )
 
     asyncio.create_task(_run_async_pipeline())

@@ -616,11 +616,18 @@ export function getAgentMetrics(): Promise<{
 export function submitInstruction(
   id: string,
   prompt: string,
+  imageBytes?: string,
+  imageMimeType?: string,
 ): Promise<{ id: string; project_id: string; prompt: string; status: string }> {
+  const body: Record<string, unknown> = { prompt }
+  if (imageBytes) {
+    body.image_bytes = imageBytes
+    body.image_mime_type = imageMimeType || 'image/png'
+  }
   return request<{ id: string; project_id: string; prompt: string; status: string }>(
     'POST',
     `/api/v1/projects/${encodeURIComponent(id)}/instructions`,
-    { prompt },
+    body,
   )
 }
 
@@ -637,6 +644,16 @@ export function listInstructions(
   }[]
 > {
   return request('GET', `/api/v1/projects/${encodeURIComponent(id)}/instructions`)
+}
+
+/** GET /api/v1/users/me/instructions — lightweight user-wide instruction history */
+export function listUserInstructions(
+  limit = 50,
+): Promise<{ id: string; prompt: string; project_id: string; created_at: string | null }[]> {
+  return request(
+    'GET',
+    `/api/v1/users/me/instructions?limit=${limit}`,
+  )
 }
 
 /** GET /api/v1/projects/:id/instructions/history — full history with agent runs */
