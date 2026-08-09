@@ -101,19 +101,35 @@ class GitTools:
 
     @classmethod
     def get_log(cls, workspace_root: str, max_count: int = 20) -> list:
-        """Get recent commit log."""
+        """Get recent commit log with file change summaries."""
         root = PathGuard.validate_path(workspace_root, ".")
         repo = git.Repo(root)
         commits = []
         try:
             for c in repo.iter_commits(max_count=max_count):
-                commits.append({
+                entry: dict = {
                     "hash": c.hexsha,
                     "message": c.message.strip(),
                     "author": str(c.author),
                     "time": c.committed_datetime.isoformat(),
-                    "files": len(c.stats.files) if c.stats else 0,
-                })
+                    "files_changed": 0,
+                    "insertions": 0,
+                    "deletions": 0,
+                    "changed_files": [],
+                }
+                if c.stats and c.stats.files:
+                    entry["files_changed"] = len(c.stats.files)
+                    entry["insertions"] = c.stats.total.get("insertions", 0)
+                    entry["deletions"] = c.stats.total.get("deletions", 0)
+                    entry["changed_files"] = [
+                        {
+                            "path": fname,
+                            "insertions": s.get("insertions", 0),
+                            "deletions": s.get("deletions", 0),
+                        }
+                        for fname, s in c.stats.files.items()
+                    ]
+                commits.append(entry)
         except Exception:
             pass
         return commits

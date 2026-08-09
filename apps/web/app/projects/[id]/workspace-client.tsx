@@ -1657,28 +1657,92 @@ export default function WorkspaceClient({
                     Loading commit log…
                   </div>
                 ) : gitLog.length > 0 ? (
-                  <div className="font-mono text-xs space-y-1.5 max-h-[400px] overflow-y-auto">
-                    {gitLog.map((commit: any, i: number) => (
-                      <div
-                        key={commit.hash || i}
-                        className="flex items-start gap-3 py-1.5 border-b border-border/50 last:border-0"
-                      >
-                        <span className="text-primary font-bold flex-shrink-0 w-7 text-right">
-                          {commit.hash
-                            ? commit.hash.substring(0, 7)
-                            : '—'}
-                        </span>
-                        <span className="text-foreground flex-1 min-w-0 break-words">
-                          {commit.message || commit.subject || '—'}
-                        </span>
-                        <span className="text-muted flex-shrink-0 text-[10px]">
-                          {commit.author || ''}
-                          {commit.time
-                            ? ` · ${new Date(commit.time).toLocaleDateString()}`
-                            : ''}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="font-mono text-xs space-y-0.5 max-h-[500px] overflow-y-auto">
+                    {gitLog.map((commit: any, i: number) => {
+                      const commitId = commit.hash || `commit-${i}`
+                      const isExpanded = expandedHistory === commitId
+                      const shortHash = commit.hash
+                        ? commit.hash.substring(0, 7)
+                        : '—'
+                      const filesList: any[] = commit.changed_files || []
+                      const totalInsertions: number =
+                        commit.insertions ||
+                        filesList.reduce(
+                          (s: number, f: any) => s + (f.insertions || 0),
+                          0,
+                        )
+                      const totalDeletions: number =
+                        commit.deletions ||
+                        filesList.reduce(
+                          (s: number, f: any) => s + (f.deletions || 0),
+                          0,
+                        )
+                      return (
+                        <div
+                          key={commitId}
+                          className="border-b border-border/50 last:border-0"
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedHistory(
+                                isExpanded ? null : commitId,
+                              )
+                            }
+                            className="w-full flex items-start gap-3 py-1.5 text-left hover:bg-hover/50 transition-colors rounded px-1 -mx-1"
+                          >
+                            <span className="flex-shrink-0 w-[58px] h-[20px] inline-flex items-center justify-center rounded-md bg-[#0d1117] dark:bg-[#161b22] border border-[#30363d] text-[11px] font-bold text-[#c9d1d9] tracking-tight">
+                              {shortHash}
+                            </span>
+                            <span className="text-foreground flex-1 min-w-0 break-words leading-[20px]">
+                              {commit.message || '—'}
+                            </span>
+                            <span className="text-muted flex-shrink-0 text-[10px] leading-[20px] whitespace-nowrap">
+                              {commit.author || ''}
+                              {commit.time
+                                ? ` · ${new Date(commit.time).toLocaleDateString()}`
+                                : ''}
+                            </span>
+                          </button>
+                          {isExpanded && filesList.length > 0 && (
+                            <div className="ml-[70px] mb-2 border border-[#30363d] rounded-md bg-[#0d1117] overflow-hidden">
+                              <div className="px-3 py-1.5 border-b border-[#30363d]/40 flex items-center gap-2 text-[10px] text-[#8b949e] bg-[#161b22]/50">
+                                <span>
+                                  {filesList.length} file
+                                  {filesList.length !== 1 ? 's' : ''} changed
+                                </span>
+                                <span className="text-emerald-400 font-semibold">
+                                  +{totalInsertions}
+                                </span>
+                                <span className="text-red-400 font-semibold">
+                                  −{totalDeletions}
+                                </span>
+                              </div>
+                              <div className="divide-y divide-[#30363d]/30">
+                                {filesList.map((f: any) => (
+                                  <div
+                                    key={f.path}
+                                    className="flex items-center gap-3 px-3 py-1 text-[11px]"
+                                  >
+                                    <span className="text-[#c9d1d9] flex-1 truncate">
+                                      {f.path}
+                                    </span>
+                                    <span className="flex items-center gap-1.5 flex-shrink-0">
+                                      <span className="text-emerald-400 w-6 text-right tabular-nums">
+                                        +{f.insertions || 0}
+                                      </span>
+                                      <span className="text-red-400 w-6 text-right tabular-nums">
+                                        −{f.deletions || 0}
+                                      </span>
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 ) : (
                   <p className="text-xs text-muted py-2">

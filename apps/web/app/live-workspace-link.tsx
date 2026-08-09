@@ -8,7 +8,7 @@ import { listProjects, type ProjectResponse } from '@/lib/api'
 export function LiveWorkspaceLink() {
   const [count, setCount] = useState(0)
   const pathname = usePathname()
-  const isActive = pathname === '/projects'
+  const isActive = pathname === '/projects' || pathname.startsWith('/projects/')
 
   useEffect(() => {
     listProjects()
