@@ -19,6 +19,9 @@ class Instruction(Base):
     project_id: Mapped[str] = mapped_column(
         String, ForeignKey("projects.id"), nullable=False
     )
+    user_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("users.id"), nullable=True
+    )
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String, default="PENDING")
     created_at: Mapped[datetime] = mapped_column(
@@ -26,4 +29,5 @@ class Instruction(Base):
     )
 
     project = relationship("Project", back_populates="instructions")
+    user = relationship("User")
     runs = relationship("AgentRun", back_populates="instruction", cascade="all, delete-orphan")

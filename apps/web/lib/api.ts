@@ -639,6 +639,33 @@ export function listInstructions(
   return request('GET', `/api/v1/projects/${encodeURIComponent(id)}/instructions`)
 }
 
+/** GET /api/v1/projects/:id/instructions/history — full history with agent runs */
+export function listInstructionHistory(
+  id: string,
+): Promise<
+  {
+    id: string
+    project_id: string
+    user_id: string | null
+    prompt: string
+    status: string
+    created_at: string | null
+    runs: {
+      agent_name: string
+      status: string
+      duration_seconds: number
+      output: string | null
+      metadata: Record<string, unknown>
+      created_at: string | null
+    }[]
+  }[]
+> {
+  return request(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(id)}/instructions/history`,
+  )
+}
+
 /** GET /api/v1/devices */
 export function listDevices(): Promise<DeviceResponse[]> {
   return request<DeviceResponse[]>('GET', '/api/v1/devices')

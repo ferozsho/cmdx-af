@@ -28,8 +28,22 @@ class InstructionResponse(BaseModel):
 
     id: str
     project_id: str
+    user_id: str | None = None
     prompt: str
     status: str
+    created_at: str | None = None
+
+
+class InstructionDetailResponse(BaseModel):
+    """Detailed instruction with agent runs for history view."""
+
+    id: str
+    project_id: str
+    user_id: str | None = None
+    prompt: str
+    status: str
+    created_at: str | None = None
+    runs: list[dict] = []
 
 
 @router.get(
@@ -56,10 +70,59 @@ async def list_instructions(
         InstructionResponse(
             id=i.id,
             project_id=i.project_id,
+            user_id=i.user_id,
             prompt=i.prompt,
             status=i.status,
+            created_at=i.created_at.isoformat() if i.created_at else None,
         )
         for i in result.scalars().all()
+    ]
+
+
+@router.get(
+    "/projects/{project_id}/instructions/history",
+    response_model=List[InstructionDetailResponse],
+)
+async def list_instruction_history(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """List instructions with full agent run logs for history review."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.models.instruction import Instruction
+
+    result = await db.execute(
+        select(Instruction)
+        .where(Instruction.project_id == project_id)
+        .options(selectinload(Instruction.runs))
+        .order_by(Instruction.created_at.desc())
+        .limit(50)
+    )
+    instructions = result.scalars().all()
+    return [
+        InstructionDetailResponse(
+            id=i.id,
+            project_id=i.project_id,
+            user_id=i.user_id,
+            prompt=i.prompt,
+            status=i.status,
+            created_at=i.created_at.isoformat() if i.created_at else None,
+            runs=[
+                {
+                    "agent_name": r.agent_name,
+                    "status": r.status,
+                    "duration_seconds": r.duration_seconds,
+                    "output": r.output,
+                    "metadata": r.metadata_json,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in (i.runs or [])
+            ],
+        )
+        for i in instructions
     ]
 
 
@@ -84,7 +147,20 @@ async def submit_instruction(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Submit natural language development instruction and trigger Agent Pipeline."""
+    from app.models.instruction import Instruction
+
     ins_id = f"ins_{uuid.uuid4().hex[:8]}"
+
+    # Persist instruction immediately with user_id for query history
+    instruction = Instruction(
+        id=ins_id,
+        project_id=project_id,
+        user_id=current_user.id,
+        prompt=data.prompt,
+        status="RUNNING",
+    )
+    db.add(instruction)
+    await db.commit()
 
     # Resolve device and workspace for this project
     device_id = "dev_feroz_pc"
@@ -141,6 +217,7 @@ async def submit_instruction(
     return InstructionResponse(
         id=ins_id,
         project_id=project_id,
+        user_id=current_user.id,
         prompt=data.prompt,
         status="RUNNING",
     )

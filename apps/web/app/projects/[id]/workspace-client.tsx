@@ -15,6 +15,7 @@ import {
   listProjectAgents,
   configureProjectAgent,
   updateProject,
+  listInstructionHistory,
   type AgentRun,
   type ProjectAgentResponse,
   ragSearch,
@@ -372,6 +373,36 @@ export default function WorkspaceClient({
 
   // Store structured results from agent pipeline executions
   const [pipelineResults, setPipelineResults] = useState<Record<string, any>>({})
+
+  // Instruction history for the history panel
+  const [instructionHistory, setInstructionHistory] = useState<any[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [expandedHistory, setExpandedHistory] = useState<string | null>(null)
+
+  // Load instruction history
+  useEffect(() => {
+    async function loadHistory() {
+      setHistoryLoading(true)
+      try {
+        const data = await listInstructionHistory(projectId)
+        setInstructionHistory(data)
+      } catch (err) {
+        console.error('Failed to load instruction history:', err)
+      } finally {
+        setHistoryLoading(false)
+      }
+    }
+    loadHistory()
+  }, [projectId])
+
+  // Refresh history after pipeline completes
+  useEffect(() => {
+    if (!isRunning && activeTab === 'AGENTS') {
+      listInstructionHistory(projectId)
+        .then(setInstructionHistory)
+        .catch(() => {})
+    }
+  }, [isRunning, projectId, activeTab])
 
   // Project data from API
   const [project, setProject] = useState<ProjectResponse | null>(null)
@@ -986,6 +1017,111 @@ export default function WorkspaceClient({
                 </div>
               ))}
             </div>
+          </div>
+        </section>
+      )}
+
+      {/* Instruction History — visible on AGENTS tab */}
+      {activeTab === 'AGENTS' && (
+        <section className="card-af p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">
+              Instruction History
+            </h2>
+            {historyLoading && (
+              <span className="text-[10px] text-muted animate-pulse">Loading...</span>
+            )}
+          </div>
+          {!historyLoading && instructionHistory.length === 0 && (
+            <p className="text-xs text-muted py-4 text-center">
+              No instructions yet. Submit your first instruction above.
+            </p>
+          )}
+          <div className="space-y-2 max-h-[400px] overflow-y-auto">
+            {instructionHistory.map((ins) => (
+              <div
+                key={ins.id}
+                className="border border-border rounded-[10px] overflow-hidden"
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedHistory(
+                      expandedHistory === ins.id ? null : ins.id,
+                    )
+                  }
+                  className="w-full flex items-center justify-between gap-3 p-3 text-left hover:bg-hover transition-colors"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                          ins.status === 'COMPLETED'
+                            ? 'bg-emerald-500/15 text-emerald-500'
+                            : ins.status === 'FAILED'
+                              ? 'bg-red-500/15 text-red-500'
+                              : 'bg-amber-500/15 text-amber-500'
+                        }`}
+                      >
+                        {ins.status}
+                      </span>
+                      <span className="text-[10px] text-muted">
+                        {ins.created_at
+                          ? new Date(ins.created_at).toLocaleString()
+                          : ''}
+                      </span>
+                    </div>
+                    <p className="text-xs text-foreground truncate">
+                      {ins.prompt}
+                    </p>
+                  </div>
+                  <span className="text-muted text-sm flex-shrink-0">
+                    {expandedHistory === ins.id ? '▲' : '▼'}
+                  </span>
+                </button>
+                {expandedHistory === ins.id && (
+                  <div className="border-t border-border bg-[#0f141e] p-3 font-mono text-xs space-y-1.5 max-h-[300px] overflow-y-auto">
+                    <div className="text-muted mb-2">
+                      [Instruction] {ins.prompt}
+                    </div>
+                    {ins.runs && ins.runs.length > 0 ? (
+                      ins.runs.map((run: any, ri: number) => (
+                        <div key={ri} className="text-[#49e56d]">
+                          <span className="text-[#7f899c]">
+                            [{run.created_at
+                              ? new Date(run.created_at)
+                                  .toLocaleTimeString()
+                              : ''}]
+                          </span>{' '}
+                          [{run.agent_name}] {run.status === 'COMPLETED'
+                            ? `Finished in ${run.duration_seconds?.toFixed(1) || '?'}s`
+                            : run.status}
+                          {run.metadata?.test_summary && (
+                            <div className="ml-4 text-[#c8d0df]">
+                              ↳ {run.metadata.test_summary}
+                            </div>
+                          )}
+                          {run.metadata?.files_generated && run.metadata.files_generated.length > 0 && (
+                            <div className="ml-4 text-[#7f899c]">
+                              ↳ Generated: {run.metadata.files_generated.join(', ')}
+                            </div>
+                          )}
+                          {run.metadata?.error && (
+                            <div className="ml-4 text-red-400">
+                              ↳ Error: {run.metadata.error}
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-muted italic">
+                        No agent run logs available.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </section>
       )}

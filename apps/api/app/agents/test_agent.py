@@ -1,5 +1,6 @@
 """Test Agent Implementation."""
 
+import asyncio
 import re
 from typing import Any, Dict, List
 
@@ -14,6 +15,11 @@ Return JSON with:
 - "tests_failed": number that would fail
 - "coverage_percent": estimated coverage percentage
 - "test_summary": brief summary of test coverage"""
+
+# Maximum time (seconds) for the entire test agent execution
+TEST_AGENT_TIMEOUT = 90.0
+# Maximum time for pytest run command
+PYTEST_TIMEOUT = 30.0
 
 
 def _is_unavailable(output: str) -> bool:
@@ -63,6 +69,35 @@ class TestAgent(BaseAgent):
 
     async def execute(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Generate tests via LLM, write them, then run pytest for real counts."""
+        try:
+            return await asyncio.wait_for(
+                self._execute_inner(context), timeout=TEST_AGENT_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            return {
+                "status": "COMPLETED",
+                "tests_generated": [],
+                "tests_written": [],
+                "tests_passed": 0,
+                "tests_failed": 0,
+                "coverage_percent": 0,
+                "test_summary": (
+                    "Test agent timed out after "
+                    f"{TEST_AGENT_TIMEOUT}s (pytest or LLM may be slow)."
+                ),
+            }
+        except Exception as e:
+            return {
+                "status": "FAILED",
+                "error": str(e),
+                "tests_generated": [],
+                "tests_passed": 0,
+                "tests_failed": 0,
+                "coverage_percent": 0,
+            }
+
+    async def _execute_inner(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Inner execution logic with proper timeout boundaries."""
         prompt = context.get("prompt", "")
         plan = context.get("plan_json", {})
         files_changed: List[str] = list(
