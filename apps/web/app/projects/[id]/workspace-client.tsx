@@ -360,6 +360,14 @@ export default function WorkspaceClient({
   const [fixingIds, setFixingIds] = useState<string[]>([])
   const [fixedIds, setFixedIds] = useState<Set<string>>(new Set())
   const fixInstructionRef = useRef<any>(null)
+
+  // Agent enablement prompt state
+  const [agentEnablePrompt, setAgentEnablePrompt] = useState<{
+    disabled: { template_id: string; template_name: string }[]
+    selectedIds: Set<string>
+    onConfirm: (selectedIds: Set<string>) => void
+    onSkip: () => void
+  } | null>(null)
   const [sessions, setSessions] = useState<SessionResponse[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [sessionContext, setSessionContext] = useState<SessionContextResponse | null>(null)
@@ -988,6 +996,58 @@ export default function WorkspaceClient({
     }
   }
 
+  // Ensure all enabled agents are active before running pipeline.
+  // Returns a Promise that resolves when all agents are confirmed enabled.
+  const ensureAgentsEnabled = (): Promise<boolean> => {
+    // Wait for agents to load if they haven't yet
+    if (agentsLoading || agentsState.length === 0) {
+      return Promise.resolve(true) // agents not loaded yet, proceed anyway
+    }
+    const disabled = agentsState.filter((a) => !a.enabled)
+    if (disabled.length === 0) return Promise.resolve(true)
+
+    return new Promise((resolve) => {
+      const allIds = new Set(disabled.map((a) => a.template_id))
+      // Git Agent is unchecked by default (user must opt-in)
+      for (const ag of disabled) {
+        if (ag.template_name === 'Git Agent') allIds.delete(ag.template_id)
+      }
+      setAgentEnablePrompt({
+        disabled: disabled.map((a) => ({
+          template_id: a.template_id,
+          template_name: a.template_name,
+        })),
+        selectedIds: new Set(allIds),
+        onConfirm: async (selectedIds: Set<string>) => {
+          setAgentEnablePrompt(null)
+          // Enable only the selected agents
+          for (const ag of disabled) {
+            if (!selectedIds.has(ag.template_id)) continue
+            try {
+              await configureProjectAgent(projectId, {
+                template_id: ag.template_id,
+                enabled: true,
+              })
+            } catch (err) {
+              console.error(`Failed to enable ${ag.template_name}:`, err)
+            }
+          }
+          // Update local state — mark selected agents as enabled
+          setAgentsState((prev) =>
+            prev.map((a) =>
+              selectedIds.has(a.template_id) ? { ...a, enabled: true } : a,
+            ),
+          )
+          resolve(true)
+        },
+        onSkip: () => {
+          setAgentEnablePrompt(null)
+          resolve(true) // proceed without enabling
+        },
+      })
+    })
+  }
+
   // AI FIX: open confirmation modal, then submit with error context
   const handleAiFix = (instruction: any) => {
     if (!instruction || isRunning) return
@@ -1027,6 +1087,10 @@ export default function WorkspaceClient({
   const handleAiFixConfirm = async () => {
     const instruction = fixInstructionRef.current
     if (!instruction) return
+
+    // Check agents before proceeding
+    const ok = await ensureAgentsEnabled()
+    if (!ok) return
 
     setFixSubmitting(true)
 
@@ -1216,6 +1280,78 @@ export default function WorkspaceClient({
             </div>
           </section>
 
+          {/* Agent Enablement Prompt — shown when some agents are disabled */}
+          {agentEnablePrompt && (
+            <div className="bg-amber-50 dark:bg-amber-500/8 border border-amber-300 dark:border-amber-500/25 rounded-xl px-4 py-3">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-500/15 grid place-items-center flex-shrink-0 mt-0.5">
+                  <svg className="w-4 h-4 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-1">
+                    Some agents are disabled
+                  </div>
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400/80 mb-2">
+                    Select which agents to enable before running:
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5 mb-3">
+                    {agentEnablePrompt.disabled.map((ag) => {
+                      const checked = agentEnablePrompt.selectedIds.has(ag.template_id)
+                      const toggle = () => {
+                        setAgentEnablePrompt((prev) => {
+                          if (!prev) return null
+                          const next = new Set(prev.selectedIds)
+                          if (next.has(ag.template_id)) next.delete(ag.template_id)
+                          else next.add(ag.template_id)
+                          return { ...prev, selectedIds: next }
+                        })
+                      }
+                      return (
+                        <label
+                          key={ag.template_id}
+                          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white dark:bg-amber-500/5 border border-amber-200 dark:border-amber-500/15 cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-500/10 transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={toggle}
+                            className="w-3.5 h-3.5 rounded border-amber-400 text-primary focus:ring-primary focus:ring-offset-0 cursor-pointer"
+                          />
+                          <span className="text-[11px] font-semibold text-amber-900 dark:text-amber-200">
+                            {ag.template_name}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const ids = agentEnablePrompt.selectedIds
+                        if (ids.size === 0) return
+                        agentEnablePrompt.onConfirm(ids)
+                      }}
+                      disabled={agentEnablePrompt.selectedIds.size === 0}
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-primary hover:bg-primary/90 shadow-sm transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Enable Selected ({agentEnablePrompt.selectedIds.size})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={agentEnablePrompt.onSkip}
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-500/10 transition-colors"
+                    >
+                      Skip
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <section className="card-af p-4"
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
           onDrop={(e) => {
@@ -1249,9 +1385,20 @@ export default function WorkspaceClient({
           }}
         >
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault()
               if (!prompt.trim()) return
+
+              // Check if any agents are disabled — prompt to enable them
+              if (!agentsLoading && agentsState.length > 0) {
+                try {
+                  const ok = await ensureAgentsEnabled()
+                  if (!ok) return
+                } catch (err) {
+                  console.error('Agent enable check failed:', err)
+                }
+              }
+
               setIsRunning(true)
               setEvents((prev) => [
                 ...prev,
