@@ -6,5 +6,5 @@ app = FastAPI(title="Session Context Tracking API", version="1.0.0")
 app.include_router(session_router)
 
 @app.get("/")
-async def root():
+def root():
     return {"message": "Session Context Tracking API"}

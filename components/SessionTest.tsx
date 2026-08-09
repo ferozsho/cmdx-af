@@ -1,31 +1,100 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
-interface SessionTestProps {
-  initialCount?: number;
+interface SessionContext {
+  sessionId: string;
+  userId: string;
+  createdAt: string;
+  lastActive: string;
+  metadata: Record<string, unknown>;
 }
 
-const SessionTest: React.FC<SessionTestProps> = ({ initialCount = 0 }) => {
-  const [count, setCount] = useState<number>(initialCount);
-  const [sessionId, setSessionId] = useState<string>('');
+interface SessionTestProps {
+  initialContext?: Partial<SessionContext>;
+}
+
+const SessionTest: React.FC<SessionTestProps> = ({ initialContext }) => {
+  const [context, setContext] = useState<SessionContext>({
+    sessionId: '',
+    userId: '',
+    createdAt: '',
+    lastActive: '',
+    metadata: {},
+    ...initialContext,
+  });
+  const [trackingEnabled, setTrackingEnabled] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const updateLastActive = useCallback(() => {
+    if (!trackingEnabled) return;
+    setContext((prev) => ({
+      ...prev,
+      lastActive: new Date().toISOString(),
+    }));
+  }, [trackingEnabled]);
 
   useEffect(() => {
-    // Generate a session ID on mount to simulate context tracking
-    const id = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    setSessionId(id);
-  }, []);
+    if (!trackingEnabled) return;
+    const interval = setInterval(updateLastActive, 5000);
+    return () => clearInterval(interval);
+  }, [trackingEnabled, updateLastActive]);
 
-  const increment = () => setCount(prev => prev + 1);
-  const decrement = () => setCount(prev => prev - 1);
-  const reset = () => setCount(initialCount);
+  const handleStartSession = () => {
+    try {
+      const newContext: SessionContext = {
+        sessionId: `session-${Date.now()}`,
+        userId: `user-${Math.random().toString(36).substr(2, 9)}`,
+        createdAt: new Date().toISOString(),
+        lastActive: new Date().toISOString(),
+        metadata: { source: 'manual-start' },
+      };
+      setContext(newContext);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start session');
+    }
+  };
+
+  const handleToggleTracking = () => {
+    setTrackingEnabled((prev) => !prev);
+  };
+
+  const handleUpdateMetadata = (key: string, value: unknown) => {
+    setContext((prev) => ({
+      ...prev,
+      metadata: { ...prev.metadata, [key]: value },
+    }));
+  };
 
   return (
     <div className="session-test">
-      <h2>Session Test Component</h2>
-      <p>Session ID: <span data-testid="session-id">{sessionId}</span></p>
-      <p>Count: <span data-testid="count">{count}</span></p>
-      <button onClick={increment} data-testid="increment">Increment</button>
-      <button onClick={decrement} data-testid="decrement">Decrement</button>
-      <button onClick={reset} data-testid="reset">Reset</button>
+      <h2>Session Context Tracking</h2>
+      <div className="controls">
+        <button onClick={handleStartSession}>Start New Session</button>
+        <button onClick={handleToggleTracking}>
+          {trackingEnabled ? 'Disable Tracking' : 'Enable Tracking'}
+        </button>
+      </div>
+      {error && <div className="error">Error: {error}</div>}
+      <div className="context-display">
+        <h3>Current Context</h3>
+        <p><strong>Session ID:</strong> {context.sessionId || 'N/A'}</p>
+        <p><strong>User ID:</strong> {context.userId || 'N/A'}</p>
+        <p><strong>Created At:</strong> {context.createdAt || 'N/A'}</p>
+        <p><strong>Last Active:</strong> {context.lastActive || 'N/A'}</p>
+        <div>
+          <strong>Metadata:</strong>
+          <pre>{JSON.stringify(context.metadata, null, 2)}</pre>
+        </div>
+      </div>
+      <div className="metadata-update">
+        <h3>Update Metadata</h3>
+        <button onClick={() => handleUpdateMetadata('lastAction', `click-${Date.now()}`)}>
+          Add Last Action
+        </button>
+        <button onClick={() => handleUpdateMetadata('page', window.location.pathname)}>
+          Add Current Page
+        </button>
+      </div>
     </div>
   );
 };

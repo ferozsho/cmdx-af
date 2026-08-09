@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import DiffViewer from '@/components/diff-viewer'
+import AiFixModal from '@/components/ai-fix-modal'
 import {
   getProject,
   getProjectTree,
@@ -347,6 +348,18 @@ export default function WorkspaceClient({
     { name: string; dataUrl: string; mimeType: string }[]
   >([])
   const [isRunning, setIsRunning] = useState(false)
+  // AI FIX modal state
+  const [fixModalOpen, setFixModalOpen] = useState(false)
+  const [fixModalInfo, setFixModalInfo] = useState<{
+    prompt: string
+    errors: string[]
+    recommendations: string[]
+    agentNames: string[]
+  } | null>(null)
+  const [fixSubmitting, setFixSubmitting] = useState(false)
+  const [fixingIds, setFixingIds] = useState<string[]>([])
+  const [fixedIds, setFixedIds] = useState<Set<string>>(new Set())
+  const fixInstructionRef = useRef<any>(null)
   const [sessions, setSessions] = useState<SessionResponse[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [sessionContext, setSessionContext] = useState<SessionContextResponse | null>(null)
@@ -975,6 +988,118 @@ export default function WorkspaceClient({
     }
   }
 
+  // AI FIX: open confirmation modal, then submit with error context
+  const handleAiFix = (instruction: any) => {
+    if (!instruction || isRunning) return
+
+    // Collect errors and recommendations from failed runs
+    const errors: string[] = []
+    const recs: string[] = []
+    const agents: string[] = []
+    if (instruction.runs) {
+      for (const run of instruction.runs) {
+        if (run.status === 'FAILED') {
+          agents.push(run.agent_name)
+          if (run.metadata?.error) {
+            errors.push(`[${run.agent_name}] ${run.metadata.error}`)
+          }
+        }
+        if (run.metadata?.recommendations) {
+          const r = Array.isArray(run.metadata.recommendations)
+            ? run.metadata.recommendations
+            : [run.metadata.recommendations]
+          recs.push(...r.map((s: string) => `[${run.agent_name}] ${s}`))
+        }
+      }
+    }
+
+    fixInstructionRef.current = instruction
+    setFixModalInfo({
+      prompt: instruction.prompt,
+      errors,
+      recommendations: recs,
+      agentNames: agents.filter((v, i, a) => a.indexOf(v) === i),
+    })
+    setFixModalOpen(true)
+  }
+
+  // AI FIX: confirmed — submit and close (click-and-forget)
+  const handleAiFixConfirm = async () => {
+    const instruction = fixInstructionRef.current
+    if (!instruction) return
+
+    setFixSubmitting(true)
+
+    const errors: string[] = []
+    const recs: string[] = []
+    if (instruction.runs) {
+      for (const run of instruction.runs) {
+        if (run.status === 'FAILED' && run.metadata?.error) {
+          errors.push(`[${run.agent_name}] ${run.metadata.error}`)
+        }
+        if (run.metadata?.recommendations) {
+          const r = Array.isArray(run.metadata.recommendations)
+            ? run.metadata.recommendations
+            : [run.metadata.recommendations]
+          recs.push(...r.map((s: string) => `[${run.agent_name}] ${s}`))
+        }
+      }
+    }
+
+    const errorBlock = errors.length > 0
+      ? `\n\nErrors from previous run:\n${errors.join('\n')}`
+      : ''
+    const recBlock = recs.length > 0
+      ? `\n\nRecommendations:\n${recs.join('\n')}`
+      : ''
+
+    const fixPrompt = `[AI FIX] The following instruction failed. Please analyze the errors and fix them.\n\nOriginal instruction: ${instruction.prompt}${errorBlock}${recBlock}\n\nFix all issues and re-run.`
+
+    // Mark this instruction as being fixed (prevents re-click)
+    setFixingIds((prev) => [...prev, instruction.id])
+    setFixedIds((prev) => new Set(prev).add(instruction.id))
+
+    // Close modal immediately (click-and-forget)
+    setFixModalOpen(false)
+    setFixSubmitting(false)
+
+    // Start pipeline
+    setIsRunning(true)
+    setEvents((prev) => [
+      ...prev,
+      { time: new Date().toLocaleTimeString(), text: `[AI FIX] Fixing: ${instruction.prompt}` },
+    ])
+    setAgentsState((prev) =>
+      prev.map((ag) =>
+        ag.enabled ? { ...ag, status: 'PENDING', duration: '-' } : ag,
+      ),
+    )
+
+    try {
+      await submitInstruction(projectId, fixPrompt)
+      setPrompt('')
+      setHistoryIndex(-1)
+    } catch (err) {
+      console.error('AI FIX submit failed:', err)
+      setIsRunning(false)
+    }
+  }
+
+  // Clear fixing state when pipeline completes, refresh session context
+  useEffect(() => {
+    if (!isRunning && fixingIds.length > 0) {
+      // Refresh history to show updated status
+      loadHistory(historyPage, historyAgentFilter, historyDateFrom, historyDateTo)
+      // Refresh session context to reflect any changes
+      if (activeSessionId) {
+        getSessionContext(projectId, activeSessionId)
+          .then(setSessionContext)
+          .catch(() => setSessionContext(null))
+      }
+      setFixingIds([])
+    }
+  }, [isRunning])
+
   return (
     <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col min-h-0 space-y-6">
       {/* Header */}
@@ -1379,9 +1504,13 @@ export default function WorkspaceClient({
                 Agent Sequence
               </h2>
               <div className="flex items-center gap-2">
-                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-semibold">
-                  1M Context
-                </span>
+                {sessionContext && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-semibold">
+                    {sessionContext.context_limit >= 1000000
+                      ? `${(sessionContext.context_limit / 1000000).toFixed(1)}M`
+                      : `${(sessionContext.context_limit / 1000).toFixed(0)}K`} Context
+                  </span>
+                )}
                 {agentsLoading && (
                   <span className="text-[10px] text-muted animate-pulse">Loading...</span>
                 )}
@@ -1614,6 +1743,38 @@ export default function WorkspaceClient({
                     ) : (
                       <div className="text-muted italic">
                         No agent run logs available.
+                      </div>
+                    )}
+                    {ins.status === 'FAILED' && (
+                      <div className="mt-2">
+                        {fixingIds.includes(ins.id) ? (
+                          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-primary/10 text-primary border border-primary/20">
+                            <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                            Fixing in progress…
+                          </div>
+                        ) : fixedIds.has(ins.id) ? (
+                          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                            Fix Submitted
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isRunning}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleAiFix(ins)
+                            }}
+                            className="group mt-0.5 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-primary/10 text-primary border border-primary/25 hover:bg-primary hover:text-white hover:border-primary hover:shadow-lg hover:shadow-primary/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 active:scale-95"
+                          >
+                            <svg className="w-3.5 h-3.5 transition-transform group-hover:scale-110" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            AI FIX
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2641,6 +2802,15 @@ export default function WorkspaceClient({
           onSaved={(updated) => setProject(updated)}
         />
       )}
+
+      {/* AI FIX Confirmation Modal */}
+      <AiFixModal
+        open={fixModalOpen}
+        fixInfo={fixModalInfo}
+        onConfirm={handleAiFixConfirm}
+        onCancel={() => setFixModalOpen(false)}
+        submitting={fixSubmitting}
+      />
     </div>
   )
 }
