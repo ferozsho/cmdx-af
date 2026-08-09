@@ -642,6 +642,13 @@ export function listInstructions(
 /** GET /api/v1/projects/:id/instructions/history — full history with agent runs */
 export function listInstructionHistory(
   id: string,
+  options?: {
+    limit?: number
+    offset?: number
+    agent_name?: string
+    date_from?: string
+    date_to?: string
+  },
 ): Promise<
   {
     id: string
@@ -660,9 +667,16 @@ export function listInstructionHistory(
     }[]
   }[]
 > {
+  const params = new URLSearchParams()
+  if (options?.limit) params.set('limit', String(options.limit))
+  if (options?.offset) params.set('offset', String(options.offset))
+  if (options?.agent_name) params.set('agent_name', options.agent_name)
+  if (options?.date_from) params.set('date_from', options.date_from)
+  if (options?.date_to) params.set('date_to', options.date_to)
+  const qs = params.toString()
   return request(
     'GET',
-    `/api/v1/projects/${encodeURIComponent(id)}/instructions/history`,
+    `/api/v1/projects/${encodeURIComponent(id)}/instructions/history${qs ? `?${qs}` : ''}`,
   )
 }
 

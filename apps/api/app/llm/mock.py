@@ -1,6 +1,5 @@
 """Mock LLM Provider for Development and Offline Testing."""
 
-import json
 from typing import Optional
 from app.llm.base import BaseLLMProvider, LLMResponse
 
@@ -18,14 +17,14 @@ class MockLLMProvider(BaseLLMProvider):
     ) -> LLMResponse:
         """Return simulated structured response based on prompt context."""
         if "plan" in prompt.lower() or json_mode:
-            content = json.dumps({
+            content = {
                 "summary": "Implementation plan for request",
                 "complexity": "medium",
                 "files_to_create": ["src/modules/payment/service.py"],
                 "files_to_update": ["src/main.py"],
                 "testing_strategy": ["pytest unit tests"],
-                "risks": []
-            })
+                "risks": [],
+            }
         else:
             content = "Simulated agent response for prompt"
 

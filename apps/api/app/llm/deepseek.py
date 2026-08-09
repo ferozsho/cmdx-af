@@ -1,5 +1,6 @@
 """DeepSeek API Provider Implementation."""
 
+import json
 import httpx
 from typing import Optional
 from app.core.config import (
@@ -73,8 +74,17 @@ class DeepSeekProvider(BaseLLMProvider):
         # DeepSeek pricing estimation ($0.14 per 1M prompt, $0.28 per 1M completion)
         cost = (p_tokens * 0.00000014) + (c_tokens * 0.00000028)
 
+        # Parse JSON content when json_mode is requested so agents can use
+        # .get() directly on the content field without manual parsing.
+        parsed_content = choice
+        if json_mode and isinstance(choice, str):
+            try:
+                parsed_content = json.loads(choice)
+            except (json.JSONDecodeError, TypeError):
+                pass  # Keep raw string if parsing fails
+
         return LLMResponse(
-            content=choice,
+            content=parsed_content,
             prompt_tokens=p_tokens,
             completion_tokens=c_tokens,
             total_tokens=tot_tokens,

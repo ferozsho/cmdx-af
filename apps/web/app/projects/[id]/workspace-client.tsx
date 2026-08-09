@@ -51,6 +51,64 @@ function cleanPath(str: string | null | undefined): string {
   return s.replace(/[=%\s]+$/g, '').replace(/^\/+/, '').trim()
 }
 
+/** VS Code–style JSON syntax highlighting for raw agent output. */
+function highlightJSON(raw: string): React.ReactNode {
+  try {
+    const formatted = JSON.stringify(JSON.parse(raw), null, 2)
+    // Split into tokens: strings, numbers, booleans, null, keys, punctuation
+    const parts = formatted.split(
+      /("(?:[^"\\]|\\.)*"\s*:)|("(?:[^"\\]|\\.)*")|(\btrue\b|\bfalse\b|\bnull\b)|(-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)/g,
+    )
+    return (
+      <>
+        {parts.map((part, i) => {
+          if (part === undefined) return null
+          // Key (before colon)
+          if (/^"/.test(part) && /":\s*$/.test(part)) {
+            return (
+              <span key={i} className="text-[#9cdcfe]">
+                {part}
+              </span>
+            )
+          }
+          // String value
+          if (/^"/.test(part)) {
+            return (
+              <span key={i} className="text-[#ce9178]">
+                {part}
+              </span>
+            )
+          }
+          // Boolean or null
+          if (/^(true|false|null)$/.test(part)) {
+            return (
+              <span key={i} className="text-[#569cd6]">
+                {part}
+              </span>
+            )
+          }
+          // Number
+          if (/^-?\d/.test(part)) {
+            return (
+              <span key={i} className="text-[#b5cea8]">
+                {part}
+              </span>
+            )
+          }
+          // Everything else (punctuation, whitespace)
+          return (
+            <span key={i} className="text-[#d4d4d4]">
+              {part}
+            </span>
+          )
+        })}
+      </>
+    )
+  } catch {
+    return raw
+  }
+}
+
 function hasChangedChild(dirPath: string, gitStatus?: any): boolean {
   if (!gitStatus) return false
   const cleanDir = cleanPath(dirPath)
@@ -381,31 +439,67 @@ export default function WorkspaceClient({
   const [instructionHistory, setInstructionHistory] = useState<any[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null)
+  const [historyPage, setHistoryPage] = useState(0)
+  const [historyHasMore, setHistoryHasMore] = useState(true)
+  const PAGE_SIZE_HISTORY = 10
 
-  // Load instruction history
-  useEffect(() => {
-    async function loadHistory() {
-      setHistoryLoading(true)
-      try {
-        const data = await listInstructionHistory(projectId)
-        setInstructionHistory(data)
-      } catch (err) {
-        console.error('Failed to load instruction history:', err)
-      } finally {
-        setHistoryLoading(false)
-      }
+  // Filter state
+  const [historyAgentFilter, setHistoryAgentFilter] = useState('')
+  const [historyDateFrom, setHistoryDateFrom] = useState('')
+  const [historyDateTo, setHistoryDateTo] = useState('')
+
+  // Load instruction history with filters and pagination
+  const loadHistory = async (
+    page = 0,
+    agent?: string,
+    dateFrom?: string,
+    dateTo?: string,
+  ) => {
+    setHistoryLoading(true)
+    try {
+      const data = await listInstructionHistory(projectId, {
+        limit: PAGE_SIZE_HISTORY + 1, // fetch one extra to detect hasMore
+        offset: page * PAGE_SIZE_HISTORY,
+        agent_name: agent || undefined,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+      })
+      setHistoryHasMore(data.length > PAGE_SIZE_HISTORY)
+      setInstructionHistory(data.slice(0, PAGE_SIZE_HISTORY))
+      setHistoryPage(page)
+    } catch (err) {
+      console.error('Failed to load instruction history:', err)
+    } finally {
+      setHistoryLoading(false)
     }
-    loadHistory()
+  }
+
+  useEffect(() => {
+    loadHistory(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
   // Refresh history after pipeline completes
   useEffect(() => {
     if (!isRunning && activeTab === 'AGENTS') {
-      listInstructionHistory(projectId)
-        .then(setInstructionHistory)
-        .catch(() => {})
+      loadHistory(0, historyAgentFilter, historyDateFrom, historyDateTo)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning, projectId, activeTab])
+
+  // Apply filters
+  const applyFilters = () => {
+    setExpandedHistory(null)
+    loadHistory(0, historyAgentFilter, historyDateFrom, historyDateTo)
+  }
+
+  const clearFilters = () => {
+    setHistoryAgentFilter('')
+    setHistoryDateFrom('')
+    setHistoryDateTo('')
+    setExpandedHistory(null)
+    loadHistory(0)
+  }
 
   // Project data from API
   const [project, setProject] = useState<ProjectResponse | null>(null)
@@ -1038,8 +1132,8 @@ export default function WorkspaceClient({
 
       {/* Instruction History — visible on AGENTS tab */}
       {activeTab === 'AGENTS' && (
-        <section className="card-af p-4">
-          <div className="flex items-center justify-between mb-3">
+        <section className="card-af p-4 space-y-3">
+          <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-muted uppercase tracking-wider">
               Instruction History
             </h2>
@@ -1047,9 +1141,72 @@ export default function WorkspaceClient({
               <span className="text-[10px] text-muted animate-pulse">Loading...</span>
             )}
           </div>
+
+          {/* Filter Bar */}
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="flex flex-col gap-1 min-w-0">
+              <label className="text-[10px] text-muted font-semibold uppercase tracking-wider">
+                Agent
+              </label>
+              <select
+                value={historyAgentFilter}
+                onChange={(e) => setHistoryAgentFilter(e.target.value)}
+                className="input-af text-xs py-1.5 px-2 w-[160px]"
+              >
+                <option value="">All Agents</option>
+                {agentsState.map((ag) => (
+                  <option key={ag.template_id} value={ag.template_name}>
+                    {ag.template_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted font-semibold uppercase tracking-wider">
+                From
+              </label>
+              <input
+                type="date"
+                value={historyDateFrom}
+                onChange={(e) => setHistoryDateFrom(e.target.value)}
+                className="input-af text-xs py-1.5 px-2 w-[140px]"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted font-semibold uppercase tracking-wider">
+                To
+              </label>
+              <input
+                type="date"
+                value={historyDateTo}
+                onChange={(e) => setHistoryDateTo(e.target.value)}
+                className="input-af text-xs py-1.5 px-2 w-[140px]"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={applyFilters}
+              className="btn-primary-af text-xs !px-3 !py-1.5"
+            >
+              Apply
+            </button>
+            {(historyAgentFilter || historyDateFrom || historyDateTo) && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-[10px] text-muted hover:text-foreground px-2 py-1.5"
+              >
+                ✕ Clear
+              </button>
+            )}
+          </div>
+
+          {/* History List */}
           {!historyLoading && instructionHistory.length === 0 && (
             <p className="text-xs text-muted py-4 text-center">
-              No instructions yet. Submit your first instruction above.
+              {historyAgentFilter || historyDateFrom || historyDateTo
+                ? 'No instructions match your filters.'
+                : 'No instructions yet. Submit your first instruction above.'}
             </p>
           )}
           <div className="space-y-2 max-h-[400px] overflow-y-auto">
@@ -1138,6 +1295,64 @@ export default function WorkspaceClient({
               </div>
             ))}
           </div>
+
+          {/* Branded Pagination */}
+          {instructionHistory.length > 0 && (
+            <div className="flex items-center justify-between pt-2 border-t border-border">
+              <span className="text-[10px] text-muted">
+                Page {historyPage + 1}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={historyPage === 0}
+                  onClick={() => {
+                    const p = historyPage - 1
+                    loadHistory(p, historyAgentFilter, historyDateFrom, historyDateTo)
+                  }}
+                  className="px-2.5 py-1 rounded-[8px] text-[11px] font-semibold border border-border
+                    text-muted hover:text-foreground hover:bg-hover
+                    disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  ‹ Prev
+                </button>
+                {historyPage > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => loadHistory(0, historyAgentFilter, historyDateFrom, historyDateTo)}
+                    className="w-7 h-7 rounded-[8px] text-[11px] font-semibold border border-border
+                      text-muted hover:text-foreground hover:bg-hover transition-colors"
+                  >
+                    1
+                  </button>
+                )}
+                {historyPage > 1 && (
+                  <span className="text-[10px] text-muted px-0.5">…</span>
+                )}
+                <button
+                  type="button"
+                  disabled
+                  className="w-7 h-7 rounded-[8px] text-[11px] font-bold
+                    bg-primary text-white shadow-sm"
+                >
+                  {historyPage + 1}
+                </button>
+                <button
+                  type="button"
+                  disabled={!historyHasMore}
+                  onClick={() => {
+                    const p = historyPage + 1
+                    loadHistory(p, historyAgentFilter, historyDateFrom, historyDateTo)
+                  }}
+                  className="px-2.5 py-1 rounded-[8px] text-[11px] font-semibold border border-border
+                    text-muted hover:text-foreground hover:bg-hover
+                    disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next ›
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       )}
 
@@ -1815,8 +2030,8 @@ export default function WorkspaceClient({
                       📋 Copy
                     </button>
                   </summary>
-                  <pre className="mt-3 bg-[#0d121f] border border-border/60 rounded-lg p-3 text-[11px] text-foreground-secondary font-mono whitespace-pre-wrap overflow-x-auto">
-                    {art.content}
+                  <pre className="mt-3 bg-[#1e1e1e] border border-[#3c3c3c] rounded-lg p-3 text-[11px] font-mono whitespace-pre-wrap overflow-x-auto max-h-[400px] overflow-y-auto">
+                    {highlightJSON(art.content)}
                   </pre>
                 </details>
               ))}
@@ -1933,12 +2148,12 @@ export default function WorkspaceClient({
                     </div>
                   )}
                 {run?.output && (
-                  <details className="bg-surface-secondary border border-border rounded-lg p-3">
-                    <summary className="text-xs font-semibold text-foreground cursor-pointer">
-                      Raw output
+                  <details className="bg-[#1e1e1e] border border-[#3c3c3c] rounded-lg overflow-hidden">
+                    <summary className="text-xs font-semibold text-[#cccccc] cursor-pointer px-4 py-2.5 hover:bg-[#2a2a2a] transition-colors select-none">
+                      ▸ Raw output
                     </summary>
-                    <pre className="mt-2 text-[11px] text-muted font-mono whitespace-pre-wrap">
-                      {run.output}
+                    <pre className="text-[11px] font-mono whitespace-pre-wrap leading-relaxed px-4 py-3 border-t border-[#3c3c3c] overflow-x-auto max-h-[400px] overflow-y-auto">
+                      {highlightJSON(run.output)}
                     </pre>
                   </details>
                 )}
@@ -2077,12 +2292,12 @@ export default function WorkspaceClient({
                     </div>
                   )}
                 {run?.output && (
-                  <details className="bg-surface-secondary border border-border rounded-lg p-3">
-                    <summary className="text-xs font-semibold text-foreground cursor-pointer">
-                      Raw output
+                  <details className="bg-[#1e1e1e] border border-[#3c3c3c] rounded-lg overflow-hidden">
+                    <summary className="text-xs font-semibold text-[#cccccc] cursor-pointer px-4 py-2.5 hover:bg-[#2a2a2a] transition-colors select-none">
+                      ▸ Raw output
                     </summary>
-                    <pre className="mt-2 text-[11px] text-muted font-mono whitespace-pre-wrap">
-                      {run.output}
+                    <pre className="text-[11px] font-mono whitespace-pre-wrap leading-relaxed px-4 py-3 border-t border-[#3c3c3c] overflow-x-auto max-h-[400px] overflow-y-auto">
+                      {highlightJSON(run.output)}
                     </pre>
                   </details>
                 )}

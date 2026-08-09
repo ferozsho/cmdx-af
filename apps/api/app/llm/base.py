@@ -1,14 +1,18 @@
 """Abstract Base Class for LLM Providers."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 from pydantic import BaseModel
 
 
 class LLMResponse(BaseModel):
-    """Structured LLM Response Schema."""
+    """Structured LLM Response Schema.
 
-    content: str
+    When json_mode is requested, content is auto-parsed from JSON string
+    to dict by the provider, so agents can use .get() directly.
+    """
+
+    content: Union[str, Dict[str, Any]]
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0

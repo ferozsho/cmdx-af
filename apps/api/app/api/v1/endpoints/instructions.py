@@ -2,8 +2,8 @@
 
 import asyncio
 import uuid
-from typing import Any, List
-from fastapi import APIRouter, Depends
+from typing import Any, List, Optional
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.pipeline import PipelineOrchestrator
@@ -85,22 +85,68 @@ async def list_instructions(
 )
 async def list_instruction_history(
     project_id: str,
+    limit: int = Query(10, ge=1, le=50, description="Items per page"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
+    agent_name: Optional[str] = Query(
+        None, description="Filter by agent name (e.g. 'Test Agent')"
+    ),
+    date_from: Optional[str] = Query(
+        None, description="Filter from date (ISO format, e.g. 2026-08-01)"
+    ),
+    date_to: Optional[str] = Query(
+        None, description="Filter to date (ISO format)"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    """List instructions with full agent run logs for history review."""
+    """List instructions with full agent run logs for history review.
+
+    Supports pagination (limit/offset) and filtering by agent name and date
+    range.
+    """
+    from datetime import datetime
+
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
+    from app.models.agent_run import AgentRun
     from app.models.instruction import Instruction
 
-    result = await db.execute(
+    # Build base query with eager-loaded runs
+    query = (
         select(Instruction)
         .where(Instruction.project_id == project_id)
         .options(selectinload(Instruction.runs))
-        .order_by(Instruction.created_at.desc())
-        .limit(50)
     )
+
+    # Filter by agent name — join through agent_runs
+    if agent_name:
+        query = query.where(
+            Instruction.id.in_(
+                select(AgentRun.instruction_id).where(
+                    AgentRun.agent_name == agent_name
+                )
+            )
+        )
+
+    # Filter by date range
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from)
+            query = query.where(Instruction.created_at >= dt_from)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to)
+            query = query.where(Instruction.created_at <= dt_to)
+        except ValueError:
+            pass
+
+    # Order and paginate
+    query = query.order_by(Instruction.created_at.desc()).offset(offset).limit(limit)
+
+    result = await db.execute(query)
     instructions = result.scalars().all()
     return [
         InstructionDetailResponse(
