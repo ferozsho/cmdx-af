@@ -213,8 +213,16 @@ export function resetPassword(
   })
 }
 
-/** Client-side logout — clears stored tokens. */
-export function logout(): void {
+/** Client-side logout — clears stored tokens and notifies backend. */
+export async function logout(): Promise<void> {
+  const token = getToken()
+  if (token) {
+    // Fire-and-forget — don't block on failure
+    fetch(`${API_BASE}/api/v1/auth/logout`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {})
+  }
   clearToken()
 }
 

@@ -107,7 +107,19 @@ export default function SettingsPage() {
 
   // Load current settings from API on mount
   useEffect(() => {
-    getModels().then(setAllModels).catch(() => {})
+    getModels().then(setAllModels).catch(() => {
+      // Fallback model list if API fails
+      setAllModels([
+        { name: 'deepseek-chat', provider: 'deepseek', label: 'DeepSeek-V3' },
+        { name: 'deepseek-coder', provider: 'deepseek', label: 'DeepSeek-Coder' },
+        { name: 'gpt-4o', provider: 'openai', label: 'GPT-4o' },
+        { name: 'gpt-4-turbo', provider: 'openai', label: 'GPT-4 Turbo' },
+        { name: 'gemini-2.5-pro', provider: 'gemini', label: 'Gemini 2.5 Pro' },
+        { name: 'gemini-2.5-flash', provider: 'gemini', label: 'Gemini 2.5 Flash' },
+        { name: 'claude-3.5-sonnet', provider: 'claude', label: 'Claude 3.5 Sonnet' },
+        { name: 'claude-3-opus', provider: 'claude', label: 'Claude 3 Opus' },
+      ])
+    })
     getSettings().then((s) => {
       if (baseUrlRef.current) baseUrlRef.current.value = s.deepseek_base_url || ''
       setDsModel(s.deepseek_chat_model || 'deepseek-chat')

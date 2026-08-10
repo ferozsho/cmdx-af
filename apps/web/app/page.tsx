@@ -338,7 +338,7 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Cards — matches prototype .stats grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-[18px] mb-[22px]">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-[18px] mb-[22px]">
         <StatCard
           label="Projects"
           value={projects.length}
