@@ -295,7 +295,7 @@ export default function RagManagerPage() {
             <div className="text-xs font-semibold text-muted uppercase tracking-wider">
               {label}
             </div>
-            <div className="text-2xl font-bold text-foreground mt-2">{value}</div>
+            <div className="text-[26px] font-bold text-foreground m-0 mb-[5px]">{value}</div>
           </div>
         ))}
       </div>

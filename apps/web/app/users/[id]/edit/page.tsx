@@ -85,7 +85,7 @@ export default function EditUserPage() {
         <Link href="/users" className="text-sm text-primary hover:underline">
           ← Back to Users
         </Link>
-        <h1 className="text-2xl font-bold text-foreground mt-2">✏️ Edit User</h1>
+        <h1 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">✏️ Edit User</h1>
         <p className="text-sm text-muted mt-1">
           {user.email}
           {isProtected && (

@@ -40,7 +40,7 @@ export default function NewAgentPage() {
     <div className="space-y-6">
       <div>
         <Link href="/agents" className="text-sm text-primary hover:underline">← Back to Agents</Link>
-        <h1 className="text-2xl font-bold text-foreground mt-2">➕ New Agent</h1>
+        <h1 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">➕ New Agent</h1>
         <p className="text-sm text-muted mt-1">Create a new agent template for the pipeline.</p>
       </div>
       {error && (

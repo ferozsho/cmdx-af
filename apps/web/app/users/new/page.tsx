@@ -42,7 +42,7 @@ export default function NewUserPage() {
         <Link href="/users" className="text-sm text-primary hover:underline">
           ← Back to Users
         </Link>
-        <h1 className="text-2xl font-bold text-foreground mt-2">➕ Create User</h1>
+        <h1 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">➕ Create User</h1>
         <p className="text-sm text-muted mt-1">
           Add a new user account to the platform.
         </p>

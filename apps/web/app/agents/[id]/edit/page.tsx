@@ -62,7 +62,7 @@ export default function EditAgentPage() {
     <div className="space-y-6">
       <div>
         <Link href="/agents" className="text-sm text-primary hover:underline">← Back to Agents</Link>
-        <h1 className="text-2xl font-bold text-foreground mt-2">✏️ Edit Agent</h1>
+        <h1 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">✏️ Edit Agent</h1>
         <p className="text-sm text-muted mt-1">
           {agent.name} · v{agent.version}
           {!agent.is_active && <span className="ml-2 text-xs bg-red-500/15 text-red-500 px-1.5 py-0.5 rounded font-bold">Inactive</span>}
