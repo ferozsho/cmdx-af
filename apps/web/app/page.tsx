@@ -8,6 +8,7 @@ import {
   updateProject,
   deleteProject,
   getProjectStats,
+  getAgentMetrics,
   validateProjectPath,
   reindexRag,
   getReindexStatus,
@@ -25,6 +26,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [stats, setStats] = useState({ agent_runs: 0, tests_passed: 0 })
+  const [llmStats, setLlmStats] = useState({ calls: 0, total_tokens: 0, cost: 0 })
 
   const TECH_OPTIONS = [
     'Python', 'FastAPI', 'Django', 'Next.js', 'React', 'Node.js',
@@ -66,14 +68,22 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [projData, devData, statsData] = await Promise.all([
+        const [projData, devData, statsData, metricsData] = await Promise.all([
           listProjects(),
           listDevices(),
           getProjectStats().catch(() => ({ agent_runs: 0, tests_passed: 0 })),
+          getAgentMetrics().catch(() => null),
         ])
         setProjects(projData)
         setDevices(devData)
         setStats(statsData)
+        if (metricsData?.llm_usage) {
+          setLlmStats({
+            calls: metricsData.llm_usage.calls || 0,
+            total_tokens: metricsData.llm_usage.total_tokens || 0,
+            cost: metricsData.llm_usage.cost || 0,
+          })
+        }
       } catch (err) {
         console.error('Failed to load dashboard data:', err)
         setError('Could not load dashboard data. Is the API running?')
@@ -328,15 +338,15 @@ export default function DashboardPage() {
       </div>
 
       {/* KPI Cards — matches prototype .stats grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-[18px] mb-[22px]">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-[18px] mb-[22px]">
         <StatCard
-          label="Total Projects"
+          label="Projects"
           value={projects.length}
-          trend={`${projects.filter((p) => p.execution_target === 'LOCAL').length} Local${projects.filter((p) => p.execution_target === 'CLOUD').length > 0 ? `, ${projects.filter((p) => p.execution_target === 'CLOUD').length} Cloud` : ''}`}
+          trend={`${projects.filter((p) => p.execution_target === 'LOCAL').length} Local`}
           icon="▦"
         />
         <StatCard
-          label="Connected Devices"
+          label="Devices"
           value={devices.length}
           trend={`${onlineDevices} Online`}
           icon="◉"
@@ -344,14 +354,32 @@ export default function DashboardPage() {
         <StatCard
           label="Agent Runs"
           value={stats.agent_runs}
-          trend="Since last deploy"
-          icon="◉"
+          trend="Total pipeline runs"
+          icon="⚡"
         />
         <StatCard
           label="Tests Passed"
           value={stats.tests_passed}
           trend="Across all projects"
           icon="✓"
+        />
+        <StatCard
+          label="LLM Calls"
+          value={llmStats.calls.toLocaleString()}
+          trend="Total API requests"
+          icon="🤖"
+        />
+        <StatCard
+          label="Tokens"
+          value={llmStats.total_tokens.toLocaleString()}
+          trend="Total tokens used"
+          icon="⬡"
+        />
+        <StatCard
+          label="Est. Cost"
+          value={`$${llmStats.cost.toFixed(4)}`}
+          trend="All providers"
+          icon="💰"
         />
       </div>
 

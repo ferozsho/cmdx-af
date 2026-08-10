@@ -6,6 +6,7 @@ import {
   listProjects,
   getProjectLlmLogs,
   getLlmLogStats,
+  getLlmLogDetail,
   type ProjectResponse,
   type LlmLogEntry,
   type LlmLogStats,
@@ -48,6 +49,21 @@ export default function AiLogsPage() {
 
   // Detail modal
   const [selectedLog, setSelectedLog] = useState<LlmLogEntry | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  const openDetail = async (log: LlmLogEntry) => {
+    if (!selectedProject || !log.id) return
+    setDetailLoading(true)
+    setSelectedLog(log) // show list data immediately
+    try {
+      const full = await getLlmLogDetail(selectedProject, log.id)
+      setSelectedLog(full) // replace with full detail
+    } catch {
+      // keep the list data if detail fetch fails
+    } finally {
+      setDetailLoading(false)
+    }
+  }
 
   // Sync project to URL
   useEffect(() => {
@@ -326,7 +342,7 @@ export default function AiLogsPage() {
                   {logs.map((log) => (
                     <tr
                       key={log.id}
-                      onClick={() => setSelectedLog(log)}
+                      onClick={() => openDetail(log)}
                       className="border-b border-border hover:bg-surface-secondary/50 cursor-pointer transition-colors"
                     >
                       <td className="py-3 px-4 text-muted whitespace-nowrap font-mono">
@@ -420,6 +436,11 @@ export default function AiLogsPage() {
 
             {/* Body — scrollable */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              {detailLoading && (
+                <div className="text-sm text-muted animate-pulse text-center py-4">
+                  Loading full details…
+                </div>
+              )}
               {/* Metadata */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[

@@ -114,7 +114,7 @@ export default function UsersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">👥 Users</h1>
+          <h1 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">👥 Users</h1>
           <p className="text-sm text-muted mt-1">
             Manage platform accounts and roles.
           </p>

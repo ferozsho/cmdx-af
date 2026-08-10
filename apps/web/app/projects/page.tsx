@@ -18,7 +18,7 @@ export default function ProjectsPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-foreground">◉ Live Workspace</h1>
+        <h1 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">◉ Live Workspace</h1>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {[1, 2, 3].map((i) => (
             <div key={i} className="card-af p-5 h-40 animate-pulse bg-surface-secondary" />
@@ -32,7 +32,7 @@ export default function ProjectsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">◉ Live Workspace</h1>
+          <h1 className="text-[26px] font-bold text-foreground m-0 mb-[5px]">◉ Live Workspace</h1>
           <p className="text-sm text-muted mt-1">
             {projects.length} project{projects.length !== 1 ? 's' : ''} — select one to open its workspace.
           </p>
