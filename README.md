@@ -23,6 +23,30 @@ AgentForge is an enterprise-grade, multi-agent software development platform des
 
 ## 🚀 Running AgentForge
 
+### Quick Start (Makefile)
+
+The fastest way to get everything running:
+
+```bash
+# 1. Start all infrastructure (PostgreSQL, Redis, Qdrant, API, Web UI)
+make up
+
+# 2. Log in at http://localhost:3000/login
+#    Admin: admin@agentforge.ai / Admin@323123
+
+# 3. Start the local agent (mounts your workspace so projects go online)
+AGENT_WORKSPACE=/home/administrator/cmdx-af make up-agent
+
+# 4. Verify — dashboard should show ● LOCAL (not offline)
+```
+
+To stop everything:
+
+```bash
+make down-agent   # Stop local agent
+make down         # Stop infrastructure
+```
+
 ### Option A: Complete Docker Compose Stack (Recommended)
 
 To run the entire platform (PostgreSQL, Redis, Qdrant, FastAPI API, and Next.js Web UI) in isolated Docker containers:
@@ -171,7 +195,27 @@ agentforge start
 
 ---
 
-## 🛠️ Developer Shortcuts
+## � Commit & Push
+
+All commits must carry the correct `--author` flag based on the IDE AI provider
+in use:
+
+```bash
+# Stage and commit with author attribution
+git add .
+git commit --author="Name <email>" -m "Your commit message"
+
+# Push to remote
+git push origin <branch_name>
+```
+
+**Author convention:** the `--author` value depends on which IDE AI provider
+(GitHub Copilot, Cursor, etc.) generated the change. Always verify authorship
+before pushing.
+
+---
+
+## �🛠️ Developer Shortcuts
 
 Common shortcuts available via `Makefile`:
 
