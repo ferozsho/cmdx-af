@@ -193,28 +193,6 @@ agentforge start
 - **RAG Tab**: Perform semantic vector code search across indexed project chunks with relevance score metrics.
 - **GIT Tab**: Inspect local Git isolation branch (`agent/{instruction_id}`), modified files, untracked files, and trigger branch rollbacks.
 
----
-
-## � Commit & Push
-
-All commits must carry the correct `--author` flag based on the IDE AI provider
-in use:
-
-```bash
-# Stage and commit with author attribution
-git add .
-git commit --author="Name <email>" -m "Your commit message"
-
-# Push to remote
-git push origin <branch_name>
-```
-
-**Author convention:** the `--author` value depends on which IDE AI provider
-(GitHub Copilot, Cursor, etc.) generated the change. Always verify authorship
-before pushing.
-
----
-
 ## �🛠️ Developer Shortcuts
 
 Common shortcuts available via `Makefile`:
