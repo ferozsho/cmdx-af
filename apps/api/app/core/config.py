@@ -171,6 +171,14 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: str = "http://localhost:3000"
 
+    # Service-to-service auth: shared secret the worker uses to relay tool
+    # calls through the API (which holds the live device WebSocket sessions).
+    INTERNAL_API_TOKEN: str = ""
+    # Base URL of the API used by the worker's tool-gateway relay. Empty in
+    # the API process (uses its local WSS manager); set in the worker compose
+    # service (e.g. http://api:8000).
+    TOOL_GATEWAY_URL: str = ""
+
     ENABLE_CONFIRMATION_BEFORE_DELETE: bool = True
     GIT_AUTHOR_NAME: str = "AgentForge AI"
     GIT_AUTHOR_EMAIL: str = "agent@agentforge.ai"

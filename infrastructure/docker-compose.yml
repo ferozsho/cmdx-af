@@ -81,6 +81,7 @@ services:
       QDRANT_PORT: ${QDRANT_PORT:-6333}
       APP_MODE: ${APP_MODE:-production}
       APP_ENV: ${APP_ENV:-production}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN must be set in .env}
     volumes:
       - api_data:/app/apps/api/data
     tmpfs:
@@ -122,6 +123,10 @@ services:
       APP_MODE: ${APP_MODE:-production}
       APP_ENV: ${APP_ENV:-production}
       SKIP_MIGRATIONS: "1"
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN must be set in .env}
+      # The worker holds no device sockets; relay tool calls through the API
+      # (service name `api` on the compose network), which relays over WSS.
+      TOOL_GATEWAY_URL: http://api:8000
     volumes:
       - api_data:/app/apps/api/data
     tmpfs:

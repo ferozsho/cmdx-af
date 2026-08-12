@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     devices,
     health,
     instructions,
+    internal,
     llm_logs,
     observability,
     projects,
@@ -37,4 +38,5 @@ api_router.include_router(settings.router, tags=["Settings"])
 api_router.include_router(observability.router, tags=["Observability"])
 api_router.include_router(llm_logs.router, tags=["LLM Logs"])
 api_router.include_router(users.router, tags=["Users"])
+api_router.include_router(internal.router, tags=["Internal"])
 api_router.include_router(wss_router.router, tags=["WebSocket"])

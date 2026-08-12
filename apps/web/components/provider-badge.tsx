@@ -22,39 +22,72 @@ export default function ProviderBadge() {
   const [provider, setProvider] = useState<ProviderInfo | null>(null)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [allConfigured, setAllConfigured] = useState<ProviderInfo[]>([])
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    Promise.all([getSettings(), getModels()]).then(([settings, models]) => {
-      const configured: ProviderInfo[] = []
+    let cancelled = false
+    let attempt = 0
 
-      const providers = ['deepseek', 'openai', 'gemini', 'claude'] as const
-      for (const p of providers) {
-        const hasKey = settings[`has_${p}_key` as keyof typeof settings] as boolean
-        const modelName = settings[`${p}_chat_model` as keyof typeof settings] as string
-        if (hasKey && modelName) {
-          const meta = PROVIDER_META[p]
-          const modelInfo = models.find((m) => m.name === modelName)
-          configured.push({
-            name: p,
-            label: meta.label,
-            model: modelInfo?.label || modelName,
-            color: meta.color,
-            icon: meta.icon,
-          })
+    const load = async () => {
+      try {
+        // Fetch settings and models independently so a failure in one does
+        // not hide the other, and retry transient failures (e.g. right after
+        // app boot while the session token is being refreshed).
+        const [settings, models] = await Promise.all([
+          getSettings(),
+          getModels().catch(() => []),
+        ])
+        if (cancelled) return
+
+        const configured: ProviderInfo[] = []
+
+        const providers = ['deepseek', 'openai', 'gemini', 'claude'] as const
+        for (const p of providers) {
+          const hasKey = settings[`has_${p}_key` as keyof typeof settings] as boolean
+          const modelName = settings[`${p}_chat_model` as keyof typeof settings] as string
+          if (hasKey && modelName) {
+            const meta = PROVIDER_META[p]
+            const modelInfo = models.find((m) => m.name === modelName)
+            configured.push({
+              name: p,
+              label: meta.label,
+              model: modelInfo?.label || modelName,
+              color: meta.color,
+              icon: meta.icon,
+            })
+          }
+        }
+
+        setAllConfigured(configured)
+        setProvider((prev) => configured[0] || prev)
+        setLoaded(true)
+      } catch {
+        // Transient failure (API restarting, token refresh in flight) — retry
+        // a few times before settling on the "no provider" state.
+        if (!cancelled && attempt < 5) {
+          attempt += 1
+          setTimeout(load, 1500)
+        } else if (!cancelled) {
+          setAllConfigured([])
+          setProvider(null)
+          setLoaded(true)
         }
       }
+    }
 
-      setAllConfigured(configured)
-      if (configured.length > 0) {
-        setProvider(configured[0])
-      }
-    }).catch(() => {})
+    load()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   if (!provider) {
     return (
-      <div className="text-[11px] text-muted bg-muted/40 px-2.5 py-1 rounded-full border border-border/50">
-        No provider configured
+      <div
+        className="text-[11px] text-muted bg-muted/40 px-2.5 py-1 rounded-full border border-border/50"
+        title={loaded ? 'No provider API key configured' : 'Checking providers…'}
+      >
+        {loaded ? 'No provider configured' : '…'}
       </div>
     )
   }
