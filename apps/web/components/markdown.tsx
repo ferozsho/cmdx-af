@@ -60,14 +60,28 @@ export default function Markdown({ children }: { children: string }) {
             />
           ),
           code: (props) => {
-            const { inline, children, ...rest } = props as {
-              inline?: boolean
+            // react-markdown v9+ removed the `inline` prop, so detect inline
+            // code via the node: inline code is single-line and has no
+            // `language-*` class, while fenced/indented blocks are wrapped in
+            // `<pre>` and (usually) carry a language class.
+            const { children, className, node, ...rest } = props as {
               children?: React.ReactNode
+              className?: string
+              node?: {
+                position?: {
+                  start: { line: number }
+                  end: { line: number }
+                }
+              }
             }
-            if (inline) {
+            const isBlock =
+              /language-[\w-]+/.test(className || '') ||
+              (node?.position &&
+                node.position.start.line !== node.position.end.line)
+            if (!isBlock) {
               return (
                 <code
-                  className="rounded bg-[#1e1e1e] text-[#e6edf3] px-1.5 py-0.5 font-mono text-[11px]"
+                  className="rounded bg-surface-secondary text-foreground border border-border px-1.5 py-0.5 font-mono text-[11px] dark:bg-[#1e1e1e] dark:text-[#e6edf3] dark:border-[#3c3c3c]"
                   {...rest}
                 >
                   {children}
@@ -76,7 +90,7 @@ export default function Markdown({ children }: { children: string }) {
             }
             return (
               <code
-                className="font-mono text-[11px] text-[#e6edf3]"
+                className="font-mono text-[11px] text-foreground dark:text-[#e6edf3]"
                 {...rest}
               >
                 {children}
@@ -85,7 +99,7 @@ export default function Markdown({ children }: { children: string }) {
           },
           pre: (props) => (
             <pre
-              className="bg-[#1e1e1e] border border-[#3c3c3c] rounded-lg p-3 text-[11px] font-mono overflow-x-auto max-h-[400px] overflow-y-auto m-0"
+              className="bg-surface-secondary border border-border rounded-lg p-3 text-[11px] font-mono overflow-x-auto max-h-[400px] overflow-y-auto m-0 dark:bg-[#1e1e1e] dark:border-[#3c3c3c]"
               {...props}
             />
           ),
