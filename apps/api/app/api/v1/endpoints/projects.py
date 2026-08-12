@@ -31,7 +31,6 @@ from app.services.instruction_events import append_instruction_event
 from app.services.rag_gate import (
     compute_readiness,
     ensure_reindex_job,
-    gate_http_exception,
     job_payload,
     persisted_gate,
 )
@@ -355,18 +354,6 @@ def _reindex_job_payload(job: BackgroundJob) -> dict:
     return job_payload(job)
 
 
-async def _require_rag_ready(
-    project_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> Project:
-    """Gate project content behind a completed RAG index (423 when locked)."""
-    project = await _require_project(project_id, current_user, db)
-    if project.rag_indexed_at is None:
-        raise gate_http_exception(project)
-    return project
-
-
 @router.get("/projects/stats/summary")
 async def get_project_stats(
     db: AsyncSession = Depends(get_db),
@@ -631,7 +618,7 @@ async def get_project_tree(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Fetch real project file tree from connected Local Agent."""
-    project = await _require_rag_ready(project_id, current_user, db)
+    project = await _require_project(project_id, current_user, db)
     check_fs_policy(project, "read")
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
@@ -656,7 +643,7 @@ async def read_project_file(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Read real project file content from connected Local Agent."""
-    project = await _require_rag_ready(project_id, current_user, db)
+    project = await _require_project(project_id, current_user, db)
     check_fs_policy(project, "read")
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
@@ -682,7 +669,7 @@ async def rag_search_project(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Perform real semantic search via Local Agent RAG Indexer."""
-    project = await _require_rag_ready(project_id, current_user, db)
+    project = await _require_project(project_id, current_user, db)
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=device_id,
@@ -711,7 +698,7 @@ async def list_rag_chunks(
 
     Used by the RAG tab's default "All Chunks" view.
     """
-    project = await _require_rag_ready(project_id, current_user, db)
+    project = await _require_project(project_id, current_user, db)
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=device_id,
@@ -734,7 +721,7 @@ async def get_git_status(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get real Git status from Local Agent workspace."""
-    project = await _require_rag_ready(project_id, current_user, db)
+    project = await _require_project(project_id, current_user, db)
     check_git_policy(project, "read")
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
@@ -759,7 +746,7 @@ async def get_git_log(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get recent git commit log from Local Agent workspace."""
-    project = await _require_rag_ready(project_id, current_user, db)
+    project = await _require_project(project_id, current_user, db)
     check_git_policy(project, "read")
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
@@ -783,7 +770,7 @@ async def list_git_provenance(
     current_user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
     """List durable AI authorship and verification metadata for owned commits."""
-    await _require_rag_ready(project_id, current_user, db)
+    await _require_project(project_id, current_user, db)
     records = await db.scalars(
         select(GitCommit)
         .where(
@@ -821,7 +808,7 @@ async def list_verification_runs(
     current_user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
     """List bounded, redacted verification evidence for an owned project."""
-    await _require_rag_ready(project_id, current_user, db)
+    await _require_project(project_id, current_user, db)
     query = select(VerificationRun).where(
         VerificationRun.project_id == project_id
     )
@@ -862,7 +849,7 @@ async def get_latest_verification(
     fails on a mismatch with the stored digest — letting an external
     pipeline enforce AgentForge's evidence.
     """
-    await _require_rag_ready(project_id, current_user, db)
+    await _require_project(project_id, current_user, db)
     record = await db.scalar(
         select(VerificationRun)
         .where(VerificationRun.project_id == project_id)
@@ -915,7 +902,7 @@ async def rollback_git_commit(
     """Hard-reset the workspace to a specified commit hash."""
     if not data.commit_hash:
         raise HTTPException(status_code=400, detail="commit_hash is required")
-    project = await _require_rag_ready(project_id, current_user, db)
+    project = await _require_project(project_id, current_user, db)
     check_git_policy(project, "rollback")
     try:
         authorization_id = await authorize_tool(
@@ -974,7 +961,7 @@ async def create_project_pull_request(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Create a PR from an isolated agent branch, gated by approval."""
-    project = await _require_rag_ready(project_id, current_user, db)
+    project = await _require_project(project_id, current_user, db)
     check_git_policy(project, "pull_request", branch=data.branch_name)
     try:
         authorization_id = await authorize_tool(
@@ -1042,7 +1029,7 @@ async def capture_project_diagnostics(
     the result under the ``diagnostics`` category, so the tech-lead
     assistant can triage runtime failures from durable evidence.
     """
-    project = await _require_rag_ready(project_id, current_user, db)
+    project = await _require_project(project_id, current_user, db)
     instruction_id = data.instruction_id
     if not instruction_id:
         latest = await db.scalar(
@@ -1296,7 +1283,7 @@ async def get_file_original(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get the original (git HEAD) version of a file for diff baseline."""
-    project = await _require_rag_ready(project_id, current_user, db)
+    project = await _require_project(project_id, current_user, db)
     check_fs_policy(project, "read")
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
@@ -1322,7 +1309,7 @@ async def list_project_artifacts(
     """List all generated artifacts for a project."""
     from app.repositories.artifact_repo import ArtifactRepository
 
-    await _require_rag_ready(project_id, current_user, db)
+    await _require_project(project_id, current_user, db)
 
     artifact_repo = ArtifactRepository(db)
     artifacts = await artifact_repo.list_for_project(project_id)
@@ -1365,7 +1352,7 @@ async def list_project_runs(
     from app.models.agent_run import AgentRun
     from app.models.instruction import Instruction
 
-    await _require_rag_ready(project_id, current_user, db)
+    await _require_project(project_id, current_user, db)
 
     result = await db.execute(
         select(AgentRun)

@@ -1,20 +1,20 @@
-"""RAG readiness gate: auto re-index and project access gating.
+"""RAG readiness gate: auto re-index and project readiness state.
 
 A project is considered RAG-ready once an index exists (persisted in
-``projects.rag_indexed_at``). Until then, project content endpoints return
-423 Locked and the UI shows an indexing gate screen.
+``projects.rag_indexed_at``). Readiness is resolved lazily: the readiness
+endpoint / RAG stats call ``rag_status`` on the local agent, auto-enqueue a
+durable ``RAG_REINDEX`` background job when no index exists, and flip
+``rag_indexed_at`` the moment an index is observed. The worker sweep
+re-enqueues for any project still missing an index, so recovery is automatic
+even if the agent was offline.
 
-Readiness is resolved lazily: the readiness endpoint / RAG stats call
-``rag_status`` on the local agent, auto-enqueue a durable ``RAG_REINDEX``
-background job when no index exists, and flip ``rag_indexed_at`` the moment
-an index is observed. The worker sweep re-enqueues for any project still
-missing an index, so recovery is automatic even if the agent was offline.
+Enforcement is done at the entry points only (dashboard + Live Workspace
+project cards); the gate is NOT applied to project content endpoints.
 """
 
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,17 +48,6 @@ def persisted_gate(project: Project) -> Dict[str, Any]:
         "locked": True,
         "indexed_at": None,
     }
-
-
-def gate_http_exception(project: Project) -> HTTPException:
-    """Build a 423 Locked response with a structured rag_gate payload."""
-    return HTTPException(
-        status_code=423,
-        detail={
-            "error": "RAG indexing required before this project can be used.",
-            "rag_gate": persisted_gate(project),
-        },
-    )
 
 
 async def latest_reindex_job(

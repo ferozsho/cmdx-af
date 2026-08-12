@@ -122,6 +122,32 @@ export default function DashboardPage() {
     }
   }, [loading, projects])
 
+  // Keep the RAG readiness gate fresh on the dashboard: while any project is
+  // locked (no completed index), re-fetch the project list so cards unlock
+  // automatically the moment the worker finishes indexing (flips
+  // rag_indexed_at → rag_gate.locked = false).
+  useEffect(() => {
+    const hasLocked = projects.some((p) => p.rag_gate?.locked === true)
+    if (!hasLocked) return
+    let timer: number | null = null
+    const refresh = async () => {
+      try {
+        const data = await listProjects()
+        setProjects(data)
+        if (!data.some((p) => p.rag_gate?.locked === true) && timer) {
+          window.clearInterval(timer)
+          timer = null
+        }
+      } catch {
+        // ignore transient errors — next tick retries
+      }
+    }
+    timer = window.setInterval(refresh, 5000)
+    return () => {
+      if (timer) window.clearInterval(timer)
+    }
+  }, [projects])
+
   const handleEdit = (project: ProjectResponse) => {
     setEditingId(project.id)
     setEditName(project.name)
@@ -403,11 +429,15 @@ export default function DashboardPage() {
             // so only present a workspace as connected after that call has
             // confirmed it is reachable.
             const isOnline = ragIndex[project.id]?.online === true
+            // RAG readiness gate: a project with no completed index is locked
+            // and cannot be opened from the dashboard until indexing finishes.
+            const ragLocked = project.rag_gate?.locked === true
+            const openable = isOnline && !ragLocked
             return (
             <div
               key={project.id}
               className={`card-af p-5 block transition-all ${
-                isOnline ? 'card-af-hover' : 'opacity-60 grayscale-[30%]'
+                openable ? 'card-af-hover' : 'opacity-60 grayscale-[30%]'
               }`}
             >
               {/* Header row: icon + execution badge + action buttons.
@@ -425,6 +455,11 @@ export default function DashboardPage() {
                   }`}>
                     ● {isOnline ? project.execution_target : 'OFFLINE'}
                   </span>
+                  {ragLocked && (
+                    <span className="inline-flex items-center gap-[6px] rounded-full py-[5px] px-[10px] text-xs font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                      🔒 RAG Index Required
+                    </span>
+                  )}
                   <div className="flex gap-1.5">
                     <button
                       type="button"
@@ -449,9 +484,11 @@ export default function DashboardPage() {
               </div>
 
               <Link
-                href={isOnline ? `/projects/${encodeURIComponent(project.id)}/agents` : '#'}
-                className={`block ${!isOnline ? 'pointer-events-none' : ''}`}
-                onClick={(e) => { if (!isOnline) e.preventDefault() }}
+                href={openable ? `/projects/${encodeURIComponent(project.id)}/agents` : '#'}
+                className={`block ${!openable ? 'pointer-events-none' : ''}`}
+                onClick={(e) => { if (!openable) e.preventDefault() }}
+                aria-disabled={!openable}
+                title={ragLocked ? 'RAG index required — unlocks once indexing completes' : undefined}
               >
                 <h3 className="font-bold text-foreground text-[15px] mt-3 mb-0">
                   {project.name}
@@ -510,6 +547,12 @@ export default function DashboardPage() {
                   )}
                 </div>
               )}
+              {ragLocked && isOnline && (
+                <div className="mb-[10px] rounded-[8px] bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                  🔒 RAG index required — this project unlocks automatically
+                  once indexing completes.
+                </div>
+              )}
               {!isOnline && (
                 <div className="mb-[10px] rounded-[8px] bg-red-500/10 border border-red-500/20 px-3 py-2 text-[11px] text-red-600 dark:text-red-400 leading-relaxed">
                   ✗ Local agent workstation is offline — connect a device to browse files.
@@ -521,16 +564,20 @@ export default function DashboardPage() {
                     ? new Date(project.created_at).toLocaleDateString()
                     : '—'}
                 </span>
-                {isOnline ? (
+                {openable ? (
                   <Link
                     href={`/projects/${encodeURIComponent(project.id)}/agents`}
                     className="text-primary font-medium hover:underline"
                   >
                     Open Workspace →
                   </Link>
-                ) : (
+                ) : !isOnline ? (
                   <span className="text-muted italic text-[11px]">
                     Workspace offline
+                  </span>
+                ) : (
+                  <span className="text-amber-600 dark:text-amber-400 italic text-[11px] font-medium">
+                    🔒 Indexing…
                   </span>
                 )}
               </div>

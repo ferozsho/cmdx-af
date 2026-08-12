@@ -77,10 +77,15 @@ async def _delete_project(
     assert response.status_code == 200, response.text
 
 
-async def test_new_project_is_gated_and_content_returns_423(
+async def test_new_project_reports_locked_gate_but_content_is_not_blocked(
     api_client,
 ) -> None:
-    """A fresh project is locked until its first RAG index completes."""
+    """A fresh project reports rag_gate.locked for cards, but content works.
+
+    The RAG gate is enforced at the entry points (dashboard + Live Workspace
+    cards), NOT on project content endpoints — opening a project never shows
+    a gate screen.
+    """
     headers, project_id, _ = await _create_user_project(api_client)
     try:
         detail = await api_client.get(
@@ -90,21 +95,20 @@ async def test_new_project_is_gated_and_content_returns_423(
         assert detail.json()["rag_gate"]["locked"] is True
         assert detail.json()["rag_gate"]["state"] != "complete"
 
-        # Content endpoints are gated with a structured 423 payload.
+        # Content endpoints are NOT gated: instruction submit and tree work
+        # regardless of RAG index state.
         res = await api_client.post(
             f"/api/v1/projects/{project_id}/instructions",
             headers=headers,
             json={"prompt": "run the pipeline"},
         )
-        assert res.status_code == 423, res.text
-        body = res.json().get("detail", {})
-        assert isinstance(body, dict)
-        assert body["rag_gate"]["locked"] is True
+        assert res.status_code == 202, res.text
+        assert res.json()["status"] == "PENDING"
 
         tree = await api_client.get(
             f"/api/v1/projects/{project_id}/tree", headers=headers
         )
-        assert tree.status_code == 423, tree.text
+        assert tree.status_code != 423, tree.text
     finally:
         await _delete_project(api_client, headers, project_id)
 
