@@ -7,6 +7,7 @@ import {
   listProjects,
   ragSearch,
   getRagStats,
+  getRagReadiness,
   reindexRag,
   getReindexStatus,
   listRagChunks,
@@ -202,6 +203,30 @@ export default function RagManagerPage() {
       )
     }
   }
+
+  // Auto re-index: when the selected project has no index yet, the backend
+  // readiness check auto-enqueues the durable re-index job; surface it in the
+  // UI and poll it so the project becomes searchable without a manual click.
+  useEffect(() => {
+    if (!selectedProject) return
+    let ignore = false
+    const run = async () => {
+      try {
+        const r = await getRagReadiness(selectedProject)
+        if (ignore) return
+        if (r.locked && r.state !== 'offline' && !reindexing) {
+          await handleReindex()
+        }
+      } catch {
+        // ignore transient errors — manual button remains available
+      }
+    }
+    void run()
+    return () => {
+      ignore = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProject])
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()

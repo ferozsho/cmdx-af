@@ -15,10 +15,12 @@ from app.core.config import (
     get_setting,
 )
 from app.core.database import AsyncSessionLocal
+from app.core.time import naive_utcnow
 from app.llm.router import LLMConfigurationError
 from app.models.background_job import BackgroundJob
 from app.models.device import Device
 from app.models.instruction import Instruction
+from app.models.project import Project
 from app.models.session import Session
 from app.models.workspace import Workspace
 from app.repositories.device_repo import DeviceRepository
@@ -31,6 +33,7 @@ logger = logging.getLogger(__name__)
 POLL_SECONDS = 1.0
 STALE_AFTER_SECONDS = 300
 RECOVERY_INTERVAL_SECONDS = 60
+RAG_SWEEP_INTERVAL_SECONDS = 300
 DEFAULT_WORKSPACE = "ws-test"
 
 
@@ -234,6 +237,15 @@ async def _handle_background_job(job: dict[str, Any]) -> None:
             stored.status = "COMPLETED"
             stored.result_data = result_data
             stored.finished_at = now
+            if job["job_type"] == "RAG_REINDEX":
+                # A completed index releases the project's RAG access gate.
+                project = await db.get(Project, job["project_id"])
+                if project and project.rag_indexed_at is None:
+                    project.rag_indexed_at = naive_utcnow()
+                    logger.info(
+                        "Project %s RAG index complete — access gate opened",
+                        job["project_id"],
+                    )
         elif stored.attempt_count < stored.max_attempts:
             delay_seconds = min(60, 5 * (2 ** (stored.attempt_count - 1)))
             stored.status = "PENDING"
@@ -245,6 +257,50 @@ async def _handle_background_job(job: dict[str, Any]) -> None:
             stored.last_error = error
         stored.heartbeat_at = now
         await db.commit()
+
+
+async def _sweep_rag_indexes() -> int:
+    """Enqueue RAG re-indexes for projects that have never been indexed.
+
+    Runs periodically so any project missing an index (new project, failed
+    job, agent offline at first attempt) is picked up automatically — the
+    durable ``RAG_REINDEX`` job process handles the actual indexing.
+    """
+    enqueued = 0
+    async with AsyncSessionLocal() as db:
+        projects = (
+            await db.execute(
+                select(Project).where(Project.rag_indexed_at.is_(None))
+            )
+        ).scalars().all()
+        for project in projects:
+            active = await db.scalar(
+                select(BackgroundJob)
+                .where(
+                    BackgroundJob.project_id == project.id,
+                    BackgroundJob.job_type == "RAG_REINDEX",
+                    BackgroundJob.status.in_(["PENDING", "RUNNING"]),
+                )
+                .limit(1)
+            )
+            if active is not None:
+                continue
+            db.add(
+                BackgroundJob(
+                    project_id=project.id,
+                    user_id=project.user_id,
+                    job_type="RAG_REINDEX",
+                    status="PENDING",
+                )
+            )
+            enqueued += 1
+        await db.commit()
+    if enqueued:
+        logger.info(
+            "Auto-enqueued RAG re-index for %d unindexed project(s)",
+            enqueued,
+        )
+    return enqueued
 
 
 async def _load_session_context(
@@ -415,12 +471,16 @@ async def run_worker() -> None:
         logger.warning("Recovered %d stale instruction jobs", recovered)
     logger.info("Instruction worker started")
     last_recovery = monotonic()
+    last_rag_sweep = monotonic()
     while True:
         if monotonic() - last_recovery >= RECOVERY_INTERVAL_SECONDS:
             recovered = await _recover_stale_jobs()
             if recovered:
                 logger.warning("Recovered %d stale instruction jobs", recovered)
             last_recovery = monotonic()
+        if monotonic() - last_rag_sweep >= RAG_SWEEP_INTERVAL_SECONDS:
+            await _sweep_rag_indexes()
+            last_rag_sweep = monotonic()
         job = await _claim_instruction()
         if job is None:
             background_job = await _claim_background_job()

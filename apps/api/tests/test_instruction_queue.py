@@ -19,6 +19,7 @@ from app.models.background_job import BackgroundJob
 from app.models.instruction import Instruction
 from app.models.instruction_event import InstructionEvent
 from app.models.pairing_code import PairingCode
+from tests.helpers import seed_rag_indexed
 
 pytestmark = pytest.mark.asyncio
 
@@ -61,7 +62,9 @@ async def _create_user_project(
         json=body,
     )
     assert created.status_code == 200, created.text
-    return headers, created.json()["id"], auth["user"]["id"]
+    project_id = created.json()["id"]
+    await seed_rag_indexed(project_id)
+    return headers, project_id, auth["user"]["id"]
 
 
 async def _delete_project(

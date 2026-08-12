@@ -37,6 +37,7 @@ import {
   type ProjectAgentResponse,
   ragSearch,
   getRagStats,
+  getRagReadiness,
   getGitStatus,
   getGitLog,
   submitInstruction,
@@ -46,6 +47,7 @@ import {
   type ApprovalResponse,
   type RagStats,
   type RagChunk,
+  type RagReadiness,
 } from '@/lib/api'
 
 // ── Local types for loosely-typed API payloads ────────────────────────────
@@ -532,6 +534,10 @@ export default function WorkspaceClient({
   const [ragQuery, setRagQuery] = useState(urlQuery)
   const [ragResults, setRagResults] = useState<RagResultItem[]>([])
   const [ragStats, setRagStats] = useState<RagStats | null>(null)
+  // RAG readiness gate — while locked the whole workspace is replaced by an
+  // indexing gate screen until the project's first RAG index completes.
+  const [ragGate, setRagGate] = useState<RagReadiness | null>(null)
+  const [ragGateLoading, setRagGateLoading] = useState(true)
   const [ragPage, setRagPage] = useState(0)
   const [ragSearching, setRagSearching] = useState(false)
   const [ragError, setRagError] = useState<string | null>(null)
@@ -1137,6 +1143,37 @@ export default function WorkspaceClient({
     return () => window.clearInterval(timer)
   }, [activeTab, project?.execution_target, projectId])
 
+  // RAG readiness gate: poll while the project is locked (index missing /
+  // in progress / agent offline) and swap in the workspace the moment the
+  // first index completes. Readiness auto-enqueues the re-index process, so
+  // a project with no index becomes usable without any manual click.
+  useEffect(() => {
+    if (project?.execution_target !== 'LOCAL') return
+    let stop = false
+    let timer: number | null = null
+    const tick = async () => {
+      try {
+        const r = await getRagReadiness(projectId)
+        if (stop) return
+        setRagGate(r)
+        setRagGateLoading(false)
+        if (!r.locked && timer) {
+          window.clearInterval(timer)
+          timer = null
+        }
+      } catch {
+        if (stop) return
+        setRagGateLoading(false)
+      }
+    }
+    void tick()
+    timer = window.setInterval(tick, 2000)
+    return () => {
+      stop = true
+      if (timer) window.clearInterval(timer)
+    }
+  }, [project?.execution_target, projectId])
+
   // Refresh the chunks browser when a background index finishes so the
   // default "All Chunks" view always reflects the latest index.
   const wasIndexingRef = useRef(false)
@@ -1605,6 +1642,93 @@ export default function WorkspaceClient({
 
   return (
     <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col min-h-0 space-y-6">
+      {/* RAG readiness gate — replaces the workspace until the first index completes */}
+      {project?.execution_target === 'LOCAL' && ragGateLoading ? (
+        <div className="card-af p-12 text-center text-xs text-muted font-mono animate-pulse">
+          Checking RAG readiness…
+        </div>
+      ) : ragGate?.locked ? (
+        <div className="card-af p-10 max-w-2xl mx-auto w-full">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary grid place-items-center text-2xl font-bold">
+              ◫
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-foreground m-0">
+                {project?.name || 'Project'} — RAG Index Required
+              </h2>
+              <p className="text-xs text-muted m-0 mt-1">
+                This project is locked until its codebase is indexed. Access
+                is granted automatically once indexing completes.
+              </p>
+            </div>
+          </div>
+
+          {ragGate.state === 'offline' ? (
+            <div className="rounded-[10px] p-4 bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
+              <span className="text-lg">🖥</span>
+              <div>
+                <div className="text-xs font-bold text-foreground">
+                  Local Agent Workstation Offline
+                </div>
+                <p className="text-xs text-muted mt-0.5 m-0">
+                  Connect your workstation to index this project. Indexing
+                  will start automatically once the device is online.{' '}
+                  <Link
+                    href="/devices"
+                    className="text-primary hover:underline font-bold"
+                  >
+                    Go to Devices
+                  </Link>
+                </p>
+              </div>
+            </div>
+          ) : ragGate.state === 'failed' ? (
+            <div className="rounded-[10px] p-4 bg-red-500/10 border border-red-500/30">
+              <div className="text-xs font-bold text-foreground">
+                Indexing failed
+              </div>
+              <p className="text-xs text-muted mt-0.5 m-0">
+                {ragGate.job?.error ||
+                  'The re-index process failed. It will be retried automatically.'}
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-[10px] p-5 bg-primary/5 border border-primary/20">
+              <div className="flex items-center justify-between text-xs mb-2">
+                <span className="font-semibold text-foreground">
+                  ⚡ Indexing workspace in background…
+                </span>
+                <span className="text-muted font-mono">
+                  {ragGate.files_scanned ?? 0} / {ragGate.total_files ?? 0}{' '}
+                  files · {ragGate.chunks ?? 0} chunks ·{' '}
+                  {Math.round(ragGate.progress ?? 0)}%
+                </span>
+              </div>
+              <div className="h-2 bg-surface-secondary rounded-full overflow-hidden border border-border/50">
+                <div
+                  className="h-full bg-gradient-to-r from-[#1b78d2] to-[#6e38c7] rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.max(2, ragGate.progress ?? 0)}%`,
+                  }}
+                />
+              </div>
+              {ragGate.current_file && (
+                <p className="text-[11px] text-muted mt-2 m-0 truncate">
+                  Now indexing: {ragGate.current_file}
+                </p>
+              )}
+            </div>
+          )}
+
+          <p className="text-[11px] text-muted mt-4 m-0 text-center">
+            The re-index process runs automatically — you don&apos;t need to
+            do anything. This page refreshes by itself when indexing
+            completes.
+          </p>
+        </div>
+      ) : (
+        <>
       {/* Header */}
       <header className="flex items-center justify-between border-b border-border pb-4">
         <div>
@@ -3847,6 +3971,8 @@ export default function WorkspaceClient({
           fileChange={selectedDiff}
           onClose={() => setSelectedDiff(null)}
         />
+      )}
+        </>
       )}
     </div>
   )

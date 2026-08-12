@@ -63,6 +63,13 @@ class Project(Base):
         nullable=False,
     )
     default_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    # ── RAG readiness gate ──
+    # Set once a successful RAG index exists. NULL means the project has no
+    # index yet, so project content access is gated (423) until the first
+    # index completes. Subsequent re-indexes do not re-lock the project.
+    rag_indexed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=naive_utcnow, nullable=False
     )

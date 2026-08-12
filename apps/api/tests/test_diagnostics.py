@@ -11,6 +11,7 @@ import app.api.v1.endpoints.projects as projects_mod
 from app.core.database import AsyncSessionLocal
 from app.main import app
 from app.models.instruction import Instruction
+from tests.helpers import seed_rag_indexed
 
 BASE = "/api/v1"
 
@@ -44,7 +45,9 @@ async def _register_project(
         f"{BASE}/projects", headers=headers, json={"name": f"Diag {suffix}"}
     )
     assert created.status_code == 200, created.text
-    return headers, created.json()["id"], auth["user"]["id"]
+    project_id = created.json()["id"]
+    await seed_rag_indexed(project_id)
+    return headers, project_id, auth["user"]["id"]
 
 
 async def _delete_project(

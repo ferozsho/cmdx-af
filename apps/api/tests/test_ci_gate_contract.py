@@ -11,6 +11,7 @@ from app.main import app
 from app.models.instruction import Instruction
 from app.models.verification_run import VerificationRun
 from app.services.verification import evaluate_gate
+from tests.helpers import seed_rag_indexed
 
 
 @pytest_asyncio.fixture
@@ -42,7 +43,9 @@ async def _register_project(
         "/api/v1/projects", headers=headers, json={"name": f"Gate {suffix}"}
     )
     assert created.status_code == 200, created.text
-    return headers, created.json()["id"], auth["user"]["id"]
+    project_id = created.json()["id"]
+    await seed_rag_indexed(project_id)
+    return headers, project_id, auth["user"]["id"]
 
 
 async def _delete_project(

@@ -15,10 +15,12 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.agent_run import AgentRun
 from app.models.instruction import Instruction
+from app.models.project import Project
 from app.models.session import Session
 from app.models.user import User
 from app.repositories.project_repo import ProjectRepository
 from app.services.instruction_events import append_instruction_event
+from app.services.rag_gate import gate_http_exception
 from app.services.rate_limit import api_rate_limit
 
 router = APIRouter()
@@ -32,6 +34,25 @@ async def _require_project_owner(
     """Return 404 unless the authenticated user owns the project."""
     if not await ProjectRepository(db).belongs_to(project_id, current_user.id):
         raise HTTPException(status_code=404, detail="Project not found")
+
+
+async def _require_rag_ready_project(
+    project_id: str,
+    current_user: User,
+    db: AsyncSession,
+) -> Project:
+    """Return the owned project, gated behind a completed RAG index.
+
+    Raising 423 while ``rag_indexed_at`` is NULL — the project stays locked
+    until its first RAG index completes (auto-enqueued by the readiness /
+    re-index process).
+    """
+    project = await db.get(Project, project_id)
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.rag_indexed_at is None:
+        raise gate_http_exception(project)
+    return project
 
 
 class InstructionSubmit(BaseModel):
@@ -250,7 +271,7 @@ async def submit_instruction(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Durably enqueue an instruction, deduplicated by Idempotency-Key."""
-    await _require_project_owner(project_id, current_user, db)
+    await _require_rag_ready_project(project_id, current_user, db)
     normalized_key = idempotency_key.strip() if idempotency_key else None
     if normalized_key:
         existing_result = await db.execute(

@@ -28,6 +28,13 @@ from app.repositories.device_repo import DeviceRepository
 from app.repositories.project_repo import ProjectRepository
 from app.services.approvals import ApprovalRequiredError, authorize_tool
 from app.services.instruction_events import append_instruction_event
+from app.services.rag_gate import (
+    compute_readiness,
+    ensure_reindex_job,
+    gate_http_exception,
+    job_payload,
+    persisted_gate,
+)
 from app.services.rate_limit import api_rate_limit
 from app.services.verification import evaluate_gate, record_verification
 from app.tools.gateway.tool_gateway import ToolGateway
@@ -87,6 +94,36 @@ class ProjectResponse(BaseModel):
     approval_mode: str = "RISKY"
     command_allowlist: list[str] | None = None
     max_command_seconds: int = 120
+    # RAG readiness gate — locked until the first index completes.
+    rag_gate: dict | None = None
+
+
+def _build_project_response(project: Project) -> ProjectResponse:
+    """Serialize a project with its RAG readiness gate state."""
+    return ProjectResponse(
+        id=project.id,
+        name=project.name,
+        description=project.description,
+        execution_target=project.execution_target,
+        local_path=project.local_path,
+        tech_stack=project.tech_stack,
+        status="ACTIVE",
+        created_at=project.created_at.isoformat() if project.created_at else None,
+        updated_at=project.updated_at.isoformat() if project.updated_at else None,
+        git_enabled=bool(project.git_enabled),
+        git_branch_patterns=project.git_branch_patterns if project.git_branch_patterns else None,
+        git_require_pr=bool(project.git_require_pr),
+        ci_gate_enabled=bool(project.ci_gate_enabled),
+        git_commit_template=project.git_commit_template,
+        fs_read_enabled=bool(project.fs_read_enabled),
+        fs_write_enabled=bool(project.fs_write_enabled),
+        fs_delete_enabled=bool(project.fs_delete_enabled),
+        approval_mode=project.approval_mode,
+        command_allowlist=project.command_allowlist,
+        max_command_seconds=project.max_command_seconds,
+        default_model=project.default_model,
+        rag_gate=persisted_gate(project),
+    )
 
 
 class ProjectUpdate(BaseModel):
@@ -315,25 +352,19 @@ def _offline_response() -> dict:
 
 def _reindex_job_payload(job: BackgroundJob) -> dict:
     """Serialize a re-index job for API responses."""
-    result = job.result_data or {}
-    public_status = {
-        "PENDING": "running",
-        "RUNNING": "running",
-        "COMPLETED": "done",
-        "FAILED": "failed",
-    }.get(job.status, job.status.lower())
-    return {
-        "id": job.id,
-        "status": public_status,
-        "files_indexed": int(result.get("files_indexed") or 0),
-        "chunks": int(result.get("chunks") or 0),
-        "last_index": result.get("last_index"),
-        "error": job.last_error,
-        "started_at": job.started_at.isoformat() if job.started_at else None,
-        "finished_at": (
-            job.finished_at.isoformat() if job.finished_at else None
-        ),
-    }
+    return job_payload(job)
+
+
+async def _require_rag_ready(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Project:
+    """Gate project content behind a completed RAG index (423 when locked)."""
+    project = await _require_project(project_id, current_user, db)
+    if project.rag_indexed_at is None:
+        raise gate_http_exception(project)
+    return project
 
 
 @router.get("/projects/stats/summary")
@@ -392,32 +423,7 @@ async def list_projects(
     """Get all projects for the authenticated user."""
     repo = ProjectRepository(db)
     projects = await repo.list_for_user(current_user.id)
-    return [
-        ProjectResponse(
-            id=p.id,
-            name=p.name,
-            description=p.description,
-            execution_target=p.execution_target,
-            local_path=p.local_path,
-            tech_stack=p.tech_stack,
-            status="ACTIVE",
-            created_at=p.created_at.isoformat() if p.created_at else None,
-            updated_at=p.updated_at.isoformat() if p.updated_at else None,
-            git_enabled=bool(p.git_enabled),
-            git_branch_patterns=p.git_branch_patterns if p.git_branch_patterns else None,
-            git_require_pr=bool(p.git_require_pr),
-            ci_gate_enabled=bool(p.ci_gate_enabled),
-            git_commit_template=p.git_commit_template,
-            fs_read_enabled=bool(p.fs_read_enabled),
-            fs_write_enabled=bool(p.fs_write_enabled),
-            fs_delete_enabled=bool(p.fs_delete_enabled),
-            approval_mode=p.approval_mode,
-            command_allowlist=p.command_allowlist,
-            max_command_seconds=p.max_command_seconds,
-            default_model=p.default_model,
-        )
-        for p in projects
-    ]
+    return [_build_project_response(p) for p in projects]
 
 
 @router.post("/projects", response_model=ProjectResponse)
@@ -486,29 +492,7 @@ async def create_project(
         )
         await db.commit()
 
-    return ProjectResponse(
-        id=project.id,
-        name=project.name,
-        description=project.description,
-        execution_target=project.execution_target,
-        local_path=project.local_path,
-        tech_stack=project.tech_stack,
-        status="ACTIVE",
-        created_at=project.created_at.isoformat() if project.created_at else None,
-        updated_at=project.updated_at.isoformat() if project.updated_at else None,
-        git_enabled=bool(project.git_enabled),
-        git_branch_patterns=project.git_branch_patterns if project.git_branch_patterns else None,
-        git_require_pr=bool(project.git_require_pr),
-        ci_gate_enabled=bool(project.ci_gate_enabled),
-        git_commit_template=project.git_commit_template,
-        fs_read_enabled=bool(project.fs_read_enabled),
-        fs_write_enabled=bool(project.fs_write_enabled),
-        fs_delete_enabled=bool(project.fs_delete_enabled),
-        approval_mode=project.approval_mode,
-        command_allowlist=project.command_allowlist,
-        max_command_seconds=project.max_command_seconds,
-        default_model=project.default_model,
-    )
+    return _build_project_response(project)
 
 
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
@@ -519,29 +503,7 @@ async def get_project(
 ) -> Any:
     """Get project details by ID from the database."""
     project = await _require_project(project_id, current_user, db)
-    return ProjectResponse(
-        id=project.id,
-        name=project.name,
-        description=project.description,
-        execution_target=project.execution_target,
-        local_path=project.local_path,
-        tech_stack=project.tech_stack,
-        status="ACTIVE",
-        created_at=project.created_at.isoformat() if project.created_at else None,
-        updated_at=project.updated_at.isoformat() if project.updated_at else None,
-        git_enabled=bool(project.git_enabled),
-        git_branch_patterns=project.git_branch_patterns if project.git_branch_patterns else None,
-        git_require_pr=bool(project.git_require_pr),
-        ci_gate_enabled=bool(project.ci_gate_enabled),
-        git_commit_template=project.git_commit_template,
-        fs_read_enabled=bool(project.fs_read_enabled),
-        fs_write_enabled=bool(project.fs_write_enabled),
-        fs_delete_enabled=bool(project.fs_delete_enabled),
-        approval_mode=project.approval_mode,
-        command_allowlist=project.command_allowlist,
-        max_command_seconds=project.max_command_seconds,
-        default_model=project.default_model,
-    )
+    return _build_project_response(project)
 
 
 @router.patch("/projects/{project_id}", response_model=ProjectResponse)
@@ -579,29 +541,7 @@ async def update_project(
     )
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    return ProjectResponse(
-        id=project.id,
-        name=project.name,
-        description=project.description,
-        execution_target=project.execution_target,
-        local_path=project.local_path,
-        tech_stack=project.tech_stack,
-        status="ACTIVE",
-        created_at=project.created_at.isoformat() if project.created_at else None,
-        updated_at=project.updated_at.isoformat() if project.updated_at else None,
-        git_enabled=bool(project.git_enabled),
-        git_branch_patterns=project.git_branch_patterns if project.git_branch_patterns else None,
-        git_require_pr=bool(project.git_require_pr),
-        ci_gate_enabled=bool(project.ci_gate_enabled),
-        git_commit_template=project.git_commit_template,
-        fs_read_enabled=bool(project.fs_read_enabled),
-        fs_write_enabled=bool(project.fs_write_enabled),
-        fs_delete_enabled=bool(project.fs_delete_enabled),
-        approval_mode=project.approval_mode,
-        command_allowlist=project.command_allowlist,
-        max_command_seconds=project.max_command_seconds,
-        default_model=project.default_model,
-    )
+    return _build_project_response(project)
 
 
 @router.delete("/projects/{project_id}")
@@ -691,7 +631,7 @@ async def get_project_tree(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Fetch real project file tree from connected Local Agent."""
-    project = await _require_project(project_id, current_user, db)
+    project = await _require_rag_ready(project_id, current_user, db)
     check_fs_policy(project, "read")
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
@@ -716,7 +656,7 @@ async def read_project_file(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Read real project file content from connected Local Agent."""
-    project = await _require_project(project_id, current_user, db)
+    project = await _require_rag_ready(project_id, current_user, db)
     check_fs_policy(project, "read")
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
@@ -742,7 +682,7 @@ async def rag_search_project(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Perform real semantic search via Local Agent RAG Indexer."""
-    project = await _require_project(project_id, current_user, db)
+    project = await _require_rag_ready(project_id, current_user, db)
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=device_id,
@@ -771,7 +711,7 @@ async def list_rag_chunks(
 
     Used by the RAG tab's default "All Chunks" view.
     """
-    project = await _require_project(project_id, current_user, db)
+    project = await _require_rag_ready(project_id, current_user, db)
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
         device_id=device_id,
@@ -794,7 +734,7 @@ async def get_git_status(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get real Git status from Local Agent workspace."""
-    project = await _require_project(project_id, current_user, db)
+    project = await _require_rag_ready(project_id, current_user, db)
     check_git_policy(project, "read")
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
@@ -819,7 +759,7 @@ async def get_git_log(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get recent git commit log from Local Agent workspace."""
-    project = await _require_project(project_id, current_user, db)
+    project = await _require_rag_ready(project_id, current_user, db)
     check_git_policy(project, "read")
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
@@ -843,7 +783,7 @@ async def list_git_provenance(
     current_user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
     """List durable AI authorship and verification metadata for owned commits."""
-    await _require_project(project_id, current_user, db)
+    await _require_rag_ready(project_id, current_user, db)
     records = await db.scalars(
         select(GitCommit)
         .where(
@@ -881,7 +821,7 @@ async def list_verification_runs(
     current_user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
     """List bounded, redacted verification evidence for an owned project."""
-    await _require_project(project_id, current_user, db)
+    await _require_rag_ready(project_id, current_user, db)
     query = select(VerificationRun).where(
         VerificationRun.project_id == project_id
     )
@@ -922,7 +862,7 @@ async def get_latest_verification(
     fails on a mismatch with the stored digest — letting an external
     pipeline enforce AgentForge's evidence.
     """
-    await _require_project(project_id, current_user, db)
+    await _require_rag_ready(project_id, current_user, db)
     record = await db.scalar(
         select(VerificationRun)
         .where(VerificationRun.project_id == project_id)
@@ -975,7 +915,7 @@ async def rollback_git_commit(
     """Hard-reset the workspace to a specified commit hash."""
     if not data.commit_hash:
         raise HTTPException(status_code=400, detail="commit_hash is required")
-    project = await _require_project(project_id, current_user, db)
+    project = await _require_rag_ready(project_id, current_user, db)
     check_git_policy(project, "rollback")
     try:
         authorization_id = await authorize_tool(
@@ -1034,7 +974,7 @@ async def create_project_pull_request(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Create a PR from an isolated agent branch, gated by approval."""
-    project = await _require_project(project_id, current_user, db)
+    project = await _require_rag_ready(project_id, current_user, db)
     check_git_policy(project, "pull_request", branch=data.branch_name)
     try:
         authorization_id = await authorize_tool(
@@ -1102,7 +1042,7 @@ async def capture_project_diagnostics(
     the result under the ``diagnostics`` category, so the tech-lead
     assistant can triage runtime failures from durable evidence.
     """
-    project = await _require_project(project_id, current_user, db)
+    project = await _require_rag_ready(project_id, current_user, db)
     instruction_id = data.instruction_id
     if not instruction_id:
         latest = await db.scalar(
@@ -1207,8 +1147,21 @@ async def get_rag_stats(
                 "files_indexed": 0,
                 "chunks": 0,
                 "last_index": None,
+                "rag_gate": persisted_gate(project),
             }
         result = tool_res.result if isinstance(tool_res.result, dict) else {}
+        # Auto re-index: when a project has no index yet and nothing is
+        # running, durably enqueue the background re-index process so the
+        # project becomes usable without a manual click.
+        if (
+            project.rag_indexed_at is None
+            and not bool(result.get("indexing"))
+            and int(result.get("chunks") or 0) == 0
+        ):
+            try:
+                await ensure_reindex_job(db, project.id, project.user_id)
+            except Exception:
+                pass
         return {
             "online": True,
             "state": result.get("state", "idle"),
@@ -1221,6 +1174,7 @@ async def get_rag_stats(
             "last_index": result.get("finished_at"),
             "current_file": result.get("current_file"),
             "started_at": result.get("started_at"),
+            "rag_gate": persisted_gate(project),
         }
     except Exception:
         return {
@@ -1231,6 +1185,7 @@ async def get_rag_stats(
             "files_indexed": 0,
             "chunks": 0,
             "last_index": None,
+            "rag_gate": persisted_gate(project),
         }
 
 
@@ -1300,6 +1255,39 @@ async def get_reindex_status(
     return {"status": payload["status"], "job": payload}
 
 
+@router.get("/projects/{project_id}/rag/readiness")
+async def get_rag_readiness(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Resolve RAG readiness for a project.
+
+    Locks (``locked: true``) until the first index completes. When no index
+    exists this auto-enqueues the durable ``RAG_REINDEX`` background job, so
+    the project becomes usable as soon as indexing finishes — no manual
+    re-index click required.
+    """
+    project = await _require_project(project_id, current_user, db)
+    online = False
+    rag_status: dict | None = None
+    try:
+        device_id, workspace = await _resolve_execution_target(project, db)
+        tool_res = await ToolGateway.invoke_tool(
+            device_id=device_id,
+            workspace_id=workspace,
+            job_id="job_rag_readiness",
+            tool_name="rag_status",
+            arguments={},
+        )
+        online = tool_res.success
+        if online and isinstance(tool_res.result, dict):
+            rag_status = tool_res.result
+    except Exception:
+        online = False
+    return await compute_readiness(db, project, rag_status, online)
+
+
 @router.get("/projects/{project_id}/files/original")
 async def get_file_original(
     project_id: str,
@@ -1308,7 +1296,7 @@ async def get_file_original(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get the original (git HEAD) version of a file for diff baseline."""
-    project = await _require_project(project_id, current_user, db)
+    project = await _require_rag_ready(project_id, current_user, db)
     check_fs_policy(project, "read")
     device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
@@ -1334,9 +1322,7 @@ async def list_project_artifacts(
     """List all generated artifacts for a project."""
     from app.repositories.artifact_repo import ArtifactRepository
 
-    repo = ProjectRepository(db)
-    if not await repo.belongs_to(project_id, current_user.id):
-        raise HTTPException(status_code=404, detail="Project not found")
+    await _require_rag_ready(project_id, current_user, db)
 
     artifact_repo = ArtifactRepository(db)
     artifacts = await artifact_repo.list_for_project(project_id)
@@ -1379,9 +1365,7 @@ async def list_project_runs(
     from app.models.agent_run import AgentRun
     from app.models.instruction import Instruction
 
-    repo = ProjectRepository(db)
-    if not await repo.belongs_to(project_id, current_user.id):
-        raise HTTPException(status_code=404, detail="Project not found")
+    await _require_rag_ready(project_id, current_user, db)
 
     result = await db.execute(
         select(AgentRun)

@@ -15,6 +15,7 @@ from app.models.approval import ApprovalRequest
 from app.models.instruction import Instruction
 from app.models.project import Project
 from app.services.approvals import ApprovalRequiredError, authorize_tool
+from tests.helpers import seed_rag_indexed
 
 pytestmark = pytest.mark.asyncio
 
@@ -50,7 +51,9 @@ async def _register_project(
         json={"name": f"Approval Project {suffix}"},
     )
     assert created.status_code == 200, created.text
-    return headers, created.json()["id"], body["user"]["id"]
+    project_id = created.json()["id"]
+    await seed_rag_indexed(project_id)
+    return headers, project_id, body["user"]["id"]
 
 
 class CommandAgent:

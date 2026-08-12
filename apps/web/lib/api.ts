@@ -257,6 +257,12 @@ export interface ProjectResponse {
   approval_mode?: 'NEVER' | 'RISKY' | 'ALWAYS'
   command_allowlist?: string[] | null
   max_command_seconds?: number
+  // RAG readiness gate — locked until the first index completes.
+  rag_gate?: {
+    state: 'complete' | 'indexing_required' | 'indexing' | 'failed' | 'offline'
+    locked: boolean
+    indexed_at?: string | null
+  }
 }
 
 export interface ApprovalResponse {
@@ -731,6 +737,30 @@ export function getRagStats(id: string): Promise<RagStats> {
   return request<RagStats>(
     'GET',
     `/api/v1/projects/${encodeURIComponent(id)}/rag/stats`,
+  )
+}
+
+export interface RagReadiness {
+  state: 'complete' | 'indexing_required' | 'indexing' | 'failed' | 'offline'
+  locked: boolean
+  online: boolean
+  indexing: boolean
+  progress: number
+  files_scanned: number
+  total_files: number
+  files_indexed: number
+  chunks: number
+  current_file?: string | null
+  last_index?: string | null
+  indexed_at?: string | null
+  job?: ReindexJob | null
+}
+
+/** GET /api/v1/projects/:id/rag/readiness — RAG gate + auto re-index status */
+export function getRagReadiness(id: string): Promise<RagReadiness> {
+  return request<RagReadiness>(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(id)}/rag/readiness`,
   )
 }
 

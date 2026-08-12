@@ -13,6 +13,7 @@ import pytest_asyncio
 
 from app.core.config import settings
 from app.main import app
+from tests.helpers import seed_rag_indexed
 
 pytestmark = pytest.mark.asyncio
 
@@ -155,6 +156,8 @@ async def test_rag_search_returns_offline_not_500(api_client) -> None:
     )
     assert project.status_code == 200, project.text
     project_id = project.json()["id"]
+    # Bypass the RAG readiness gate so this test exercises the offline path.
+    await seed_rag_indexed(project_id)
     try:
         response = await api_client.post(
             f"/api/v1/projects/{project_id}/rag/search",

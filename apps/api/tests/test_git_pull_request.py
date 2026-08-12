@@ -10,6 +10,7 @@ import pytest_asyncio
 import app.api.v1.endpoints.projects as projects_mod
 from app.main import app
 from app.services.approvals import ApprovalRequiredError
+from tests.helpers import seed_rag_indexed
 
 BASE = "/api/v1"
 
@@ -43,7 +44,9 @@ async def _register_project(
         f"{BASE}/projects", headers=headers, json={"name": f"PR {suffix}"}
     )
     assert created.status_code == 200, created.text
-    return headers, created.json()["id"]
+    project_id = created.json()["id"]
+    await seed_rag_indexed(project_id)
+    return headers, project_id
 
 
 async def _delete_project(
