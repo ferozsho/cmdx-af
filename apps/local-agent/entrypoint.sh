@@ -45,6 +45,12 @@ if [ -n "${AGENTFORGE_WORKSPACES:-}" ]; then
     IFS=$_old_ifs
 fi
 
+# Mark workspace roots as safe for git (they are owned by the host user, so
+# without this git rejects them with "dubious ownership").
+if command -v git >/dev/null 2>&1; then
+    git config --global --add safe.directory '*' 2>/dev/null || true
+fi
+
 # Default command is `start`; other CLI commands (connect, workspace-list, ...)
 # can be passed as arguments.
 exec agentforge "$@"

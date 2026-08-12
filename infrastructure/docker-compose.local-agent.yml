@@ -1,86 +1,100 @@
-# AgentForge — Local Execution Daemon (Docker)
+# AgentForge — Local Execution Daemons (Docker), one agent PER project
 # ---------------------------------------------------------------------------
-# Runs the local agent inside a container. It connects OUTBOUND to the AgentForge
-# cloud API over WebSocket, so it works from any machine — no inbound ports,
-# no public IP, no NAT configuration.
+# Each project gets its OWN isolated local agent: its own container, its own
+# device (id + token), its own workspace registry and its own project mount.
+# A project's agent can only see and operate on that project's folder.
 #
-# THIS FILE is the dev template for this machine. The same image works for any
-# client anywhere in the world; they just run it with their own config:
+# All agents connect OUTBOUND to the AgentForge cloud API over WebSocket, so
+# they work from any machine — no inbound ports, no public IP, no NAT config.
 #
-#   docker run -d --name agentforge-local \
-#     -e AGENTFORGE_SERVER_URL=https://your-agentforge.example.com \
-#     -e AGENTFORGE_DEVICE_ID=... -e AGENTFORGE_DEVICE_TOKEN=... \
-#     -e 'AGENTFORGE_WORKSPACES=ws-proj=/app/my-project,ws-web=/app/my-web' \
-#     -v /absolute/path/to/my-project:/app/my-project \
-#     -v /absolute/path/to/my-web:/app/my-web \
-#     -v agentforge_config:/home/agentforge/.agentforge \
-#     agentforge-local:latest
+# For a public deployment, each client adds one service per project:
 #
-# Pairing: generate a code on the Devices page, then either set the device id/
-# token above, or run inside the container:
-#   docker exec -it agentforge-local agentforge connect AGF-XXXX
+#   local-agent-<project>:
+#     <<: *local-agent
+#     container_name: agentforge-local-<project>
+#     environment:
+#       <<: *agent-env
+#       DEVICE_ID: ${AGENTFORGE_DEVICE_ID_<PROJECT>:?set in .env}
+#       DEVICE_TOKEN: ${AGENTFORGE_DEVICE_TOKEN_<PROJECT>:?set in .env}
+#       AGENTFORGE_WORKSPACES: ws-<project>=/path/in/container
+#     volumes:
+#       - /client/absolute/path:/path/in/container
+#       - agentforge_config_<project>:/home/agentforge/.agentforge
+#
+# Pairing: generate a code on the Devices page, then pair inside the agent:
+#   docker exec -it agentforge-local-<project> agentforge connect AGF-XXXX
 # ---------------------------------------------------------------------------
 
+x-local-agent: &local-agent
+  build:
+    context: ..
+    dockerfile: apps/local-agent/Dockerfile
+  image: agentforge-local:latest
+  restart: unless-stopped
+  init: true
+  read_only: true
+  # Operate directly on the mounted host project folder (owned by the host
+  # user), so run as root and keep the capabilities needed for file access and
+  # tool subprocesses (git/npm/pip). Base filesystem stays read-only.
+  user: "0:0"
+  cap_drop: ["ALL"]
+  cap_add:
+    - CAP_DAC_OVERRIDE
+    - CAP_DAC_READ_SEARCH
+    - CAP_FOWNER
+    - CAP_CHOWN
+    - CAP_SETUID
+    - CAP_SETGID
+    - CAP_KILL
+  security_opt: ["no-new-privileges:true"]
+  environment: &agent-env
+    # Keep the CLI's config dir on the mounted volume (Path.home() would
+    # otherwise point at /root).
+    HOME: /home/agentforge
+    # Git global config lives on the config volume (base fs is read-only);
+    # repos are marked safe.directory by the entrypoint.
+    GIT_CONFIG_GLOBAL: /home/agentforge/.agentforge/gitconfig
+    # Public server base URL (clients point this at the hosted AgentForge API).
+    # Unset => local dev stack.
+    AGENTFORGE_SERVER_URL: ${AGENTFORGE_SERVER_URL:-http://api:8000}
+    CLOUD_WSS_URL: ws://api:8000/api/v1/ws/devices
+    CLOUD_API_URL: http://api:8000/api/v1
+    QDRANT_URL: http://qdrant:6333
+  tmpfs:
+    - /tmp:size=512m,mode=1777
+  networks:
+    - default
+
 services:
-  local-agent:
-    build:
-      context: ..
-      dockerfile: apps/local-agent/Dockerfile
-    image: agentforge-local:latest
-    container_name: agentforge-local
-    restart: unless-stopped
-    init: true
-    read_only: true
-    # The local agent must operate directly on host project folders (which are
-    # owned by the host user, uid 1000), so it runs as root and keeps the
-    # capabilities needed to read/write those bind mounts and run tool
-    # subprocesses (git/npm/pip). The base image filesystem stays read-only.
-    user: "0:0"
-    cap_drop: ["ALL"]
-    cap_add:
-      - CAP_DAC_OVERRIDE
-      - CAP_DAC_READ_SEARCH
-      - CAP_FOWNER
-      - CAP_CHOWN
-      - CAP_SETUID
-      - CAP_SETGID
-      - CAP_KILL
-    security_opt: ["no-new-privileges:true"]
+  # ── Local agent for the "Test Project" (cmdx-af repo) ─────────────────────
+  local-agent-cmdx-af:
+    <<: *local-agent
+    container_name: agentforge-local-cmdx-af
     environment:
-      # Keep the CLI's config dir on the mounted volume even though we run as
-      # root (otherwise Path.home() would point at /root).
-      - HOME=/home/agentforge
-      # Git global config lives on the writable config volume (base fs is
-      # read-only). Repos owned by the host user are marked safe.directory so
-      # git doesn't reject them ("dubious ownership").
-      - GIT_CONFIG_GLOBAL=/home/agentforge/.agentforge/gitconfig
-      # Public server base URL (clients point this at the hosted AgentForge
-      # API). Unset => local dev stack.
-      - AGENTFORGE_SERVER_URL=${AGENTFORGE_SERVER_URL:-http://api:8000}
-      - CLOUD_WSS_URL=ws://api:8000/api/v1/ws/devices
-      - CLOUD_API_URL=http://api:8000/api/v1
-      - QDRANT_URL=http://qdrant:6333
-      - DEVICE_ID=${AGENTFORGE_DEVICE_ID:?AGENTFORGE_DEVICE_ID must be set in .env}
-      - DEVICE_TOKEN=${AGENTFORGE_DEVICE_TOKEN:?AGENTFORGE_DEVICE_TOKEN must be set in .env}
-      # Workspaces auto-registered at container start (before the daemon
-      # boots, so no manual workspace-add + restart needed).
-      - AGENTFORGE_WORKSPACES=${AGENTFORGE_WORKSPACES:-ws-test=/home/administrator/cmdx-af,ws-glsm=/home/administrator/glsm}
+      <<: *agent-env
+      DEVICE_ID: ${AGENTFORGE_DEVICE_ID_CMDXAF:?AGENTFORGE_DEVICE_ID_CMDXAF must be set in .env}
+      DEVICE_TOKEN: ${AGENTFORGE_DEVICE_TOKEN_CMDXAF:?AGENTFORGE_DEVICE_TOKEN_CMDXAF must be set in .env}
+      # This agent only ever sees the cmdx-af project.
+      AGENTFORGE_WORKSPACES: ${AGENTFORGE_WORKSPACES_CMDXAF:-ws-test=/home/administrator/cmdx-af}
     volumes:
-      # Client project folders, mounted at their absolute paths so the agent
-      # works on the actual project files (matches projects.local_path). On a
-      # client machine, mount that client's own folders instead.
       - ${PROJECT_CMDXAF:-/home/administrator/cmdx-af}:${PROJECT_CMDXAF:-/home/administrator/cmdx-af}
-      - ${PROJECT_GLSM:-/home/administrator/glsm}:${PROJECT_GLSM:-/home/administrator/glsm}
-      # Default workspace mount for ad-hoc / other projects.
-      - ${AGENT_WORKSPACE:-./workspace}:/workspace
-      # Persist pairing credentials + workspace registry across restarts.
-      - agentforge_config:/home/agentforge/.agentforge
-      # Persist the sentence-transformers model cache (avoids re-downloads).
+      - agentforge_config_cmdxaf:/home/agentforge/.agentforge
       - hf_cache:/home/agentforge/.cache/huggingface
-    tmpfs:
-      - /tmp:size=512m,mode=1777
-    networks:
-      - default
+
+  # ── Local agent for the "GLSM" project (Moodle repo) ──────────────────────
+  local-agent-glsm:
+    <<: *local-agent
+    container_name: agentforge-local-glsm
+    environment:
+      <<: *agent-env
+      DEVICE_ID: ${AGENTFORGE_DEVICE_ID_GLSM:?AGENTFORGE_DEVICE_ID_GLSM must be set in .env}
+      DEVICE_TOKEN: ${AGENTFORGE_DEVICE_TOKEN_GLSM:?AGENTFORGE_DEVICE_TOKEN_GLSM must be set in .env}
+      # This agent only ever sees the glsm project.
+      AGENTFORGE_WORKSPACES: ${AGENTFORGE_WORKSPACES_GLSM:-ws-glsm=/home/administrator/glsm}
+    volumes:
+      - ${PROJECT_GLSM:-/home/administrator/glsm}:${PROJECT_GLSM:-/home/administrator/glsm}
+      - agentforge_config_glsm:/home/agentforge/.agentforge
+      - hf_cache:/home/agentforge/.cache/huggingface
 
 networks:
   default:
@@ -88,5 +102,6 @@ networks:
     external: true
 
 volumes:
-  agentforge_config:
+  agentforge_config_cmdxaf:
+  agentforge_config_glsm:
   hf_cache:
