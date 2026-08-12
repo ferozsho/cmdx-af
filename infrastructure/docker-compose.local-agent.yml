@@ -30,16 +30,40 @@ services:
     restart: unless-stopped
     init: true
     read_only: true
+    # The local agent must operate directly on host project folders (which are
+    # owned by the host user, uid 1000), so it runs as root and keeps the
+    # capabilities needed to read/write those bind mounts and run tool
+    # subprocesses (git/npm/pip). The base image filesystem stays read-only.
+    user: "0:0"
     cap_drop: ["ALL"]
+    cap_add:
+      - CAP_DAC_OVERRIDE
+      - CAP_DAC_READ_SEARCH
+      - CAP_FOWNER
+      - CAP_CHOWN
+      - CAP_SETUID
+      - CAP_SETGID
+      - CAP_KILL
     security_opt: ["no-new-privileges:true"]
     environment:
+      # Keep the CLI's config dir on the mounted volume even though we run as
+      # root (otherwise Path.home() would point at /root).
+      - HOME=/home/agentforge
+      # Git global config lives on the writable config volume (base fs is
+      # read-only). Repos owned by the host user are marked safe.directory so
+      # git doesn't reject them ("dubious ownership").
+      - GIT_CONFIG_GLOBAL=/home/agentforge/.agentforge/gitconfig
       - CLOUD_WSS_URL=ws://api:8000/api/v1/ws/devices
       - CLOUD_API_URL=http://api:8000/api/v1
       - QDRANT_URL=http://qdrant:6333
       - DEVICE_ID=${AGENTFORGE_DEVICE_ID:?AGENTFORGE_DEVICE_ID must be set in .env}
       - DEVICE_TOKEN=${AGENTFORGE_DEVICE_TOKEN:?AGENTFORGE_DEVICE_TOKEN must be set in .env}
     volumes:
-      # Your project folder(s), mounted read-write so the agent can work on them.
+      # Real host project folders, mounted at their absolute paths so the
+      # agent works on the actual project files (matches projects.local_path).
+      - /home/administrator/cmdx-af:/home/administrator/cmdx-af
+      - /home/administrator/glsm:/home/administrator/glsm
+      # Default workspace mount for ad-hoc / other projects.
       - ${AGENT_WORKSPACE:-./workspace}:/workspace
       # Persist pairing credentials + workspace registry across restarts.
       - agentforge_config:/home/agentforge/.agentforge
