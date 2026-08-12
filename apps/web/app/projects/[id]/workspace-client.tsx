@@ -2428,6 +2428,23 @@ export default function WorkspaceClient({
                             const filesList = Array.isArray(files)
                               ? files
                               : null
+                            const written = Array.isArray(
+                              run.metadata?.files_written,
+                            )
+                              ? (run.metadata
+                                  .files_written as Array<
+                                  Record<string, unknown>
+                                >)
+                              : null
+                            // Entries that carry a diff become clickable rows
+                            // that open the large git-style diff viewer.
+                            const diffFiles =
+                              written?.filter(
+                                (w) =>
+                                  w.success &&
+                                  typeof w.diff === 'string' &&
+                                  w.diff,
+                              ) ?? []
                             return (
                               <>
                                 {summary && (
@@ -2435,11 +2452,54 @@ export default function WorkspaceClient({
                                     ↳ {String(summary)}
                                   </div>
                                 )}
-                                {filesList && filesList.length > 0 && (
-                                  <div className="ml-4 text-[#7f899c]">
-                                    ↳ Generated:{' '}
-                                    {filesList.map(String).join(', ')}
+                                {diffFiles.length > 0 ? (
+                                  <div className="ml-4 mt-1 space-y-0.5">
+                                    {diffFiles.map((w, fi) => {
+                                      const path = String(w.path || '')
+                                      const added = Number(w.added) || 0
+                                      const removed = Number(w.removed) || 0
+                                      const operation =
+                                        added > 0 && removed === 0
+                                          ? 'created'
+                                          : 'modified'
+                                      return (
+                                        <button
+                                          key={fi}
+                                          type="button"
+                                          onClick={() =>
+                                            setSelectedDiff({
+                                              path,
+                                              operation,
+                                              added,
+                                              removed,
+                                              diff: String(w.diff || ''),
+                                            })
+                                          }
+                                          className="block w-full text-left text-[#4fc1ff] hover:underline cursor-pointer"
+                                          title={`View diff: ${path}`}
+                                        >
+                                          {operation === 'created' ? '➕' : '📝'}{' '}
+                                          {path}
+                                          <span className="text-[#4ade80]">
+                                            {' '}
+                                            +{added}
+                                          </span>
+                                          <span className="text-[#f87171]">
+                                            {' '}
+                                            −{removed}
+                                          </span>
+                                        </button>
+                                      )
+                                    })}
                                   </div>
+                                ) : (
+                                  filesList &&
+                                  filesList.length > 0 && (
+                                    <div className="ml-4 text-[#7f899c]">
+                                      ↳ Generated:{' '}
+                                      {filesList.map(String).join(', ')}
+                                    </div>
+                                  )
                                 )}
                                 {error && (
                                   <div className="ml-4 text-red-400">

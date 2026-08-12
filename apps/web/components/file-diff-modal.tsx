@@ -37,7 +37,7 @@ export default function FileDiffModal({
       onClick={onClose}
     >
       <div
-        className="bg-surface border border-border rounded-xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl"
+        className="bg-surface border border-border rounded-xl w-full max-w-4xl min-h-[500px] max-h-[85vh] flex flex-col shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -78,8 +78,8 @@ export default function FileDiffModal({
           </button>
         </div>
 
-        {/* Diff body */}
-        <div className="flex-1 overflow-auto bg-[#0f141e] font-mono text-xs leading-5 rounded-b-xl">
+        {/* Diff body — scrollable */}
+        <div className="flex-1 min-h-0 overflow-y-auto bg-[#0f141e] font-mono text-xs leading-5">
           {lines.length === 0 ? (
             <div className="p-4 text-[#7f899c]">
               No line-level diff available for this change.
@@ -103,6 +103,36 @@ export default function FileDiffModal({
               )
             })
           )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-border rounded-b-xl bg-surface-secondary/60">
+          <div className="min-w-0 flex items-center gap-2 text-xs text-muted">
+            <span className="font-mono truncate">{fileChange.path}</span>
+            <span className="shrink-0">·</span>
+            <span className="shrink-0">{meta.label}</span>
+            <span className="shrink-0">·</span>
+            <span className="shrink-0 whitespace-nowrap">
+              <span className="text-[#16a34a] font-medium">+{fileChange.added}</span>
+              {' / '}
+              <span className="text-[#dc2626] font-medium">
+                −{fileChange.removed}
+              </span>
+            </span>
+            {fileChange.diff && (
+              <>
+                <span className="shrink-0">·</span>
+                <span className="shrink-0 whitespace-nowrap">{lines.length} lines</span>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 px-4 py-1.5 text-xs font-semibold rounded-lg bg-foreground text-background hover:opacity-90 transition-opacity"
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>

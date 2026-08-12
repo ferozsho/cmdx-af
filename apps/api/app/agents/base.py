@@ -161,16 +161,22 @@ class BaseAgent(ABC):
                     arguments={"path": f["path"], "content": f["content"]},
                     authorization_id=authorization_id,
                 )
-                results.append({
-                    "path": f["path"],
-                    "success": res.success,
-                    "error": res.error if not res.success else None,
-                })
                 if res.success:
                     new_content = f.get("content", "")
                     diff_text, added, removed = compute_unified_diff(
                         old_content, new_content, f["path"]
                     )
+                    # Keep the diff (+/- lines) in the run metadata so the
+                    # history console can render each file as a clickable row
+                    # that opens the git-style diff viewer.
+                    results.append({
+                        "path": f["path"],
+                        "success": True,
+                        "error": None,
+                        "added": added,
+                        "removed": removed,
+                        "diff": diff_text,
+                    })
                     if added or removed:
                         await self._emit_file_change(
                             context,
@@ -180,6 +186,12 @@ class BaseAgent(ABC):
                             added,
                             removed,
                         )
+                else:
+                    results.append({
+                        "path": f["path"],
+                        "success": False,
+                        "error": res.error,
+                    })
             except Exception as e:
                 results.append({
                     "path": f["path"],
