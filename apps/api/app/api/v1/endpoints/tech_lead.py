@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.llm.router import LLMConfigurationError, ModelRouter
+from app.llm.tracking import current_project_id, current_session_id
 from app.models.project import Project
+from app.models.session import Session
 from app.models.tech_lead_interaction import TechLeadInteraction
 from app.models.user import User
 from app.repositories.project_repo import ProjectRepository
@@ -25,6 +27,9 @@ class TechLeadQuery(BaseModel):
     """A bounded question about an owned project."""
 
     question: str = Field(min_length=2, max_length=4000)
+    # Optional: attribute this AI call to a session so its tokens count toward
+    # the session context window (shown as "XK / YK" in the workspace UI).
+    session_id: str | None = None
 
 
 async def _owned_project(
@@ -79,6 +84,14 @@ async def query_tech_lead(
     context = await build_project_context(
         db, project, include_artifact_content=True
     )
+    # Validate the optional session belongs to this project before attributing
+    # the AI call's tokens to it.
+    if data.session_id:
+        session = await db.get(Session, data.session_id)
+        if not session or session.project_id != project.id:
+            raise HTTPException(
+                status_code=404, detail="Session not found for this project"
+            )
     model_name = project.default_model or "deepseek-chat"
     try:
         provider = ModelRouter.get_provider(model_name)
@@ -86,20 +99,28 @@ async def query_tech_lead(
         # No provider key is configured — surface a clear message to the UI
         # instead of a raw 500 so the user knows to add a key in Settings.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    response = await provider.generate(
-        prompt=(
-            f"Question: {data.question}\n\n"
-            "Project context (bounded JSON):\n"
-            f"{json.dumps(context, default=str, ensure_ascii=True)}"
-        ),
-        system_prompt=(
-            "You are the technical lead for this software project. Answer only "
-            "from the supplied project context. Clearly distinguish verified "
-            "facts, failures, pending approvals, and unknowns. Cite instruction "
-            "IDs, commit hashes, artifact titles, or evidence hashes when useful."
-        ),
-        model=model_name,
-    )
+    # Attribute usage to the project + active session (if any) so the token
+    # usage shows up in the session context ("XK / YK").
+    _project_token = current_project_id.set(project.id)
+    _session_token = current_session_id.set(data.session_id)
+    try:
+        response = await provider.generate(
+            prompt=(
+                f"Question: {data.question}\n\n"
+                "Project context (bounded JSON):\n"
+                f"{json.dumps(context, default=str, ensure_ascii=True)}"
+            ),
+            system_prompt=(
+                "You are the technical lead for this software project. Answer only "
+                "from the supplied project context. Clearly distinguish verified "
+                "facts, failures, pending approvals, and unknowns. Cite instruction "
+                "IDs, commit hashes, artifact titles, or evidence hashes when useful."
+            ),
+            model=model_name,
+        )
+    finally:
+        current_project_id.reset(_project_token)
+        current_session_id.reset(_session_token)
     answer = (
         response.content
         if isinstance(response.content, str)

@@ -872,8 +872,13 @@ export default function WorkspaceClient({
     if (!question || techLeadLoading) return
     setTechLeadLoading(true)
     setTechLeadError(null)
+    const sessionForQuery = activeSessionId || undefined
     try {
-      const interaction = await queryTechLead(projectId, question)
+      const interaction = await queryTechLead(
+        projectId,
+        question,
+        sessionForQuery,
+      )
       setTechLeadHistory((previous) => [
         { ...interaction, question },
         ...previous,
@@ -885,6 +890,13 @@ export default function WorkspaceClient({
       // Newest answer first -> back to page 1, and clear ?tlpage from the URL
       updateUrl('lead', undefined, undefined, undefined, undefined, undefined, 0)
       setTechLeadQuestion('')
+      // The AI call counted toward the active session — refresh the context
+      // meter ("XK / YK") so it reflects the updated token usage.
+      if (sessionForQuery) {
+        getSessionContext(projectId, sessionForQuery)
+          .then((ctx) => setSessionContext(ctx))
+          .catch(() => {})
+      }
     } catch (err) {
       setTechLeadError(
         err instanceof Error ? err.message : 'Tech lead query failed',

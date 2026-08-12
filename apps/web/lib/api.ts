@@ -660,11 +660,12 @@ export interface TechLeadInteractionResponse {
 export function queryTechLead(
   projectId: string,
   question: string,
+  sessionId?: string,
 ): Promise<TechLeadInteractionResponse> {
   return request<TechLeadInteractionResponse>(
     'POST',
     `/api/v1/projects/${encodeURIComponent(projectId)}/tech-lead/query`,
-    { question },
+    sessionId ? { question, session_id: sessionId } : { question },
   )
 }
 

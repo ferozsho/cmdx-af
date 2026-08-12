@@ -4,7 +4,7 @@ from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -161,13 +161,18 @@ async def get_session_context(
     )
     instructions = result.scalars().all()
 
-    # Get aggregated token usage from llm_usage
+    # Get aggregated token usage from llm_usage — counts both pipeline calls
+    # (linked via instruction) and session-attributed AI calls (e.g. tech-lead
+    # queries recorded with session_id directly).
     token_result = await db.execute(
         select(func.coalesce(func.sum(LLMUsage.total_tokens), 0)).where(
-            LLMUsage.instruction_id.in_(
-                select(Instruction.id).where(
-                    Instruction.session_id == session_id,
-                )
+            or_(
+                LLMUsage.session_id == session_id,
+                LLMUsage.instruction_id.in_(
+                    select(Instruction.id).where(
+                        Instruction.session_id == session_id,
+                    )
+                ),
             )
         )
     )

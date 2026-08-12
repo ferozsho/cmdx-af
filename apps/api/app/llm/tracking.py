@@ -20,6 +20,11 @@ current_instruction_id: ContextVar[Optional[str]] = ContextVar(
 current_project_id: ContextVar[Optional[str]] = ContextVar(
     "current_project_id", default=None
 )
+# Set for non-instruction AI calls (e.g. tech-lead queries) so usage records
+# count toward the active session's context window.
+current_session_id: ContextVar[Optional[str]] = ContextVar(
+    "current_session_id", default=None
+)
 
 
 class UsageTrackingProvider(BaseLLMProvider):
@@ -146,6 +151,7 @@ async def _persist_usage(
             session.add(
                 LLMUsage(
                     instruction_id=current_instruction_id.get(),
+                    session_id=current_session_id.get(),
                     project_id=current_project_id.get(),
                     provider=response.provider_name,
                     model=response.model,
@@ -195,6 +201,7 @@ async def _persist_error(
             session.add(
                 LLMUsage(
                     instruction_id=current_instruction_id.get(),
+                    session_id=current_session_id.get(),
                     project_id=current_project_id.get(),
                     provider="unknown",
                     model=model or "unknown",

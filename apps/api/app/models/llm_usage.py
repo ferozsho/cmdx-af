@@ -29,6 +29,11 @@ class LLMUsage(Base):
     instruction_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("instructions.id"), nullable=True, index=True
     )
+    # Optional session attribution — set for non-instruction AI calls (e.g.
+    # tech-lead queries) so they count toward the session context window.
+    session_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("sessions.id"), nullable=True, index=True
+    )
     project_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("projects.id"), nullable=True, index=True
     )
