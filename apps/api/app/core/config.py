@@ -110,17 +110,19 @@ def save_runtime_settings() -> None:
 
 
 def get_setting(key: str, default: str = "") -> str:
-    """Resolve a setting without permitting runtime overrides for secrets."""
+    """Resolve a setting without permitting runtime overrides for secrets.
+
+    API keys are managed EXCLUSIVELY from the Settings page (DB-backed
+    ``platform_settings`` table). They are never read from .env, so a key
+    only takes effect once it is stored in Settings.
+    """
     if key in SECRET_SETTING_KEYS:
-        # Secrets: prefer the DB-backed store (encrypted at rest), then the
-        # .env fallback for backwards compatibility with existing deploys.
-        stored_secret = db_secret_settings.get(key)
-        if stored_secret:
-            return stored_secret
-    else:
-        runtime_value = runtime_settings.get(key)
-        if runtime_value:
-            return runtime_value
+        # Secrets come ONLY from the DB-backed settings store. No .env
+        # fallback — the Settings page is the single source of truth.
+        return db_secret_settings.get(key) or default
+    runtime_value = runtime_settings.get(key)
+    if runtime_value:
+        return runtime_value
     configured = getattr(settings, key, None)
     return str(configured) if configured not in (None, "") else default
 

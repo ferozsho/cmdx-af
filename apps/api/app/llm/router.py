@@ -113,8 +113,8 @@ def _require_api_key(provider_name: str, setting_name: str) -> str:
     api_key = get_setting(setting_name, "")
     if not api_key:
         raise LLMConfigurationError(
-            f"{provider_name} is not configured. Add {setting_name} to the "
-            "root .env file."
+            f"{provider_name} is not configured. Add the key in "
+            "Settings → API Keys."
         )
     return api_key
 
