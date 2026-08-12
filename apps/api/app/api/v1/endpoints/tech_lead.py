@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.llm.router import ModelRouter
+from app.llm.router import LLMConfigurationError, ModelRouter
 from app.models.project import Project
 from app.models.tech_lead_interaction import TechLeadInteraction
 from app.models.user import User
@@ -80,7 +80,12 @@ async def query_tech_lead(
         db, project, include_artifact_content=True
     )
     model_name = project.default_model or "deepseek-chat"
-    provider = ModelRouter.get_provider(model_name)
+    try:
+        provider = ModelRouter.get_provider(model_name)
+    except LLMConfigurationError as exc:
+        # No provider key is configured — surface a clear message to the UI
+        # instead of a raw 500 so the user knows to add a key in Settings.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     response = await provider.generate(
         prompt=(
             f"Question: {data.question}\n\n"

@@ -10,6 +10,7 @@ const TABS = [
   'artifacts',
   'tests',
   'validation',
+  'lead',
   'settings',
 ]
 
@@ -45,6 +46,7 @@ export async function generateMetadata({
     FILES: file ? `File: ${file}` : 'Local Workspace Files',
     RAG: q ? `RAG Search: "${q}"` : 'Semantic RAG Search',
     GIT: 'Local Git Isolation Status',
+    LEAD: 'Technical Lead',
   }
 
   const tabTitle = titleMap[tab] || 'Workspace'
