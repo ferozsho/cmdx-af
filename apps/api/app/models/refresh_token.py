@@ -2,10 +2,12 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, ForeignKey
+
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.time import naive_utcnow
 
 
 class RefreshToken(Base):
@@ -23,7 +25,7 @@ class RefreshToken(Base):
     token_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=naive_utcnow, nullable=False
     )
     # Set when the token is used (rotated) or explicitly logged out
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

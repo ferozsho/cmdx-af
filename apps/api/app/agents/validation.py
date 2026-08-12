@@ -4,7 +4,7 @@ import json
 from typing import Any, Dict, List
 
 from app.agents.base import BaseAgent
-
+from app.services.approvals import ApprovalRequiredError
 
 SYSTEM_PROMPT = """You are a Code Quality & Validation expert. Analyze the code changes
 and identify potential issues. Return JSON with:
@@ -88,7 +88,10 @@ class ValidationAgent(BaseAgent):
         # 1. Python lint via ruff
         try:
             ruff_run = await self._run_command(
-                context, ["ruff", "check", "."]
+                context,
+                ["ruff", "check", "."],
+                operation="command.validate",
+                category="lint",
             )
             out = ruff_run.get("output") or ""
             if out and not _is_unavailable(out):
@@ -101,12 +104,19 @@ class ValidationAgent(BaseAgent):
                 )
                 if not ruff_run.get("success"):
                     recommendations.append("Fix ruff lint issues.")
+        except ApprovalRequiredError:
+            raise
         except Exception:
             pass
 
         # 2. Type check via mypy
         try:
-            mypy_run = await self._run_command(context, ["mypy", "."])
+            mypy_run = await self._run_command(
+                context,
+                ["mypy", "."],
+                operation="command.validate",
+                category="types",
+            )
             out = mypy_run.get("output") or ""
             if out and not _is_unavailable(out):
                 tools_available = True
@@ -118,13 +128,18 @@ class ValidationAgent(BaseAgent):
                 )
                 if not mypy_run.get("success"):
                     recommendations.append("Fix mypy type errors.")
+        except ApprovalRequiredError:
+            raise
         except Exception:
             pass
 
         # 3. Security scan via bandit (best-effort)
         try:
             bandit_run = await self._run_command(
-                context, ["python", "-m", "bandit", "-q", "-r", "."]
+                context,
+                ["python", "-m", "bandit", "-q", "-r", "."],
+                operation="command.validate",
+                category="security",
             )
             out = bandit_run.get("output") or ""
             if out and not _is_unavailable(out):
@@ -137,12 +152,19 @@ class ValidationAgent(BaseAgent):
                 )
                 if not bandit_run.get("success"):
                     recommendations.append("Review bandit security findings.")
+        except ApprovalRequiredError:
+            raise
         except Exception:
             pass
 
         # 4. Frontend lint via eslint (best-effort)
         try:
-            eslint_run = await self._run_command(context, ["eslint", "."])
+            eslint_run = await self._run_command(
+                context,
+                ["eslint", "."],
+                operation="command.validate",
+                category="lint",
+            )
             out = eslint_run.get("output") or ""
             if out and not _is_unavailable(out):
                 tools_available = True
@@ -154,6 +176,81 @@ class ValidationAgent(BaseAgent):
                 )
                 if not eslint_run.get("success"):
                     recommendations.append("Fix eslint issues.")
+        except ApprovalRequiredError:
+            raise
+        except Exception:
+            pass
+
+        # 5. Run project-native build and browser checks only when declared.
+        package_scripts: dict[str, Any] = {}
+        package_file = await self._read_file(context, "package.json")
+        if package_file.get("success"):
+            try:
+                package_data = json.loads(str(package_file.get("content") or "{}"))
+                package_scripts = package_data.get("scripts", {}) or {}
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                package_scripts = {}
+
+        if "build" in package_scripts:
+            build_run = await self._run_command(
+                context,
+                ["npm", "run", "build"],
+                operation="command.validate",
+                category="build",
+            )
+            tools_available = True
+            build_checks.append(
+                {"tool": "npm build", "passed": bool(build_run.get("success"))}
+            )
+            if not build_run.get("success"):
+                recommendations.append("Fix the project build before merge.")
+
+        browser_script = next(
+            (
+                name
+                for name in ("test:e2e", "e2e", "test:browser")
+                if name in package_scripts
+            ),
+            None,
+        )
+        if browser_script:
+            browser_run = await self._run_command(
+                context,
+                ["npm", "run", browser_script],
+                operation="command.validate",
+                category="browser",
+            )
+            tools_available = True
+            build_checks.append(
+                {
+                    "tool": f"npm {browser_script}",
+                    "passed": bool(browser_run.get("success")),
+                }
+            )
+            if not browser_run.get("success"):
+                recommendations.append("Fix browser end-to-end failures before merge.")
+
+        # 6. Capture slow-test timings as lightweight performance evidence.
+        try:
+            profile_run = await self._run_command(
+                context,
+                ["pytest", "-q", "--durations=10"],
+                operation="command.validate",
+                category="profile",
+            )
+            profile_output = profile_run.get("output") or ""
+            if profile_output and not _is_unavailable(profile_output):
+                tools_available = True
+                build_checks.append(
+                    {
+                        "tool": "pytest durations",
+                        "passed": bool(profile_run.get("success")),
+                    }
+                )
+                if not profile_run.get("success"):
+                    recommendations.append("Investigate timed test failures.")
+        except ApprovalRequiredError:
+            raise
         except Exception:
             pass
 
@@ -194,6 +291,13 @@ class ValidationAgent(BaseAgent):
         build_status = llm_out.get("build_status", "PASSED")
         if build_checks and any(not c["passed"] for c in build_checks):
             build_status = "FAILED"
+        verification_status = (
+            "UNVERIFIED"
+            if not tools_available
+            else "FAILED"
+            if any(not check["passed"] for check in build_checks)
+            else "PASSED"
+        )
 
         return {
             "status": "COMPLETED",
@@ -201,9 +305,15 @@ class ValidationAgent(BaseAgent):
             "type_errors": int(type_errors or 0),
             "security_issues": int(security_issues or 0),
             "build_status": build_status,
+            "verification_status": verification_status,
             "auto_fixes_applied": auto_fixes,
             "recommendations": recommendations,
             "tool_checks": build_checks,
+            "diagnostics": [
+                recommendation
+                for recommendation in recommendations
+                if recommendation.lower().startswith(("fix", "investigate", "review"))
+            ],
             "tokens_used": tokens_used,
             "cost": cost,
         }

@@ -242,12 +242,33 @@ export interface ProjectResponse {
   git_enabled?: boolean
   git_branch_patterns?: string[] | null
   git_require_pr?: boolean
+  ci_gate_enabled?: boolean
   git_commit_template?: string | null
   // Filesystem access
   fs_read_enabled?: boolean
   fs_write_enabled?: boolean
   fs_delete_enabled?: boolean
   default_model?: string | null
+  // Human approval and command execution policy
+  approval_mode?: 'NEVER' | 'RISKY' | 'ALWAYS'
+  command_allowlist?: string[] | null
+  max_command_seconds?: number
+}
+
+export interface ApprovalResponse {
+  id: string
+  project_id: string
+  instruction_id: string | null
+  tool_name: string
+  operation: string
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  summary: string
+  request_payload: Record<string, unknown>
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CONSUMED'
+  requested_at: string
+  expires_at: string
+  decided_at: string | null
+  decision_comment: string | null
 }
 
 export interface DeviceResponse {
@@ -323,18 +344,14 @@ export function getModels(visionOnly = false): Promise<
 
 /** GET /api/v1/settings */
 export function getSettings(): Promise<{
-  deepseek_api_key_masked: string
   deepseek_base_url: string
   deepseek_chat_model: string
   has_deepseek_key: boolean
-  openai_api_key_masked: string
   openai_base_url: string
   openai_chat_model: string
   has_openai_key: boolean
-  gemini_api_key_masked: string
   gemini_chat_model: string
   has_gemini_key: boolean
-  claude_api_key_masked: string
   claude_chat_model: string
   has_claude_key: boolean
   max_agent_steps: number
@@ -351,15 +368,11 @@ export function getSettings(): Promise<{
 
 /** PUT /api/v1/settings */
 export function updateSettings(data: {
-  deepseek_api_key?: string
   deepseek_base_url?: string
   deepseek_chat_model?: string
-  openai_api_key?: string
   openai_base_url?: string
   openai_chat_model?: string
-  gemini_api_key?: string
   gemini_chat_model?: string
-  claude_api_key?: string
   claude_chat_model?: string
   max_agent_steps?: number
   agent_timeout?: number
@@ -419,18 +432,47 @@ export function updateProject(
     git_enabled?: boolean
     git_branch_patterns?: string[]
     git_require_pr?: boolean
+    ci_gate_enabled?: boolean
     git_commit_template?: string | null
     // Filesystem access
     fs_read_enabled?: boolean
     fs_write_enabled?: boolean
     fs_delete_enabled?: boolean
     default_model?: string | null
+    approval_mode?: 'NEVER' | 'RISKY' | 'ALWAYS'
+    command_allowlist?: string[]
+    max_command_seconds?: number
   },
 ): Promise<ProjectResponse> {
   return request<ProjectResponse>(
     'PATCH',
     `/api/v1/projects/${encodeURIComponent(id)}`,
     data,
+  )
+}
+
+/** GET /api/v1/projects/:id/approvals */
+export function listApprovals(
+  projectId: string,
+  status?: ApprovalResponse['status'],
+): Promise<ApprovalResponse[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : ''
+  return request<ApprovalResponse[]>(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(projectId)}/approvals${query}`,
+  )
+}
+
+/** Resolve a pending, user-owned approval request. */
+export function decideApproval(
+  approvalId: string,
+  decision: 'approve' | 'reject',
+  comment?: string,
+): Promise<ApprovalResponse> {
+  return request<ApprovalResponse>(
+    'POST',
+    `/api/v1/approvals/${encodeURIComponent(approvalId)}/${decision}`,
+    { comment: comment?.trim() || null },
   )
 }
 
@@ -549,6 +591,90 @@ export function getGitLog(id: string, maxCount = 20): Promise<unknown[]> {
   return request<unknown[]>('GET', `/api/v1/projects/${encodeURIComponent(id)}/git/log?max_count=${maxCount}`)
 }
 
+export interface GitProvenanceResponse {
+  id: string
+  instruction_id: string
+  commit_hash: string
+  branch: string
+  message: string
+  ai_generated: boolean
+  provenance_digest: string | null
+  prompt_digest: string | null
+  model_name: string | null
+  changed_files: string[]
+  commit_metadata: Record<string, unknown>
+  verification_status: string
+  created_at: string
+}
+
+/** GET /api/v1/projects/:id/git/provenance */
+export function getGitProvenance(id: string): Promise<GitProvenanceResponse[]> {
+  return request<GitProvenanceResponse[]>(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(id)}/git/provenance`,
+  )
+}
+
+export interface VerificationRunResponse {
+  id: string
+  instruction_id: string
+  category: string
+  executable: string
+  command_digest: string
+  status: 'PASSED' | 'FAILED'
+  exit_code: number | null
+  duration_seconds: number
+  output_digest: string
+  output_excerpt: string
+  created_at: string
+}
+
+export interface TechLeadInteractionResponse {
+  id: string
+  question?: string
+  answer: string
+  model_name: string | null
+  sources: string[]
+  total_tokens: number
+  created_at: string
+}
+
+/** Query the project-wide technical-lead assistant. */
+export function queryTechLead(
+  projectId: string,
+  question: string,
+): Promise<TechLeadInteractionResponse> {
+  return request<TechLeadInteractionResponse>(
+    'POST',
+    `/api/v1/projects/${encodeURIComponent(projectId)}/tech-lead/query`,
+    { question },
+  )
+}
+
+/** List audited technical-lead conversations for a project. */
+export function listTechLeadHistory(
+  projectId: string,
+): Promise<TechLeadInteractionResponse[]> {
+  return request<TechLeadInteractionResponse[]>(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(projectId)}/tech-lead/history`,
+  )
+}
+
+/** GET /api/v1/projects/:id/verifications */
+export function listVerificationRuns(
+  id: string,
+  instructionId?: string,
+): Promise<VerificationRunResponse[]> {
+  const query = instructionId
+    ? `?instruction_id=${encodeURIComponent(instructionId)}`
+    : ''
+  return request<VerificationRunResponse[]>(
+    'GET',
+    `/api/v1/projects/${encodeURIComponent(id)}/verifications${query}`,
+  )
+}
+
 /** POST /api/v1/projects/:id/git/rollback */
 export function rollbackGit(
   id: string,
@@ -658,6 +784,7 @@ export function submitInstruction(
   imageBytes?: string,
   imageMimeType?: string,
   sessionId?: string,
+  idempotencyKey?: string,
 ): Promise<{ id: string; project_id: string; prompt: string; status: string }> {
   const body: Record<string, unknown> = { prompt }
   if (imageBytes) {
@@ -667,10 +794,27 @@ export function submitInstruction(
   if (sessionId) {
     body.session_id = sessionId
   }
+  const requestKey =
+    idempotencyKey ||
+    (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`)
   return request<{ id: string; project_id: string; prompt: string; status: string }>(
     'POST',
     `/api/v1/projects/${encodeURIComponent(id)}/instructions`,
     body,
+    { headers: { 'Idempotency-Key': requestKey } },
+  )
+}
+
+/** POST /api/v1/projects/:id/instructions/:instructionId/cancel */
+export function cancelInstruction(
+  id: string,
+  instructionId: string,
+): Promise<{ id: string; status: string; cancel_requested_at: string | null }> {
+  return request(
+    'POST',
+    `/api/v1/projects/${encodeURIComponent(id)}/instructions/${encodeURIComponent(instructionId)}/cancel`,
   )
 }
 
@@ -841,9 +985,130 @@ export function generatePairingCode(): Promise<{
   )
 }
 
-/** Build SSE EventSource URL for a project */
-export function buildSSEUrl(projectId: string): string {
-  return `${API_BASE}/api/v1/projects/${encodeURIComponent(projectId)}/stream`
+export interface ProjectStreamEvent {
+  event_id?: string
+  instruction_id?: string
+  agent_name?: string
+  status: string
+  message: string
+  duration_seconds?: number
+  data?: Record<string, unknown> & { duration_seconds?: number }
+}
+
+/**
+ * Subscribe to the authenticated project event stream.
+ *
+ * Native EventSource cannot attach the bearer token used by this application,
+ * so the stream is consumed through fetch and an AbortController.
+ */
+export function subscribeProjectEvents(
+  projectId: string,
+  onEvent: (event: ProjectStreamEvent) => void,
+  onError: (error: Error) => void,
+): () => void {
+  const controller = new AbortController()
+  const storageKey = `agentforge:project-stream:${projectId}`
+  let lastEventId =
+    typeof window !== 'undefined'
+      ? window.sessionStorage.getItem(storageKey) || ''
+      : ''
+  let retryDelayMs = 500
+
+  const waitForRetry = (delayMs: number): Promise<void> =>
+    new Promise((resolve) => {
+      const timer = window.setTimeout(resolve, delayMs)
+      controller.signal.addEventListener(
+        'abort',
+        () => {
+          window.clearTimeout(timer)
+          resolve()
+        },
+        { once: true },
+      )
+    })
+
+  const consumeConnection = async (): Promise<void> => {
+    const after = lastEventId ? `?after=${encodeURIComponent(lastEventId)}` : ''
+    const path = `/api/v1/projects/${encodeURIComponent(projectId)}/stream${after}`
+    let response = await rawFetch('GET', path, undefined, {
+      signal: controller.signal,
+    })
+    if (response.status === 401 && getRefreshToken() && (await tryRefresh())) {
+      response = await rawFetch('GET', path, undefined, {
+        signal: controller.signal,
+      })
+    }
+    if (!response.ok) {
+      throw new ApiError(response.status, `Event stream HTTP ${response.status}`)
+    }
+    if (!response.body) {
+      throw new Error('Event stream response has no body')
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (!controller.signal.aborted) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+
+      let boundary = buffer.indexOf('\n\n')
+      while (boundary >= 0) {
+        const block = buffer.slice(0, boundary)
+        buffer = buffer.slice(boundary + 2)
+        const eventId =
+          block
+            .split('\n')
+            .find((line) => line.startsWith('id:'))
+            ?.slice(3)
+            .trim() || ''
+        const payload = block
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trimStart())
+          .join('\n')
+        if (payload) {
+          const event = JSON.parse(payload) as ProjectStreamEvent
+          if (eventId) {
+            lastEventId = eventId
+            event.event_id = eventId
+            window.sessionStorage.setItem(storageKey, eventId)
+          }
+          onEvent(event)
+        }
+        boundary = buffer.indexOf('\n\n')
+      }
+    }
+  }
+
+  const connect = async (): Promise<void> => {
+    while (!controller.signal.aborted) {
+      try {
+        await consumeConnection()
+        retryDelayMs = 500
+      } catch (error: unknown) {
+        if (controller.signal.aborted) return
+        if (error instanceof ApiError && [403, 404].includes(error.code)) {
+          onError(error)
+          return
+        }
+      }
+      if (!controller.signal.aborted) {
+        await waitForRetry(retryDelayMs)
+        retryDelayMs = Math.min(retryDelayMs * 2, 10_000)
+      }
+    }
+  }
+
+  void connect().catch((error: unknown) => {
+    if (!controller.signal.aborted) {
+      onError(error instanceof Error ? error : new Error(String(error)))
+    }
+  })
+
+  return () => controller.abort()
 }
 
 // ── Agent Template Types & API ────────────────────────────────────────────

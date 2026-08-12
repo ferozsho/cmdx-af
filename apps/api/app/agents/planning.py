@@ -2,6 +2,7 @@
 
 import json
 from typing import Any, Dict
+
 from app.agents.base import BaseAgent
 
 DEFAULT_SYSTEM_PROMPT = (

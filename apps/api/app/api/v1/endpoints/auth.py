@@ -1,13 +1,15 @@
 """Authentication Endpoints — register, login, refresh, reset, me."""
 
-from datetime import datetime
+import secrets as _secrets
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
     create_access_token,
@@ -18,8 +20,10 @@ from app.core.security import (
     refresh_token_expiry,
     verify_password,
 )
+from app.models.password_reset_token import PasswordResetToken
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
+from app.services.rate_limit import enforce_rate_limit
 
 router = APIRouter()
 
@@ -35,7 +39,7 @@ class RegisterRequest(BaseModel):
     """User registration payload."""
 
     email: str = Field(min_length=3, max_length=200)
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=10, max_length=128)
     full_name: str | None = Field(default=None, max_length=120)
 
 
@@ -81,7 +85,7 @@ class ChangePasswordRequest(BaseModel):
     """Password change payload."""
 
     current_password: str
-    new_password: str = Field(min_length=6, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
 
 
 async def _issue_tokens(
@@ -93,7 +97,7 @@ async def _issue_tokens(
     revoked so the old token can't be replayed.
     """
     if rotate is not None:
-        rotate.revoked_at = datetime.utcnow()
+        rotate.revoked_at = datetime.now(UTC).replace(tzinfo=None)
     raw = generate_refresh_token()
     db.add(
         RefreshToken(
@@ -169,6 +173,9 @@ async def login(
 ) -> Any:
     """Authenticate a user and return a JWT."""
     email = data.email.lower().strip()
+    await enforce_rate_limit(
+        "login", email, limit=10, window_seconds=300
+    )
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
     if not user or not verify_password(data.password, user.hashed_password):
@@ -194,7 +201,7 @@ async def refresh(
     stored = result.scalar_one_or_none()
     if not stored or stored.revoked_at is not None:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
-    if stored.expires_at < datetime.utcnow():
+    if stored.expires_at < datetime.now(UTC).replace(tzinfo=None):
         raise HTTPException(status_code=401, detail="Refresh token expired")
 
     user_result = await db.execute(
@@ -218,18 +225,13 @@ async def logout(
     )
     stored = result.scalar_one_or_none()
     if stored and stored.revoked_at is None:
-        stored.revoked_at = datetime.utcnow()
+        stored.revoked_at = datetime.now(UTC).replace(tzinfo=None)
         await db.commit()
     return {"ok": True, "detail": "Signed out"}
 
 
-# ── Password reset (dev-mode; no SMTP — token returned in the response) ────
-import secrets as _secrets
-import time as _time
-import uuid as _uuid
-
+# ── Password reset ─────────────────────────────────────────────────────────
 _RESET_TTL_SECONDS = 1800  # 30 minutes
-_reset_tokens: dict[str, dict] = {}
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -242,35 +244,53 @@ class ResetPasswordRequest(BaseModel):
     """Reset a password with a token."""
 
     token: str
-    new_password: str = Field(min_length=6, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
 
 
 @router.post("/auth/forgot-password")
 async def forgot_password(
     data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)
 ) -> Any:
-    """Issue a short-lived password-reset token.
-
-    No SMTP is configured, so the token is returned directly in the response
-    (dev-mode). In production this would email the user instead.
-    """
+    """Issue a short-lived password-reset token without account enumeration."""
     email = data.email.lower().strip()
+    await enforce_rate_limit(
+        "forgot-password", email, limit=5, window_seconds=3600
+    )
     user_result = await db.execute(select(User).where(User.email == email))
     user = user_result.scalar_one_or_none()
     if not user:
         # Never reveal whether an email is registered
         return {"ok": True, "detail": "If that email exists, a reset link was sent."}
     token = _secrets.token_urlsafe(32)
-    _reset_tokens[token] = {
-        "email": email,
-        "expires_at": _time.time() + _RESET_TTL_SECONDS,
-    }
-    return {
+    now = datetime.now(UTC).replace(tzinfo=None)
+    await db.execute(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used_at.is_(None),
+        )
+        .values(used_at=now)
+    )
+    db.add(
+        PasswordResetToken(
+            user_id=user.id,
+            token_hash=hash_refresh_token(token),
+            expires_at=now + timedelta(seconds=_RESET_TTL_SECONDS),
+        )
+    )
+    await db.commit()
+    response = {
         "ok": True,
-        "detail": "Password reset token generated (dev-mode: returned below).",
-        "reset_token": token,
-        "expires_in_seconds": _RESET_TTL_SECONDS,
+        "detail": "If that email exists, a reset link was sent.",
     }
+    if settings.APP_MODE == "mock":
+        response.update(
+            {
+                "reset_token": token,
+                "expires_in_seconds": _RESET_TTL_SECONDS,
+            }
+        )
+    return response
 
 
 @router.post("/auth/reset-password")
@@ -282,17 +302,26 @@ async def reset_password(
     Also bumps ``token_version`` (revoking all JWTs) and revokes every
     outstanding refresh token for the user.
     """
-    record = _reset_tokens.pop(data.token.strip(), None)
-    if not record or record["expires_at"] < _time.time():
+    now = datetime.now(UTC).replace(tzinfo=None)
+    result = await db.execute(
+        select(PasswordResetToken)
+        .where(
+            PasswordResetToken.token_hash
+            == hash_refresh_token(data.token.strip()),
+            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.expires_at >= now,
+        )
+        .with_for_update()
+    )
+    record = result.scalar_one_or_none()
+    if not record:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
 
-    user_result = await db.execute(
-        select(User).where(User.email == record["email"])
-    )
-    user = user_result.scalar_one_or_none()
+    user = await db.get(User, record.user_id)
     if not user:
         raise HTTPException(status_code=400, detail="User no longer exists")
 
+    record.used_at = now
     user.hashed_password = hash_password(data.new_password)
     user.token_version = (user.token_version or 0) + 1
     # Revoke all outstanding refresh tokens for this user
@@ -302,7 +331,7 @@ async def reset_password(
         )
     )
     for rt in revoke_result.scalars().all():
-        rt.revoked_at = datetime.utcnow()
+        rt.revoked_at = datetime.now(UTC).replace(tzinfo=None)
     await db.commit()
     return {"ok": True, "detail": "Password reset. You can now sign in."}
 

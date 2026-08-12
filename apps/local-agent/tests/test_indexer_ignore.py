@@ -5,6 +5,16 @@ from pathlib import Path
 from agentforge_local.rag.indexer import _IGNORED_PARTS, LocalRAGIndexer
 
 
+class OfflineStore:
+    """Unit-test store that prevents writes to the live Qdrant service."""
+
+    def upsert_chunks(self, chunks):
+        return 0
+
+    def search(self, query, top_k=5):
+        return []
+
+
 def test_ignored_parts_cover_noise_dirs() -> None:
     """The ignore set includes VCS, venvs, and build caches."""
     for part in (
@@ -35,6 +45,7 @@ def test_iter_files_skips_ignored_dirs(tmp_path: Path) -> None:
     (tmp_path / "__pycache__" / "mod.cpython-311.pyc").write_bytes(b"\x00")
 
     indexer = LocalRAGIndexer(str(tmp_path))
+    indexer._store = OfflineStore()
     files = list(indexer._iter_files())
     rel = {str(f.relative_to(tmp_path)) for f in files}
 
@@ -52,6 +63,7 @@ def test_iter_files_includes_nested_ignored(tmp_path: Path) -> None:
     (tmp_path / "apps" / "web" / "page.tsx").write_text("export default\n")
 
     indexer = LocalRAGIndexer(str(tmp_path))
+    indexer._store = OfflineStore()
     files = list(indexer._iter_files())
     rel = {str(f.relative_to(tmp_path)) for f in files}
 
@@ -69,6 +81,7 @@ def test_index_workspace_skips_when_busy(tmp_path: Path) -> None:
     (tmp_path / "src" / "main.py").write_text("x = 1\n")
 
     indexer = LocalRAGIndexer(str(tmp_path))
+    indexer._store = OfflineStore()
     # Simulate an in-flight index by holding the internal lock
     assert indexer._index_lock.acquire(blocking=False)
     try:
@@ -84,3 +97,26 @@ def test_index_workspace_skips_when_busy(tmp_path: Path) -> None:
     assert count >= 1
     assert indexer.index_state["state"] == "complete"
 
+
+def test_keyword_retrieval_ranks_relevant_file_with_line_metadata(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "payments.py").write_text(
+        "def refund_transaction(payment_id):\n"
+        "    return reverse_payment(payment_id)\n"
+    )
+    (tmp_path / "weather.py").write_text(
+        "def current_temperature(city):\n"
+        "    return weather_service(city)\n"
+    )
+    indexer = LocalRAGIndexer(str(tmp_path))
+    indexer._store = OfflineStore()
+
+    assert indexer.index_workspace(chunk_size=1, chunk_overlap=0) == 4
+    results = indexer.search("refund transaction payment", top_k=2)
+
+    assert results
+    assert results[0]["file_path"] == "payments.py"
+    assert results[0]["start_line"] == 1
+    assert results[0]["end_line"] == 1
+    assert results[0]["score"] == 1.0

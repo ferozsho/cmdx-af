@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -14,6 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.time import naive_utcnow
 
 
 class LLMUsage(Base):
@@ -48,5 +50,5 @@ class LLMUsage(Base):
     temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
     json_mode: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False, index=True
+        DateTime, default=naive_utcnow, nullable=False, index=True
     )

@@ -27,13 +27,15 @@ def load_device_credentials() -> Dict[str, str]:
     return {}
 
 
-def save_device_credentials(device_id: str, device_token: str) -> None:
-    """Persist device credentials to disk."""
+def save_device_identity(device_id: str) -> None:
+    """Persist only the non-secret paired device identity to disk."""
     creds = load_device_credentials()
-    creds.update({"device_id": device_id, "device_token": device_token})
+    creds.pop("device_token", None)
+    creds["device_id"] = device_id
     path = _device_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(creds, indent=2))
+    path.chmod(0o600)
 
 
 def system_info() -> Dict[str, Any]:
@@ -58,5 +60,5 @@ async def pair_with_cloud(pairing_code: str) -> Dict[str, Any]:
         )
         res.raise_for_status()
         data = res.json()
-        save_device_credentials(data["device_id"], data["device_token"])
+        save_device_identity(data["device_id"])
         return data

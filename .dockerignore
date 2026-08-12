@@ -1,0 +1,15 @@
+.git
+.agents
+.codex
+.env
+**/.env
+**/.env.*
+**/node_modules
+**/.next
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.py[cod]
+**/*.tsbuildinfo
+apps/api/data

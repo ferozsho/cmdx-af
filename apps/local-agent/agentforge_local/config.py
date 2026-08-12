@@ -1,17 +1,19 @@
 """Local Agent Daemon Configuration."""
 
-import os
 from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_REPO_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 
 class LocalAgentSettings(BaseSettings):
     """Local Agent configuration options."""
 
     model_config = SettingsConfigDict(
-        env_file=".env.local",
+        env_file=_REPO_ENV_FILE,
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
     )
 
     CLOUD_WSS_URL: str = "ws://localhost:8000/api/v1/ws/devices"

@@ -1,10 +1,12 @@
 """WSS Connection Manager for Local Agent Device Communication."""
 
 import asyncio
-from typing import Dict, Optional
+from typing import Dict
+
+from agentforge_protocol import ToolRequest, ToolResult
 from fastapi import WebSocket
 from sqlalchemy.ext.asyncio import AsyncSession
-from agentforge_protocol import ToolRequest, ToolResult
+
 from app.repositories.device_repo import DeviceRepository
 
 

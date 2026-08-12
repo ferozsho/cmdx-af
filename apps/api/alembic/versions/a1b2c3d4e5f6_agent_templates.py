@@ -5,8 +5,10 @@ Revises: de24072d4276
 Create Date: 2026-08-07
 """
 from typing import Sequence, Union
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 revision: str = "a1b2c3d4e5f6"
 down_revision: Union[str, None] = "de24072d4276"
@@ -64,7 +66,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["template_id"], ["agent_templates.id"], ondelete="CASCADE"),
     )
     op.create_index("ix_project_agents_project", "project_agents", ["project_id"])
-    op.create_index("ix_project_agents_unique", "project_agents", ["project_id", "template_id"], unique=True)
+    op.create_index(
+        "ix_project_agents_unique",
+        "project_agents",
+        ["project_id", "template_id"],
+        unique=True,
+    )
 
 
 def downgrade() -> None:

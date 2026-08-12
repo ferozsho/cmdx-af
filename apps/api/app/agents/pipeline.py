@@ -5,16 +5,20 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import select
+
 from app.agents.registry import AGENT_REGISTRY, DEFAULT_AGENT_ORDER
 from app.core.database import AsyncSessionLocal
+from app.llm.router import LLMConfigurationError
 from app.llm.tracking import current_instruction_id, current_project_id
 from app.models.agent_run import AgentRun
-
-logger = logging.getLogger(__name__)
 from app.models.artifact import Artifact
 from app.models.instruction import Instruction
 from app.repositories.agent_template_repo import AgentTemplateRepository
 from app.repositories.project_repo import ProjectRepository
+from app.services.approvals import ApprovalRequiredError
+
+logger = logging.getLogger(__name__)
 
 
 # Maps each artifact-producing agent to its Artifact.artifact_type
@@ -72,6 +76,9 @@ def _build_artifact(
             "type_errors": res.get("type_errors", 0),
             "security_issues": res.get("security_issues", 0),
             "build_status": res.get("build_status", "PASSED"),
+            "verification_status": res.get("verification_status", "UNVERIFIED"),
+            "tool_checks": res.get("tool_checks", []),
+            "diagnostics": res.get("diagnostics", []),
             "recommendations": res.get("recommendations", []),
         }
     else:
@@ -84,6 +91,26 @@ def _build_artifact(
         "type": artifact_type,
         "content": json.dumps(content, default=str, indent=2),
     }
+
+
+async def _emit_event(
+    event_callback: Any,
+    agent_name: str,
+    status: str,
+    message: str,
+    data: dict | None = None,
+) -> None:
+    """Emit progress without allowing a disconnected client to stop a job."""
+    if not event_callback:
+        return
+    try:
+        await event_callback(agent_name, status, message, data=data)
+    except Exception:
+        logger.exception(
+            "Unable to emit pipeline event: agent=%s status=%s",
+            agent_name,
+            status,
+        )
 
 
 class PipelineOrchestrator:
@@ -130,8 +157,16 @@ class PipelineOrchestrator:
                 # Merge: project_agent overrides win; unconfigured agents
                 # default to enabled (consistent with the frontend).
                 pa_map = {pa.template_id: pa for pa in project_agents}
+                indexed_templates = list(enumerate(templates))
+                indexed_templates.sort(
+                    key=lambda item: (
+                        pa_map[item[1].id].sort_order
+                        if item[1].id in pa_map
+                        else len(templates) + item[0]
+                    )
+                )
                 agents: list = []
-                for t in templates:
+                for _, t in indexed_templates:
                     pa = pa_map.get(t.id)
                     enabled = pa.enabled if pa else True
                     if not enabled:
@@ -155,11 +190,18 @@ class PipelineOrchestrator:
                     self.project_id, len(project_agents), len(agents),
                 )
                 return agents
-        except Exception as exc:
+        except LLMConfigurationError:
             logger.exception(
-                "_load_agents failed for project=%s, falling back to defaults",
+                "LLM configuration prevents execution for project=%s",
                 self.project_id,
             )
+            raise
+        except Exception:
+            logger.exception(
+                "_load_agents failed for project=%s; execution is disabled",
+                self.project_id,
+            )
+            return []
 
     def _default_agents(self) -> list:
         """Return the hardcoded default agent list (backward compat)."""
@@ -170,13 +212,15 @@ class PipelineOrchestrator:
         instruction_id: str,
         prompt: str,
         event_callback: Any = None,
-        device_id: str = "dev_feroz_pc",
+        device_id: str = "",
         workspace_id: str = "ws-test",
         image_bytes: str | None = None,
         image_mime_type: str | None = None,
         previous_context: list[dict] | None = None,
         session_model_name: str | None = None,
         session_context_limit: int | None = None,
+        cancel_check: Any = None,
+        user_id: str | None = None,
     ) -> Dict[str, Any]:
         """Execute all sequential agents in order, emitting live progress events."""
         # Bind instruction_id and project_id so LLM usage tracking persists
@@ -189,20 +233,29 @@ class PipelineOrchestrator:
 
         # Load project config for policy enforcement
         project_config = None
+        project_policy_error: str | None = None
         if self.project_id:
             try:
                 async with AsyncSessionLocal() as session:
                     project_repo = ProjectRepository(session)
                     project_config = await project_repo.get_by_id(self.project_id)
+                    if project_config is None:
+                        project_policy_error = "Project policy could not be loaded."
             except Exception:
-                pass
+                logger.exception(
+                    "Unable to load project policy for project=%s",
+                    self.project_id,
+                )
+                project_policy_error = "Project policy could not be loaded."
 
         context: Dict[str, Any] = {
             "instruction_id": instruction_id,
+            "project_id": self.project_id,
             "prompt": prompt,
             "device_id": device_id,
             "workspace_id": workspace_id,
             "project_config": project_config,
+            "user_id": user_id or getattr(project_config, "user_id", None),
         }
         # Inject image attachment for Visual Analysis Agent
         if image_bytes:
@@ -214,16 +267,90 @@ class PipelineOrchestrator:
             context["session_model_name"] = session_model_name
             context["session_context_limit"] = session_context_limit
         results: List[Dict[str, Any]] = []
+        persistence_failed = False
+        cancelled = False
+        waiting_approval = False
+        completed_runs: dict[str, dict[str, Any]] = {}
+        try:
+            async with AsyncSessionLocal() as session:
+                prior_runs = await session.scalars(
+                    select(AgentRun)
+                    .where(
+                        AgentRun.instruction_id == instruction_id,
+                        AgentRun.status == "COMPLETED",
+                    )
+                    .order_by(AgentRun.created_at.asc())
+                )
+                for prior in prior_runs.all():
+                    if isinstance(prior.metadata_json, dict):
+                        completed_runs[prior.agent_name] = prior.metadata_json
+        except Exception:
+            logger.exception(
+                "Unable to load completed pipeline checkpoints: %s",
+                instruction_id,
+            )
+
+        if project_policy_error:
+            context["pipeline_error"] = project_policy_error
+            agents = []
+            await _emit_event(
+                event_callback,
+                "System",
+                "FAILED",
+                project_policy_error,
+            )
 
         for agent in agents:
-            start_time = time.time()
-            if event_callback:
-                await event_callback(
-                    agent.agent_name, "STARTED", f"Running {agent.agent_name}..."
+            if agent.agent_name in completed_runs:
+                checkpoint = dict(completed_runs[agent.agent_name])
+                context.update(checkpoint)
+                results.append(checkpoint)
+                await _emit_event(
+                    event_callback,
+                    agent.agent_name,
+                    "COMPLETED",
+                    f"Resumed from completed {agent.agent_name} checkpoint.",
+                    data=checkpoint,
                 )
+                continue
+            if cancel_check and await cancel_check():
+                cancelled = True
+                context["pipeline_error"] = "Instruction cancelled."
+                await _emit_event(
+                    event_callback,
+                    "System",
+                    "CANCELLED",
+                    "Instruction cancelled before the next agent step.",
+                )
+                break
+            start_time = time.time()
+            await _emit_event(
+                event_callback,
+                agent.agent_name,
+                "STARTED",
+                f"Running {agent.agent_name}...",
+            )
 
-            res = await agent.execute(context)
+            try:
+                res = await agent.execute(context)
+            except ApprovalRequiredError as exc:
+                waiting_approval = True
+                context["pipeline_error"] = exc.summary
+                res = {
+                    "status": "WAITING_APPROVAL",
+                    "approval_id": exc.approval_id,
+                    "error": exc.summary,
+                }
+            except Exception as exc:
+                logger.exception(
+                    "Agent execution failed: instruction=%s agent=%s",
+                    instruction_id,
+                    agent.agent_name,
+                )
+                res = {"status": "FAILED", "error": str(exc)}
             duration = round(time.time() - start_time, 2)
+            step_status = str(res.get("status", "COMPLETED")).upper()
+            res["status"] = step_status
             res["duration_seconds"] = duration
             res["agent_name"] = agent.agent_name
 
@@ -258,30 +385,60 @@ class PipelineOrchestrator:
                         )
                     await session.commit()
             except Exception:
-                pass
-
-            if event_callback:
-                await event_callback(
+                persistence_failed = True
+                logger.exception(
+                    "Unable to persist agent result: instruction=%s agent=%s",
+                    instruction_id,
                     agent.agent_name,
-                    "COMPLETED",
-                    f"{agent.agent_name} finished in {duration}s.",
-                    data=res,
                 )
 
+            await _emit_event(
+                event_callback,
+                agent.agent_name,
+                step_status,
+                (
+                    f"{agent.agent_name} failed after {duration}s."
+                    if step_status == "FAILED"
+                    else f"{agent.agent_name} finished in {duration}s."
+                ),
+                data=res,
+            )
+
+            if step_status in {"FAILED", "WAITING_APPROVAL"}:
+                break
+
         # Mark the instruction as COMPLETED/FAILED based on agent results
+        any_failed = any(r.get("status") == "FAILED" for r in results)
+        final_status = (
+            "CANCELLED"
+            if cancelled
+            else (
+                "WAITING_APPROVAL"
+                if waiting_approval
+                else (
+                    "FAILED"
+                    if any_failed or not results or persistence_failed
+                    else "COMPLETED"
+                )
+            )
+        )
         try:
-            any_failed = any(r.get("status") == "FAILED" for r in results)
             async with AsyncSessionLocal() as session:
                 instruction = await session.get(Instruction, instruction_id)
                 if instruction:
-                    instruction.status = "FAILED" if any_failed else "COMPLETED"
+                    instruction.status = final_status
                     await session.commit()
         except Exception:
-            pass
+            final_status = "FAILED"
+            logger.exception(
+                "Unable to persist final pipeline state: instruction=%s status=%s",
+                instruction_id,
+                final_status,
+            )
 
         return {
             "instruction_id": instruction_id,
-            "status": "COMPLETED",
+            "status": final_status,
             "agent_runs": results,
             "final_context": context,
         }

@@ -1,7 +1,9 @@
 """Base Agent Class."""
 
+import hashlib
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
+
 from app.llm.router import ModelRouter
 from app.tools.gateway.tool_gateway import ToolGateway
 
@@ -74,6 +76,34 @@ class BaseAgent(ABC):
 
         check_git_policy(project, operation, branch=branch)
 
+    async def _authorize_tool(
+        self,
+        context: Dict[str, Any],
+        tool_name: str,
+        operation: str,
+        arguments: dict[str, Any],
+        summary: str,
+    ) -> str:
+        """Apply project policy and obtain a one-time mutation grant."""
+        from app.services.approvals import authorize_tool
+
+        project = self._get_project_config(context)
+        user_id = str(
+            context.get("user_id")
+            or getattr(project, "user_id", "")
+        )
+        if not user_id:
+            raise PermissionError("Instruction owner is unavailable.")
+        return await authorize_tool(
+            project=project,
+            user_id=user_id,
+            instruction_id=context.get("instruction_id"),
+            tool_name=tool_name,
+            operation=operation,
+            arguments=arguments,
+            summary=summary,
+        )
+
     async def _write_files(
         self,
         context: Dict[str, Any],
@@ -82,6 +112,25 @@ class BaseAgent(ABC):
         """Write files to workspace via ToolGateway. Each file: {path, content}."""
         # Enforce filesystem write policy
         await self._check_fs_policy(context, "write")
+        approval_arguments = {
+            "files": [
+                {
+                    "path": item["path"],
+                    "characters": len(item["content"]),
+                    "sha256": hashlib.sha256(
+                        item["content"].encode("utf-8")
+                    ).hexdigest(),
+                }
+                for item in files
+            ]
+        }
+        authorization_id = await self._authorize_tool(
+            context,
+            "write_file",
+            "filesystem.write",
+            approval_arguments,
+            f"Write {len(files)} file(s) to the project workspace.",
+        )
 
         results = []
         device = self._get_device_id(context)
@@ -95,6 +144,7 @@ class BaseAgent(ABC):
                     job_id=job,
                     tool_name="write_file",
                     arguments={"path": f["path"], "content": f["content"]},
+                    authorization_id=authorization_id,
                 )
                 results.append({
                     "path": f["path"],
@@ -152,6 +202,13 @@ class BaseAgent(ABC):
     ) -> Dict[str, Any]:
         """Delete a file from workspace via ToolGateway."""
         await self._check_fs_policy(context, "delete")
+        authorization_id = await self._authorize_tool(
+            context,
+            "delete_file",
+            "filesystem.delete",
+            {"path": path},
+            f"Delete '{path}' from the project workspace.",
+        )
         device = self._get_device_id(context)
         workspace = self._get_workspace_id(context)
         job = self._get_job_id(context)
@@ -162,6 +219,7 @@ class BaseAgent(ABC):
                 job_id=job,
                 tool_name="delete_file",
                 arguments={"path": path},
+                authorization_id=authorization_id,
             )
             if not res.success:
                 return {"path": path, "success": False, "error": res.error}
@@ -173,24 +231,41 @@ class BaseAgent(ABC):
         self,
         context: Dict[str, Any],
         cmd_array: List[str],
+        *,
+        operation: str = "command.execute",
+        category: str = "command",
     ) -> Dict[str, Any]:
         """Run a shell command array via ToolGateway."""
         device = self._get_device_id(context)
         workspace = self._get_workspace_id(context)
         job = self._get_job_id(context)
+        project = self._get_project_config(context)
+        timeout = int(getattr(project, "max_command_seconds", 120) or 120)
+        authorization_id = await self._authorize_tool(
+            context,
+            "run_command",
+            operation,
+            {"cmd_array": cmd_array, "timeout": timeout},
+            f"Run command: {' '.join(cmd_array)}",
+        )
         try:
             res = await ToolGateway.invoke_tool(
                 device_id=device,
                 workspace_id=workspace,
                 job_id=job,
                 tool_name="run_command",
-                arguments={"cmd_array": cmd_array},
+                arguments={"cmd_array": cmd_array, "timeout": timeout},
+                authorization_id=authorization_id,
             )
             if not res.success:
-                return {"success": False, "output": "", "error": res.error}
+                result = {"success": False, "output": "", "error": res.error}
+                await self._record_verification(
+                    context, cmd_array, category, result
+                )
+                return result
             result = res.result
             if isinstance(result, dict):
-                return {
+                parsed_result = {
                     "success": result.get("exit_code", 0) == 0,
                     "exit_code": result.get("exit_code", 0),
                     "output": (
@@ -201,11 +276,39 @@ class BaseAgent(ABC):
                     "duration_seconds": result.get("duration_seconds", 0),
                     "error": None,
                 }
-            return {
+                await self._record_verification(
+                    context, cmd_array, category, parsed_result
+                )
+                return parsed_result
+            parsed_result = {
                 "success": True,
                 "output": str(result),
                 "exit_code": 0,
                 "error": None,
             }
+            await self._record_verification(
+                context, cmd_array, category, parsed_result
+            )
+            return parsed_result
         except Exception as e:
-            return {"success": False, "output": "", "error": str(e)}
+            result = {"success": False, "output": "", "error": str(e)}
+            await self._record_verification(context, cmd_array, category, result)
+            return result
+
+    async def _record_verification(
+        self,
+        context: Dict[str, Any],
+        command: list[str],
+        category: str,
+        result: dict[str, Any],
+    ) -> None:
+        """Persist bounded, redacted evidence for a completed command."""
+        from app.services.verification import record_verification
+
+        await record_verification(
+            project_id=context.get("project_id"),
+            instruction_id=context.get("instruction_id"),
+            category=category,
+            command=command,
+            result=result,
+        )

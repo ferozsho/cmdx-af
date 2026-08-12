@@ -1,12 +1,16 @@
 """Outbound WSS Client for Local Agent Daemon."""
 
 import asyncio
+import contextlib
 import json
 import logging
-from typing import Callable, Coroutine, Dict, Any
+import time
+from typing import Any, Callable, Coroutine
+
 import websockets
-from agentforge_protocol import ToolRequest, ToolResult
-from agentforge_local.connection.device_auth import load_device_credentials
+from agentforge_protocol import DeviceHeartbeat, ToolRequest, ToolResult
+
+from agentforge_local.config import local_settings
 
 logger = logging.getLogger("agentforge.local.wss")
 
@@ -18,33 +22,48 @@ class LocalWSSClient:
         self,
         cloud_wss_url: str,
         device_id: str,
+        device_token: str,
         tool_handler: Callable[[ToolRequest], Coroutine[Any, Any, ToolResult]],
+        workspace_ids: Callable[[], list[str]] | None = None,
     ) -> None:
         self.cloud_wss_url = cloud_wss_url
         self.device_id = device_id
+        self.device_token = device_token
         self.tool_handler = tool_handler
+        self.workspace_ids = workspace_ids or (lambda: [])
         self.running = False
 
     async def start(self) -> None:
         """Connect to Cloud WSS with auto-reconnect loop."""
         self.running = True
         url = f"{self.cloud_wss_url}/{self.device_id}"
-        token = load_device_credentials().get("device_token")
-        if token:
-            url = f"{url}?token={token}"
+        headers = {"Authorization": f"Bearer {self.device_token}"}
 
         while self.running:
             try:
                 logger.info(f"Connecting to Cloud WSS: {url}")
-                async with websockets.connect(url) as ws:
+                async with websockets.connect(
+                    url,
+                    additional_headers=headers,
+                ) as ws:
                     logger.info("✅ Connected to Cloud WSS!")
-                    while self.running:
-                        message_text = await ws.recv()
-                        data = json.loads(message_text)
+                    heartbeat_task = asyncio.create_task(
+                        self._send_heartbeats(ws)
+                    )
+                    try:
+                        while self.running:
+                            message_text = await ws.recv()
+                            data = json.loads(message_text)
 
-                        if "tool_name" in data and "request_id" in data:
-                            tool_req = ToolRequest.model_validate(data)
-                            asyncio.create_task(self._process_tool_request(ws, tool_req))
+                            if "tool_name" in data and "request_id" in data:
+                                tool_req = ToolRequest.model_validate(data)
+                                asyncio.create_task(
+                                    self._process_tool_request(ws, tool_req)
+                                )
+                    finally:
+                        heartbeat_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await heartbeat_task
 
             except websockets.ConnectionClosed:
                 logger.warning("Disconnected from Cloud WSS. Reconnecting in 5s...")
@@ -52,6 +71,22 @@ class LocalWSSClient:
                 logger.error(f"WSS Connection error: {e}. Retrying in 5s...")
 
             await asyncio.sleep(5)
+
+    async def _send_heartbeat(self, ws: Any) -> None:
+        """Publish one typed heartbeat without exposing local paths."""
+        heartbeat = DeviceHeartbeat(
+            device_id=self.device_id,
+            timestamp=time.time(),
+            workspaces=self.workspace_ids(),
+        )
+        await ws.send(heartbeat.model_dump_json())
+
+    async def _send_heartbeats(self, ws: Any) -> None:
+        """Publish liveness for the lifetime of one WSS connection."""
+        interval = max(5, int(local_settings.HEARTBEAT_INTERVAL))
+        while self.running:
+            await self._send_heartbeat(ws)
+            await asyncio.sleep(interval)
 
     async def _process_tool_request(self, ws: Any, tool_req: ToolRequest) -> None:
         """Execute tool handler and transmit ToolResult back to Cloud."""

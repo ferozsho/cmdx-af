@@ -1,8 +1,8 @@
 """Database Agent Implementation."""
 
 from typing import Any, Dict
-from app.agents.base import BaseAgent
 
+from app.agents.base import BaseAgent
 
 SYSTEM_PROMPT = """You are a Database Engineer agent specializing in SQLAlchemy ORM,
 PostgreSQL, and Alembic migrations. Generate database code that follows existing

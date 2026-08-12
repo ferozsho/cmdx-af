@@ -40,7 +40,7 @@ export default function ForgotPasswordPage() {
     e.preventDefault()
     if (!token.trim() || !password) return
     if (password.length < 6) {
-      setError('New password must be at least 6 characters.')
+      setError('New password must be at least 10 characters.')
       return
     }
     if (password !== confirm) {
@@ -129,7 +129,7 @@ export default function ForgotPasswordPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="New password (min 6 characters)"
               required
-              minLength={6}
+              minLength={10}
               className="input-af w-full"
             />
             <input

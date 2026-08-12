@@ -3,7 +3,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import desc, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -69,9 +69,8 @@ async def list_llm_logs(
 ) -> Any:
     """List LLM call logs for a project with pagination and filters.
 
-    Returns full prompt_text, system_prompt_text, and response_text —
-    no truncation. Falls back to instructions.prompt for rows logged
-    before the schema expansion.
+    Content is secret-redacted and bounded when written. Older rows fall back
+    to the owning instruction prompt when no stored prompt is available.
     """
     # Verify project exists and belongs to the current user
     project = await db.get(Project, project_id)

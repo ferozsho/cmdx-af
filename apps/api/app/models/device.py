@@ -2,10 +2,12 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, ForeignKey, JSON
+
+from sqlalchemy import JSON, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.time import naive_utcnow
 
 
 class Device(Base):
@@ -25,10 +27,10 @@ class Device(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="offline")
     capabilities: Mapped[dict] = mapped_column(JSON, default=dict)
     last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=naive_utcnow, nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=naive_utcnow, nullable=False
     )
 
     user = relationship("User", back_populates="devices")

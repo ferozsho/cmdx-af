@@ -1,10 +1,11 @@
 """OpenAI API Provider Implementation."""
 
-import json
-import httpx
 from typing import Optional
+
+import httpx
+
 from app.core.config import get_setting
-from app.llm.base import BaseLLMProvider, LLMResponse
+from app.llm.base import BaseLLMProvider, LLMResponse, parse_json_content
 
 
 class OpenAIProvider(BaseLLMProvider):
@@ -67,12 +68,7 @@ class OpenAIProvider(BaseLLMProvider):
         # GPT-4o pricing ($2.50/1M prompt, $10/1M completion)
         cost = (p_tokens * 0.0000025) + (c_tokens * 0.000010)
 
-        parsed_content = choice
-        if json_mode and isinstance(choice, str):
-            try:
-                parsed_content = json.loads(choice)
-            except (json.JSONDecodeError, TypeError):
-                pass
+        parsed_content = parse_json_content(choice) if json_mode else choice
 
         return LLMResponse(
             content=parsed_content,

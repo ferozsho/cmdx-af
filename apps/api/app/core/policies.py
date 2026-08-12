@@ -67,7 +67,8 @@ def check_git_policy(
                 ),
             )
 
-    # Commit check (branch + PR-only mode)
+    # Commit check. PR-required projects may commit only to isolated agent
+    # branches; merging into a protected branch remains a human/CI action.
     if operation == "commit":
         if branch and not _match_branch(branch, patterns):
             raise PolicyBlockedError(
@@ -77,12 +78,16 @@ def check_git_policy(
                     f"{patterns}"
                 ),
             )
-        if getattr(project, "git_require_pr", False):
+        if (
+            getattr(project, "git_require_pr", False)
+            and branch
+            and not branch.startswith("agent/")
+        ):
             raise PolicyBlockedError(
                 status_code=403,
                 detail=(
-                    "Direct commits are disabled for this project. "
-                    "Changes must be submitted via Pull Request."
+                    "PR-required projects only permit AI commits on "
+                    "isolated 'agent/' branches."
                 ),
             )
 

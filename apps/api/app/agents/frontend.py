@@ -1,8 +1,8 @@
 """Frontend Agent Implementation."""
 
 from typing import Any, Dict
-from app.agents.base import BaseAgent
 
+from app.agents.base import BaseAgent
 
 SYSTEM_PROMPT = """You are a Frontend Engineer agent specializing in React, Next.js 16,
 and TypeScript. Generate production-ready frontend code that follows project patterns.

@@ -6,11 +6,11 @@ from app.core.config import (
     settings,
 )
 from app.llm.base import BaseLLMProvider
-from app.llm.deepseek import DeepSeekProvider
-from app.llm.openai import OpenAIProvider
-from app.llm.gemini import GeminiProvider
 from app.llm.claude import ClaudeProvider
+from app.llm.deepseek import DeepSeekProvider
+from app.llm.gemini import GeminiProvider
 from app.llm.mock import MockLLMProvider
+from app.llm.openai import OpenAIProvider
 from app.llm.tracking import UsageTrackingProvider
 
 # Model name prefix → provider routing map
@@ -104,6 +104,21 @@ MODEL_REGISTRY = {
 }
 
 
+class LLMConfigurationError(RuntimeError):
+    """Raised when production execution selects an unconfigured provider."""
+
+
+def _require_api_key(provider_name: str, setting_name: str) -> str:
+    """Return a provider key or fail explicitly outside mock mode."""
+    api_key = get_setting(setting_name, "")
+    if not api_key:
+        raise LLMConfigurationError(
+            f"{provider_name} is not configured. Add {setting_name} to the "
+            "root .env file."
+        )
+    return api_key
+
+
 def get_model_list() -> list[dict]:
     """Return all registered models for frontend dropdowns."""
     return [
@@ -153,8 +168,9 @@ class ModelRouter:
 
         Model name determines provider: gpt-* → OpenAI, gemini-* → Gemini,
         claude-* → Claude, deepseek-* → DeepSeek (default).
-        Falls back to MockLLMProvider if no API key is configured for the
-        selected provider.
+        Mock responses are only available when APP_MODE is explicitly
+        configured as ``mock``. Production fails closed when a selected
+        provider has no API key.
         """
         provider_name = _resolve_provider_name(model_name)
 
@@ -162,9 +178,7 @@ class ModelRouter:
             return UsageTrackingProvider(MockLLMProvider())
 
         if provider_name == "openai":
-            api_key = get_setting("OPENAI_API_KEY", "")
-            if not api_key:
-                return UsageTrackingProvider(MockLLMProvider())
+            api_key = _require_api_key("OpenAI", "OPENAI_API_KEY")
             base_url = get_setting(
                 "OPENAI_BASE_URL", "https://api.openai.com/v1"
             )
@@ -173,21 +187,15 @@ class ModelRouter:
             )
 
         if provider_name == "gemini":
-            api_key = get_setting("GEMINI_API_KEY", "")
-            if not api_key:
-                return UsageTrackingProvider(MockLLMProvider())
+            api_key = _require_api_key("Gemini", "GEMINI_API_KEY")
             return UsageTrackingProvider(GeminiProvider(api_key=api_key))
 
         if provider_name == "claude":
-            api_key = get_setting("CLAUDE_API_KEY", "")
-            if not api_key:
-                return UsageTrackingProvider(MockLLMProvider())
+            api_key = _require_api_key("Claude", "CLAUDE_API_KEY")
             return UsageTrackingProvider(ClaudeProvider(api_key=api_key))
 
         # Default: DeepSeek
-        api_key = get_setting("DEEPSEEK_API_KEY", "")
-        if not api_key:
-            return UsageTrackingProvider(MockLLMProvider())
+        api_key = _require_api_key("DeepSeek", "DEEPSEEK_API_KEY")
         base_url = get_setting(
             "DEEPSEEK_BASE_URL", DEFAULT_DEEPSEEK_BASE_URL
         )

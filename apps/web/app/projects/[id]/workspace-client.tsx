@@ -12,10 +12,15 @@ import {
   getFileOriginal,
   listArtifacts,
   listProjectRuns,
+  listVerificationRuns,
+  listTechLeadHistory,
+  queryTechLead,
   listRagChunks,
   listProjectAgents,
   configureProjectAgent,
   updateProject,
+  listApprovals,
+  decideApproval,
   listInstructionHistory,
   listUserInstructions,
   listSessions,
@@ -24,14 +29,18 @@ import {
   type SessionResponse,
   type SessionContextResponse,
   type AgentRun,
+  type VerificationRunResponse,
+  type TechLeadInteractionResponse,
   type ProjectAgentResponse,
   ragSearch,
   getRagStats,
   getGitStatus,
   getGitLog,
   submitInstruction,
-  buildSSEUrl,
+  cancelInstruction,
+  subscribeProjectEvents,
   type ProjectResponse,
+  type ApprovalResponse,
   type RagStats,
 } from '@/lib/api'
 
@@ -328,6 +337,7 @@ export default function WorkspaceClient({
     | 'ARTIFACTS'
     | 'TESTS'
     | 'VALIDATION'
+    | 'LEAD'
     | 'SETTINGS'
 
   const urlFile = getParam('file') || ''
@@ -348,6 +358,9 @@ export default function WorkspaceClient({
     { name: string; dataUrl: string; mimeType: string }[]
   >([])
   const [isRunning, setIsRunning] = useState(false)
+  const [isCancelling, setIsCancelling] = useState(false)
+  const [activeInstructionId, setActiveInstructionId] = useState<string | null>(null)
+  const activeInstructionIdRef = useRef<string | null>(null)
   // AI FIX modal state
   const [fixModalOpen, setFixModalOpen] = useState(false)
   const [fixModalInfo, setFixModalInfo] = useState<{
@@ -428,6 +441,9 @@ export default function WorkspaceClient({
   // Persisted agent runs (for TESTS / VALIDATION tabs)
   const [runs, setRuns] = useState<AgentRun[]>([])
   const [runsLoading, setRunsLoading] = useState(false)
+  const [verificationRuns, setVerificationRuns] = useState<
+    VerificationRunResponse[]
+  >([])
 
   // Per-project agent configuration (loaded from API, not hardcoded)
   // Extended with runtime pipeline status fields
@@ -583,6 +599,15 @@ export default function WorkspaceClient({
   const [project, setProject] = useState<ProjectResponse | null>(null)
   const [projectLoading, setProjectLoading] = useState(true)
   const [projectError, setProjectError] = useState<string | null>(null)
+  const [approvals, setApprovals] = useState<ApprovalResponse[]>([])
+  const [approvalError, setApprovalError] = useState<string | null>(null)
+  const [decidingApprovalId, setDecidingApprovalId] = useState<string | null>(null)
+  const [techLeadQuestion, setTechLeadQuestion] = useState('')
+  const [techLeadHistory, setTechLeadHistory] = useState<
+    TechLeadInteractionResponse[]
+  >([])
+  const [techLeadLoading, setTechLeadLoading] = useState(false)
+  const [techLeadError, setTechLeadError] = useState<string | null>(null)
 
   // Fetch project details
   useEffect(() => {
@@ -600,6 +625,57 @@ export default function WorkspaceClient({
     }
     loadProject()
   }, [projectId])
+
+  useEffect(() => {
+    listApprovals(projectId, 'PENDING')
+      .then(setApprovals)
+      .catch((err) =>
+        setApprovalError(
+          err instanceof Error ? err.message : 'Failed to load approvals',
+        ),
+      )
+  }, [projectId])
+
+  const handleApprovalDecision = async (
+    approvalId: string,
+    decision: 'approve' | 'reject',
+  ) => {
+    setDecidingApprovalId(approvalId)
+    setApprovalError(null)
+    try {
+      await decideApproval(approvalId, decision)
+      setApprovals((previous) =>
+        previous.filter((approval) => approval.id !== approvalId),
+      )
+    } catch (err) {
+      setApprovalError(
+        err instanceof Error ? err.message : `Failed to ${decision} request`,
+      )
+    } finally {
+      setDecidingApprovalId(null)
+    }
+  }
+
+  const handleTechLeadQuery = async () => {
+    const question = techLeadQuestion.trim()
+    if (!question || techLeadLoading) return
+    setTechLeadLoading(true)
+    setTechLeadError(null)
+    try {
+      const interaction = await queryTechLead(projectId, question)
+      setTechLeadHistory((previous) => [
+        { ...interaction, question },
+        ...previous,
+      ])
+      setTechLeadQuestion('')
+    } catch (err) {
+      setTechLeadError(
+        err instanceof Error ? err.message : 'Tech lead query failed',
+      )
+    } finally {
+      setTechLeadLoading(false)
+    }
+  }
 
   // Function to switch tab with SEO-friendly URL sync:
   // /projects/[id]/[tab]?file=...&q=...&page=N&view=chunks|search&cpage=N
@@ -805,11 +881,9 @@ export default function WorkspaceClient({
 
   // Subscribe to SSE events
   useEffect(() => {
-    const eventSource = new EventSource(buildSSEUrl(projectId))
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
+    return subscribeProjectEvents(
+      projectId,
+      (data) => {
         const time = new Date().toLocaleTimeString()
 
         setEvents((prev) => [
@@ -817,10 +891,23 @@ export default function WorkspaceClient({
           { time, text: `[${data.agent_name || 'System'}] ${data.message}` },
         ])
 
-        if (data.agent_name) {
+        if (['WAITING_APPROVAL', 'APPROVED', 'REJECTED'].includes(data.status)) {
+          listApprovals(projectId, 'PENDING')
+            .then(setApprovals)
+            .catch((err) =>
+              setApprovalError(
+                err instanceof Error
+                  ? err.message
+                  : 'Failed to refresh approvals',
+              ),
+            )
+        }
+
+        const agentName = data.agent_name
+        if (agentName) {
           setAgentsState((prev) =>
             prev.map((ag) => {
-              if (ag.template_name === data.agent_name) {
+              if (ag.template_name === agentName) {
                 return {
                   ...ag,
                   status: data.status,
@@ -833,37 +920,36 @@ export default function WorkspaceClient({
               return ag
             }),
           )
-          // Store structured agent output for tabs
           if (data.status === 'COMPLETED' && data.data) {
             setPipelineResults((prev) => ({
               ...prev,
-              [data.agent_name]: data.data,
+              [agentName]: data.data,
             }))
           }
         }
 
-        if (data.agent_name === 'Git Agent' && data.status === 'COMPLETED') {
+        if (
+          data.agent_name === 'System' &&
+          ['COMPLETED', 'FAILED', 'CANCELLED'].includes(data.status) &&
+          data.instruction_id === activeInstructionIdRef.current
+        ) {
           setIsRunning(false)
+          setIsCancelling(false)
+          setActiveInstructionId(null)
+          activeInstructionIdRef.current = null
         }
-      } catch (err) {
-        console.error('SSE Error:', err)
-      }
-    }
-
-    eventSource.onerror = () => {
-      // SSE connection failed — will auto-retry via browser
-      setEvents((prev) => [
-        ...prev,
-        {
-          time: new Date().toLocaleTimeString(),
-          text: '[System] ⚠ Live connection lost — retrying…',
-        },
-      ])
-    }
-
-    return () => {
-      eventSource.close()
-    }
+      },
+      (error) => {
+        console.error('SSE Error:', error)
+        setEvents((prev) => [
+          ...prev,
+          {
+            time: new Date().toLocaleTimeString(),
+            text: '[System] ⚠ Live event stream could not be restored.',
+          },
+        ])
+      },
+    )
   }, [projectId])
 
   // Sync state when tab changes
@@ -954,6 +1040,20 @@ export default function WorkspaceClient({
         .catch((err) => console.error('Failed to load runs:', err))
         .finally(() => setRunsLoading(false))
     }
+    if (activeTab === 'VALIDATION') {
+      listVerificationRuns(projectId)
+        .then(setVerificationRuns)
+        .catch((err) => console.error('Failed to load verification evidence:', err))
+    }
+    if (activeTab === 'LEAD') {
+      listTechLeadHistory(projectId)
+        .then(setTechLeadHistory)
+        .catch((err) =>
+          setTechLeadError(
+            err instanceof Error ? err.message : 'Failed to load tech lead history',
+          ),
+        )
+    }
   }, [activeTab, projectId])
 
   // One-time URL cleanup: strip stale %3D (=) artifacts from query params
@@ -1000,10 +1100,39 @@ export default function WorkspaceClient({
     )
 
     try {
-      await submitInstruction(projectId, prompt)
+      const instruction = await submitInstruction(projectId, prompt)
+      setActiveInstructionId(instruction.id)
+      activeInstructionIdRef.current = instruction.id
     } catch (err) {
       console.error('Failed to trigger instruction pipeline:', err)
       setIsRunning(false)
+      setActiveInstructionId(null)
+      activeInstructionIdRef.current = null
+    }
+  }
+
+  const handleCancelPipeline = async () => {
+    const instructionId = activeInstructionIdRef.current
+    if (!instructionId || isCancelling) return
+    setIsCancelling(true)
+    try {
+      const cancelled = await cancelInstruction(projectId, instructionId)
+      setEvents((prev) => [
+        ...prev,
+        {
+          time: new Date().toLocaleTimeString(),
+          text: '[System] Cancellation requested.',
+        },
+      ])
+      if (cancelled.status === 'CANCELLED') {
+        setIsRunning(false)
+        setIsCancelling(false)
+        setActiveInstructionId(null)
+        activeInstructionIdRef.current = null
+      }
+    } catch (error) {
+      console.error('Failed to cancel instruction:', error)
+      setIsCancelling(false)
     }
   }
 
@@ -1151,7 +1280,9 @@ export default function WorkspaceClient({
     )
 
     try {
-      await submitInstruction(projectId, fixPrompt)
+      const submitted = await submitInstruction(projectId, fixPrompt)
+      setActiveInstructionId(submitted.id)
+      activeInstructionIdRef.current = submitted.id
       setPrompt('')
       setHistoryIndex(-1)
     } catch (err) {
@@ -1203,8 +1334,8 @@ export default function WorkspaceClient({
         </div>
 
         {/* Tab Navigation Links */}
-        <nav className="flex gap-2">
-          {(['AGENTS', 'FILES', 'RAG', 'GIT', 'ARTIFACTS', 'TESTS', 'VALIDATION', 'SETTINGS'] as const).map((tab) => {
+        <nav className="flex flex-wrap justify-end gap-2">
+          {(['AGENTS', 'FILES', 'RAG', 'GIT', 'ARTIFACTS', 'TESTS', 'VALIDATION', 'LEAD', 'SETTINGS'] as const).map((tab) => {
             const isActive = activeTab === tab
             const href = `/projects/${encodeURIComponent(projectId)}/${tab.toLowerCase()}`
             return (
@@ -1223,6 +1354,80 @@ export default function WorkspaceClient({
           })}
         </nav>
       </header>
+
+      {(approvals.length > 0 || approvalError) && (
+        <section
+          className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-5 space-y-3"
+          aria-label="Pending approvals"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-foreground">
+                Human approval required
+              </h2>
+              <p className="text-xs text-muted mt-1">
+                Review the exact operation before allowing the instruction to resume.
+              </p>
+            </div>
+            {approvals.length > 0 && (
+              <span className="rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                {approvals.length} pending
+              </span>
+            )}
+          </div>
+          {approvalError && (
+            <p role="alert" className="text-xs text-red-500">
+              {approvalError}
+            </p>
+          )}
+          {approvals.map((approval) => (
+            <article
+              key={approval.id}
+              className="rounded-lg border border-border bg-surface-secondary p-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-foreground">
+                      {approval.summary}
+                    </span>
+                    <span className="rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[9px] font-bold text-red-500">
+                      {approval.risk_level}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted">
+                    {approval.tool_name} · {approval.operation}
+                  </p>
+                  <pre className="mt-3 max-h-32 overflow-auto rounded border border-border bg-background p-2 text-[10px] text-muted whitespace-pre-wrap break-all">
+                    {JSON.stringify(approval.request_payload, null, 2)}
+                  </pre>
+                  <p className="mt-2 text-[10px] text-muted">
+                    Expires {new Date(approval.expires_at).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    className="btn-secondary-af !px-3 !py-1.5 !text-xs"
+                    disabled={decidingApprovalId !== null}
+                    onClick={() => handleApprovalDecision(approval.id, 'reject')}
+                  >
+                    Reject
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary-af !px-3 !py-1.5 !text-xs"
+                    disabled={decidingApprovalId !== null}
+                    onClick={() => handleApprovalDecision(approval.id, 'approve')}
+                  >
+                    {decidingApprovalId === approval.id ? 'Saving…' : 'Approve'}
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
 
       {/* Global Offline Banner — shown on all tabs when workstation is disconnected */}
       {isOffline && (
@@ -1433,7 +1638,9 @@ export default function WorkspaceClient({
                 ? attachments[0].mimeType
                 : undefined
               submitInstruction(projectId, prompt, imageBytes, imageMimeType, activeSessionId || undefined)
-                .then(() => {
+                .then((instruction) => {
+                  setActiveInstructionId(instruction.id)
+                  activeInstructionIdRef.current = instruction.id
                   setAttachments([])
                   setPrompt('')
                   setHistoryIndex(-1)
@@ -1620,6 +1827,14 @@ export default function WorkspaceClient({
               {agentsState.filter((a) => a.status === 'COMPLETED').length} /{' '}
               {agentsState.filter((a) => a.enabled).length} agents
             </span>
+            <button
+              type="button"
+              onClick={handleCancelPipeline}
+              disabled={!activeInstructionId || isCancelling}
+              className="ml-auto text-[10px] rounded border border-red-500/40 px-2 py-1 text-red-500 disabled:opacity-50"
+            >
+              {isCancelling ? 'Cancelling…' : 'Cancel run'}
+            </button>
           </div>
           <div className="w-full bg-surface-secondary rounded-full h-2 overflow-hidden border border-border">
             <div
@@ -2898,6 +3113,50 @@ export default function WorkspaceClient({
                     {meta.build_status || '—'}
                   </span>
                 </div>
+                {verificationRuns.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold text-foreground mb-2">
+                      Durable Verification Evidence
+                    </div>
+                    <div className="space-y-2">
+                      {verificationRuns.slice(0, 20).map((evidence) => (
+                        <details
+                          key={evidence.id}
+                          className="rounded-lg border border-border bg-surface-secondary p-3"
+                        >
+                          <summary className="cursor-pointer flex items-center gap-2 text-xs">
+                            <span
+                              className={
+                                evidence.status === 'PASSED'
+                                  ? 'text-emerald-500'
+                                  : 'text-red-500'
+                              }
+                            >
+                              {evidence.status === 'PASSED' ? '✓' : '✗'}
+                            </span>
+                            <span className="font-semibold text-foreground uppercase">
+                              {evidence.category}
+                            </span>
+                            <span className="font-mono text-muted">
+                              {evidence.executable}
+                            </span>
+                            <span className="ml-auto text-[10px] text-muted">
+                              {evidence.duration_seconds.toFixed(2)}s
+                            </span>
+                          </summary>
+                          <div className="mt-2 text-[10px] font-mono text-muted break-all">
+                            evidence: sha256:{evidence.output_digest}
+                          </div>
+                          {evidence.output_excerpt && (
+                            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded border border-border bg-background p-2 text-[10px] text-muted">
+                              {evidence.output_excerpt}
+                            </pre>
+                          )}
+                        </details>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {Array.isArray(meta.auto_fixes_applied) &&
                   meta.auto_fixes_applied.length > 0 && (
                     <div>
@@ -2952,6 +3211,93 @@ export default function WorkspaceClient({
         </section>
       )}
 
+      {activeTab === 'LEAD' && (
+        <section className="card-af p-6 space-y-5">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">
+              Project Technical Lead
+            </h2>
+            <p className="text-xs text-muted mt-1">
+              Ask about architecture, recent work, failures, approvals, verification,
+              or AI-authored commits. Answers are grounded in bounded project records.
+            </p>
+          </div>
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <label className="sr-only" htmlFor="tech-lead-question">
+                Question for the project technical lead
+              </label>
+              <textarea
+                id="tech-lead-question"
+                value={techLeadQuestion}
+                onChange={(event) => setTechLeadQuestion(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault()
+                    handleTechLeadQuery()
+                  }
+                }}
+                rows={3}
+                maxLength={4000}
+                placeholder="What changed recently, and is it verified?"
+                className="input-af w-full text-sm resize-y"
+              />
+            </div>
+            <button
+              type="button"
+              className="btn-primary-af text-sm disabled:opacity-50"
+              disabled={techLeadLoading || techLeadQuestion.trim().length < 2}
+              onClick={handleTechLeadQuery}
+            >
+              {techLeadLoading ? 'Thinking…' : 'Ask Tech Lead'}
+            </button>
+          </div>
+          {techLeadError && (
+            <p role="alert" className="text-xs text-red-500">
+              {techLeadError}
+            </p>
+          )}
+          <div className="space-y-3">
+            {techLeadHistory.length === 0 && !techLeadLoading ? (
+              <p className="text-xs text-muted text-center py-8">
+                No technical-lead conversations yet.
+              </p>
+            ) : (
+              techLeadHistory.map((interaction) => (
+                <article
+                  key={interaction.id}
+                  className="rounded-lg border border-border bg-surface-secondary p-4"
+                >
+                  {interaction.question && (
+                    <p className="text-xs font-semibold text-foreground mb-2">
+                      {interaction.question}
+                    </p>
+                  )}
+                  <p className="text-sm text-muted whitespace-pre-wrap">
+                    {interaction.answer}
+                  </p>
+                  <div className="mt-3 flex items-center gap-3 text-[10px] text-muted">
+                    <span>{interaction.model_name || 'model unavailable'}</span>
+                    <span>{interaction.total_tokens} tokens</span>
+                    <span>{new Date(interaction.created_at).toLocaleString()}</span>
+                  </div>
+                  {interaction.sources.length > 0 && (
+                    <details className="mt-2 text-[10px] text-muted">
+                      <summary className="cursor-pointer text-primary">
+                        {interaction.sources.length} context sources
+                      </summary>
+                      <div className="mt-1 font-mono break-all">
+                        {interaction.sources.join(' · ')}
+                      </div>
+                    </details>
+                  )}
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+      )}
+
       {/* Settings Tab — Git & Filesystem Policies */}
       {activeTab === 'SETTINGS' && (
         <SettingsPanel
@@ -2990,6 +3336,9 @@ function SettingsPanel({
   const [gitRequirePr, setGitRequirePr] = useState(
     project?.git_require_pr ?? false,
   )
+  const [ciGateEnabled, setCiGateEnabled] = useState(
+    project?.ci_gate_enabled ?? true,
+  )
   const [gitCommitTemplate, setGitCommitTemplate] = useState(
     project?.git_commit_template || '',
   )
@@ -2997,6 +3346,15 @@ function SettingsPanel({
   const [fsWrite, setFsWrite] = useState(project?.fs_write_enabled ?? true)
   const [fsDelete, setFsDelete] = useState(project?.fs_delete_enabled ?? true)
   const [defaultModel, setDefaultModel] = useState(project?.default_model || '')
+  const [approvalMode, setApprovalMode] = useState<'NEVER' | 'RISKY' | 'ALWAYS'>(
+    project?.approval_mode || 'RISKY',
+  )
+  const [commandAllowlist, setCommandAllowlist] = useState(
+    (project?.command_allowlist || []).join(', '),
+  )
+  const [maxCommandSeconds, setMaxCommandSeconds] = useState(
+    project?.max_command_seconds ?? 120,
+  )
   const [availableModels, setAvailableModels] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -3014,11 +3372,15 @@ function SettingsPanel({
       setGitEnabled(project.git_enabled ?? true)
       setBranchPatterns((project.git_branch_patterns || ['*']).join(', '))
       setGitRequirePr(project.git_require_pr ?? false)
+      setCiGateEnabled(project.ci_gate_enabled ?? true)
       setGitCommitTemplate(project.git_commit_template || '')
       setFsRead(project.fs_read_enabled ?? true)
       setFsWrite(project.fs_write_enabled ?? true)
       setFsDelete(project.fs_delete_enabled ?? true)
       setDefaultModel(project.default_model || '')
+      setApprovalMode(project.approval_mode || 'RISKY')
+      setCommandAllowlist((project.command_allowlist || []).join(', '))
+      setMaxCommandSeconds(project.max_command_seconds ?? 120)
     }
   }, [project])
 
@@ -3034,11 +3396,18 @@ function SettingsPanel({
         git_enabled: gitEnabled,
         git_branch_patterns: patterns.length > 0 ? patterns : ['*'],
         git_require_pr: gitRequirePr,
+        ci_gate_enabled: ciGateEnabled,
         git_commit_template: gitCommitTemplate || null,
         fs_read_enabled: fsRead,
         fs_write_enabled: fsWrite,
         fs_delete_enabled: fsDelete,
         default_model: defaultModel || null,
+        approval_mode: approvalMode,
+        command_allowlist: commandAllowlist
+          .split(',')
+          .map((command) => command.trim())
+          .filter(Boolean),
+        max_command_seconds: maxCommandSeconds,
       })
       onSaved(updated)
       setSaved(true)
@@ -3060,6 +3429,69 @@ function SettingsPanel({
 
   return (
     <section className="space-y-6">
+      {/* Human approval and command policy */}
+      <div className="card-af p-6">
+        <h2 className="text-base font-semibold text-foreground mb-4">
+          🛡 Human Approval &amp; Commands
+        </h2>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm text-foreground mb-1" htmlFor="approval-mode">
+              Approval mode
+            </label>
+            <select
+              id="approval-mode"
+              value={approvalMode}
+              onChange={(event) =>
+                setApprovalMode(event.target.value as 'NEVER' | 'RISKY' | 'ALWAYS')
+              }
+              className="input-af w-full max-w-[380px] text-sm"
+            >
+              <option value="RISKY">Risky operations only</option>
+              <option value="ALWAYS">Every mutation</option>
+              <option value="NEVER">Never pause for approval</option>
+            </select>
+            <p className="text-[11px] text-muted mt-1">
+              Policy restrictions still apply when approvals are disabled.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm text-foreground mb-1" htmlFor="command-allowlist">
+              Allowed command executables
+            </label>
+            <input
+              id="command-allowlist"
+              type="text"
+              value={commandAllowlist}
+              onChange={(event) => setCommandAllowlist(event.target.value)}
+              placeholder="pytest, npm, pnpm, ruff"
+              className="input-af w-full text-xs font-mono"
+            />
+            <p className="text-[11px] text-muted mt-1">
+              Comma-separated executable names. Commands outside this list are blocked.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm text-foreground mb-1" htmlFor="command-timeout">
+              Maximum command runtime (seconds)
+            </label>
+            <input
+              id="command-timeout"
+              type="number"
+              min={1}
+              max={300}
+              value={maxCommandSeconds}
+              onChange={(event) =>
+                setMaxCommandSeconds(
+                  Math.min(300, Math.max(1, Number(event.target.value) || 1)),
+                )
+              }
+              className="input-af w-36 text-sm"
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Git Policy */}
       <div className="card-af p-6">
         <h2 className="text-base font-semibold text-foreground mb-4">
@@ -3114,7 +3546,7 @@ function SettingsPanel({
           {/* Require PR */}
           <label className="flex items-center justify-between">
             <span className="text-sm text-foreground">
-              Require Pull Request (block direct commits)
+              Require Pull Request
             </span>
             <button
               type="button"
@@ -3134,8 +3566,34 @@ function SettingsPanel({
             </button>
           </label>
           <p className="text-[11px] text-muted -mt-2">
-            When enabled, the agent cannot commit directly — it must submit
-            changes via a Pull Request workflow.
+            When enabled, AI commits are restricted to isolated agent branches;
+            merging remains a reviewed Pull Request action.
+          </p>
+
+          <label className="flex items-center justify-between">
+            <span className="text-sm text-foreground">
+              Require passing CI verification before Git changes
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={ciGateEnabled}
+              onClick={() => setCiGateEnabled(!ciGateEnabled)}
+              disabled={!gitEnabled}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary ${
+                ciGateEnabled ? 'bg-emerald-500' : 'bg-border'
+              } ${!gitEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  ciGateEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </label>
+          <p className="text-[11px] text-muted -mt-2">
+            A real validation tool must report PASSED; estimates and unavailable
+            checks remain UNVERIFIED and cannot be committed.
           </p>
 
           {/* Commit template */}

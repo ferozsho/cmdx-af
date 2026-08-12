@@ -1,8 +1,9 @@
 """Local Agent Git Operations Module."""
 
-from pathlib import Path
 from typing import Any, Dict, List
+
 import git
+
 from agentforge_local.security.path_guard import PathGuard
 
 
@@ -71,13 +72,18 @@ class GitTools:
         return f"Checked out branch '{branch_name}'"
 
     @classmethod
-    def commit_changes(cls, workspace_root: str, message: str) -> str:
-        """Stage all changes and commit with structured message."""
+    def commit_changes(cls, workspace_root: str, message: str) -> Dict[str, str]:
+        """Stage changes and return content-addressed commit metadata."""
         root = PathGuard.validate_path(workspace_root, ".")
         repo = git.Repo(root)
         repo.git.add("-A")
         commit = repo.index.commit(message)
-        return commit.hexsha
+        parents = commit.parents
+        return {
+            "commit_hash": commit.hexsha,
+            "tree_hash": commit.tree.hexsha,
+            "parent_hash": parents[0].hexsha if parents else "",
+        }
 
     @classmethod
     def get_diff(cls, workspace_root: str) -> str:

@@ -4,11 +4,25 @@ from __future__ import annotations
 
 import uuid
 from typing import List, Optional
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project import Project
 from app.models.user import User
+
+DEFAULT_COMMAND_ALLOWLIST = [
+    "pytest",
+    "npm",
+    "pnpm",
+    "yarn",
+    "ruff",
+    "mypy",
+    "eslint",
+    "tsc",
+    "python",
+    "node",
+]
 
 
 class ProjectRepository:
@@ -77,11 +91,15 @@ class ProjectRepository:
         git_enabled: bool = True,
         git_branch_patterns: list | None = None,
         git_require_pr: bool = False,
+        ci_gate_enabled: bool = True,
         git_commit_template: str | None = None,
         fs_read_enabled: bool = True,
         fs_write_enabled: bool = True,
         fs_delete_enabled: bool = True,
         default_model: str | None = None,
+        approval_mode: str = "RISKY",
+        command_allowlist: list[str] | None = None,
+        max_command_seconds: int = 120,
     ) -> Project:
         """Create and persist a new project."""
         if not user_id:
@@ -97,11 +115,19 @@ class ProjectRepository:
             git_enabled=git_enabled,
             git_branch_patterns=git_branch_patterns or ["*"],
             git_require_pr=git_require_pr,
+            ci_gate_enabled=ci_gate_enabled,
             git_commit_template=git_commit_template,
             fs_read_enabled=fs_read_enabled,
             fs_write_enabled=fs_write_enabled,
             fs_delete_enabled=fs_delete_enabled,
             default_model=default_model,
+            approval_mode=approval_mode,
+            command_allowlist=(
+                command_allowlist
+                if command_allowlist is not None
+                else DEFAULT_COMMAND_ALLOWLIST
+            ),
+            max_command_seconds=max_command_seconds,
         )
         self.db.add(project)
         await self.db.flush()
@@ -139,11 +165,15 @@ class ProjectRepository:
         git_enabled: bool | None = None,
         git_branch_patterns: list | None = None,
         git_require_pr: bool | None = None,
+        ci_gate_enabled: bool | None = None,
         git_commit_template: str | None = None,
         fs_read_enabled: bool | None = None,
         fs_write_enabled: bool | None = None,
         fs_delete_enabled: bool | None = None,
         default_model: str | None = None,
+        approval_mode: str | None = None,
+        command_allowlist: list[str] | None = None,
+        max_command_seconds: int | None = None,
     ) -> Project | None:
         """Update an existing project. Returns updated project or None if not found."""
         project = await self.get_by_id(project_id)
@@ -165,6 +195,8 @@ class ProjectRepository:
             project.git_branch_patterns = git_branch_patterns
         if git_require_pr is not None:
             project.git_require_pr = git_require_pr
+        if ci_gate_enabled is not None:
+            project.ci_gate_enabled = ci_gate_enabled
         if git_commit_template is not None:
             project.git_commit_template = git_commit_template
         if fs_read_enabled is not None:
@@ -175,5 +207,11 @@ class ProjectRepository:
             project.fs_delete_enabled = fs_delete_enabled
         if default_model is not None:
             project.default_model = default_model
+        if approval_mode is not None:
+            project.approval_mode = approval_mode
+        if command_allowlist is not None:
+            project.command_allowlist = command_allowlist
+        if max_command_seconds is not None:
+            project.max_command_seconds = max_command_seconds
         await self.db.flush()
         return project

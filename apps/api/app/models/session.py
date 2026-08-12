@@ -2,16 +2,19 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, ForeignKey, Integer, Text
+
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.time import naive_utcnow
 
 
 class Session(Base):
     """A context session grouping related instructions together."""
 
     __tablename__ = "sessions"
+    __table_args__ = (Index("ix_sessions_project_id", "project_id"),)
 
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
@@ -29,10 +32,10 @@ class Session(Base):
     )  # max tokens for model
     total_tokens_used: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=naive_utcnow, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime, default=naive_utcnow, onupdate=naive_utcnow, nullable=False
     )
 
     project = relationship("Project")

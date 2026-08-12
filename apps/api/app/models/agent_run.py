@@ -2,10 +2,12 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, ForeignKey, Text, Float, JSON
+
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.time import naive_utcnow
 
 
 class AgentRun(Base):
@@ -25,7 +27,7 @@ class AgentRun(Base):
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     duration_seconds: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=naive_utcnow, nullable=False
     )
 
     instruction = relationship("Instruction", back_populates="runs")

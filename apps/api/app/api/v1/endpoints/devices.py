@@ -1,23 +1,30 @@
 """Devices and Workstation Pairing Endpoints."""
 
-import time
+import secrets
+import string
 import uuid
-from typing import Any, Dict, List
+from datetime import UTC, datetime, timedelta
+from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import (
+    get_current_user,
+    hash_device_token,
+    verify_device_token,
+)
+from app.models.pairing_code import PairingCode
 from app.models.user import User
 from app.repositories.device_repo import DeviceRepository
 
 router = APIRouter()
 
-# Temporary pairing codes: code -> {created_at, expires_at}
-_pairing_codes: Dict[str, Dict[str, float]] = {}
 _PAIRING_TTL_SECONDS = 600
+_PAIRING_ALPHABET = string.ascii_uppercase + string.digits
 
 
 class DeviceResponse(BaseModel):
@@ -73,15 +80,20 @@ async def list_devices(
 
 @router.post("/devices/pairing-code")
 async def generate_pairing_code(
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    """Generate and store a temporary pairing code for Local Agent onboarding."""
-    code = f"AGF-{uuid.uuid4().hex[:4].upper()}"
-    now = time.time()
-    _pairing_codes[code] = {
-        "created_at": now,
-        "expires_at": now + _PAIRING_TTL_SECONDS,
-    }
+    """Generate and durably store a one-time local-agent pairing code."""
+    code = "".join(secrets.choice(_PAIRING_ALPHABET) for _ in range(8))
+    db.add(
+        PairingCode(
+            user_id=current_user.id,
+            code_hash=hash_device_token(code),
+            expires_at=datetime.now(UTC).replace(tzinfo=None)
+            + timedelta(seconds=_PAIRING_TTL_SECONDS),
+        )
+    )
+    await db.commit()
     return {
         "pairing_code": code,
         "expires_in_seconds": _PAIRING_TTL_SECONDS,
@@ -94,9 +106,21 @@ async def pair_device(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Exchange a pairing code for a registered device + access token."""
-    record = _pairing_codes.pop(data.pairing_code.strip(), None)
-    if not record or record["expires_at"] < time.time():
+    now = datetime.now(UTC).replace(tzinfo=None)
+    result = await db.execute(
+        select(PairingCode)
+        .where(
+            PairingCode.code_hash
+            == hash_device_token(data.pairing_code.strip()),
+            PairingCode.used_at.is_(None),
+            PairingCode.expires_at >= now,
+        )
+        .with_for_update()
+    )
+    record = result.scalar_one_or_none()
+    if not record:
         raise HTTPException(status_code=400, detail="Invalid or expired pairing code")
+    record.used_at = now
 
     repo = DeviceRepository(db)
     token = f"dtk_{uuid.uuid4().hex}"
@@ -104,10 +128,11 @@ async def pair_device(
         name=data.device_name or data.hostname or "paired-device",
         hostname=data.hostname or "unknown",
         platform=data.platform,
+        user_id=record.user_id,
         os_version=data.os_version,
     )
     caps = dict(device.capabilities or {})
-    caps["device_token"] = token
+    caps["device_token_hash"] = hash_device_token(token)
     device.capabilities = caps
     await db.commit()
     await db.refresh(device)
@@ -129,7 +154,10 @@ async def validate_device_token(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     caps = device.capabilities or {}
-    if caps.get("device_token") != data.device_token:
+    if not verify_device_token(
+        data.device_token,
+        str(caps.get("device_token_hash") or ""),
+    ):
         raise HTTPException(status_code=401, detail="Invalid device token")
     return {"ok": True, "device_id": device.id, "valid": True}
 
@@ -143,13 +171,12 @@ async def revoke_device(
     """Revoke a registered device: disconnect WSS and remove from DB."""
     from app.wss.connection_manager import wss_manager
 
-    if wss_manager.is_device_online(device_id):
-        await wss_manager.disconnect(device_id, db)
-
     repo = DeviceRepository(db)
     device = await repo.get_by_id(device_id)
     if not device or device.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Device not found")
+    if wss_manager.is_device_online(device_id):
+        await wss_manager.disconnect(device_id, db)
     deleted = await repo.delete(device_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Device not found")

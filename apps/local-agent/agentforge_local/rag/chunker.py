@@ -8,7 +8,8 @@ class CodeChunker:
     """Splits source code files into semantic text chunks with line metadata."""
 
     SUPPORTED_EXTENSIONS = {
-        ".py", ".js", ".ts", ".tsx", ".jsx", ".md", ".json", ".html", ".css", ".sql", ".yaml", ".yml"
+        ".py", ".js", ".ts", ".tsx", ".jsx", ".md", ".json", ".html",
+        ".css", ".sql", ".yaml", ".yml",
     }
 
     @classmethod

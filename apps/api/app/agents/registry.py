@@ -34,5 +34,18 @@ AGENT_REGISTRY: dict[str, type[BaseAgent]] = {
     "Git Agent": GitAgent,
 }
 
-# Default sort order for the hardcoded fallback (when no ProjectAgent rows exist).
-DEFAULT_AGENT_ORDER: list[str] = list(AGENT_REGISTRY.keys())
+# Default sequence follows the phase contract. Visual analysis is inserted
+# before UI/UX so image-derived evidence is available to design and coding.
+DEFAULT_AGENT_ORDER: list[str] = [
+    "Planning Agent",
+    "Architecture Agent",
+    "Visual Analysis Agent",
+    "UI/UX Agent",
+    "Frontend Agent",
+    "Backend Agent",
+    "Database Agent",
+    "Documentation Agent",
+    "Test Agent",
+    "Validation Agent",
+    "Git Agent",
+]

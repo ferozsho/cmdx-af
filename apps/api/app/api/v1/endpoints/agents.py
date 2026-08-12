@@ -1,13 +1,16 @@
 """Agent Template and Project Agent API Endpoints."""
 
-from typing import Any, List, Optional
+from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.security import get_current_admin, get_current_user
+from app.models.user import User
 from app.repositories.agent_template_repo import AgentTemplateRepository
+from app.repositories.project_repo import ProjectRepository
 
 router = APIRouter()
 
@@ -83,12 +86,23 @@ def _to_template_response(t) -> AgentTemplateResponse:
     )
 
 
+async def _require_project_owner(
+    project_id: str,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    """Return 404 unless the authenticated user owns the project."""
+    if not await ProjectRepository(db).belongs_to(project_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+
 # ── Agent Template Endpoints ──────────────────────────────────────────────
 
 @router.get("/agents", response_model=List[AgentTemplateResponse])
 async def list_agents(
     active_only: bool = Query(False),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """List all agent templates."""
     repo = AgentTemplateRepository(db)
@@ -102,6 +116,7 @@ async def list_agents(
 async def create_agent(
     data: AgentTemplateCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """Create a new agent template."""
     repo = AgentTemplateRepository(db)
@@ -119,6 +134,7 @@ async def create_agent(
 async def get_agent(
     agent_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get a single agent template."""
     repo = AgentTemplateRepository(db)
@@ -133,6 +149,7 @@ async def update_agent(
     agent_id: str,
     data: AgentTemplateUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """Update an agent template (bumps version on change)."""
     repo = AgentTemplateRepository(db)
@@ -153,6 +170,7 @@ async def update_agent(
 async def delete_agent(
     agent_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin),
 ) -> Any:
     """Delete an agent template."""
     repo = AgentTemplateRepository(db)
@@ -168,6 +186,7 @@ async def delete_agent(
 async def list_agent_versions(
     agent_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """List version history for an agent template."""
     repo = AgentTemplateRepository(db)
@@ -192,6 +211,7 @@ async def get_agent_version(
     agent_id: str,
     version: int,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get a specific version snapshot."""
     repo = AgentTemplateRepository(db)
@@ -215,8 +235,10 @@ async def get_agent_version(
 async def list_project_agents(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """List agents configured for a specific project."""
+    await _require_project_owner(project_id, current_user, db)
     repo = AgentTemplateRepository(db)
     templates = await repo.list_all()
     project_agents = await repo.list_project_agents(project_id)
@@ -244,8 +266,10 @@ async def configure_project_agent(
     project_id: str,
     data: ProjectAgentUpsert,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Add or update an agent configuration for a project."""
+    await _require_project_owner(project_id, current_user, db)
     repo = AgentTemplateRepository(db)
     template = await repo.get_by_id(data.template_id)
     if not template:
@@ -273,8 +297,10 @@ async def remove_project_agent(
     project_id: str,
     template_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     """Remove an agent from a project."""
+    await _require_project_owner(project_id, current_user, db)
     repo = AgentTemplateRepository(db)
     removed = await repo.remove_project_agent(project_id, template_id)
     if not removed:

@@ -2,10 +2,12 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, ForeignKey
+
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.time import naive_utcnow
 
 
 class Workspace(Base):
@@ -25,7 +27,7 @@ class Workspace(Base):
     git_repository: Mapped[str | None] = mapped_column(String, nullable=True)
     default_branch: Mapped[str] = mapped_column(String, default="main")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=naive_utcnow, nullable=False
     )
 
     device = relationship("Device", back_populates="workspaces")

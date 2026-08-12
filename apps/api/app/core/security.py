@@ -2,7 +2,7 @@
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Optional
 
 import bcrypt
@@ -51,10 +51,22 @@ def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def hash_device_token(token: str) -> str:
+    """Hash an opaque device credential before database storage."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def verify_device_token(token: str, token_hash: str) -> bool:
+    """Compare a presented device credential with its stored hash."""
+    if not token or not token_hash:
+        return False
+    return secrets.compare_digest(hash_device_token(token), token_hash)
+
+
 def refresh_token_expiry() -> datetime:
     """UTC expiry for a new refresh token (from settings). Naive UTC to
     match the codebase's DateTime columns."""
-    return datetime.utcnow() + timedelta(
+    return datetime.now(UTC).replace(tzinfo=None) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
 

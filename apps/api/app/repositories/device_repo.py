@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import uuid
 from typing import List, Optional
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.time import naive_utcnow
 from app.models.device import Device
 from app.models.user import User
 
@@ -95,6 +97,22 @@ class DeviceRepository:
             await self.db.flush()
         return device
 
+    async def record_heartbeat(
+        self,
+        device_id: str,
+        workspace_ids: list[str],
+    ) -> Optional[Device]:
+        """Persist liveness and the workspace IDs advertised by a device."""
+        device = await self.get_by_id(device_id)
+        if device:
+            device.status = "online"
+            device.last_seen_at = naive_utcnow()
+            capabilities = dict(device.capabilities or {})
+            capabilities["workspace_ids"] = sorted(set(workspace_ids))
+            device.capabilities = capabilities
+            await self.db.flush()
+        return device
+
     async def count(self) -> int:
         """Return total number of devices."""
         result = await self.db.execute(select(Device))
@@ -104,6 +122,16 @@ class DeviceRepository:
         """Return number of online devices."""
         result = await self.db.execute(
             select(Device).where(Device.status == "online")
+        )
+        return len(list(result.scalars().all()))
+
+    async def count_online_for_user(self, user_id: str) -> int:
+        """Return number of online devices belonging to a user."""
+        result = await self.db.execute(
+            select(Device).where(
+                Device.user_id == user_id,
+                Device.status == "online",
+            )
         )
         return len(list(result.scalars().all()))
 

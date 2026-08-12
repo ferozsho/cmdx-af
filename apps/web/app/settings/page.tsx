@@ -23,15 +23,9 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const apiKeyRef = useRef<HTMLInputElement>(null)
   const baseUrlRef = useRef<HTMLInputElement>(null)
   // OpenAI
-  const oaiKeyRef = useRef<HTMLInputElement>(null)
   const oaiBaseUrlRef = useRef<HTMLInputElement>(null)
-  // Gemini
-  const gemKeyRef = useRef<HTMLInputElement>(null)
-  // Claude
-  const claudeKeyRef = useRef<HTMLInputElement>(null)
   // General
   const maxStepsRef = useRef<HTMLInputElement>(null)
   const timeoutRef = useRef<HTMLInputElement>(null)
@@ -51,8 +45,9 @@ export default function SettingsPage() {
   const [claudeModel, setClaudeModel] = useState('claude-3-5-sonnet-20241022')
   const [allModels, setAllModels] = useState<any[]>([])
 
-  // Masked key display values
-  const [maskedKeys, setMaskedKeys] = useState<Record<string, string>>({})
+  const [providerConfigured, setProviderConfigured] = useState<
+    Record<string, boolean>
+  >({})
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({})
 
   const [deepseekResult, setDeepseekResult] = useState<TestResult>({
@@ -79,7 +74,7 @@ export default function SettingsPage() {
     const confirm = pwConfirmRef.current?.value || ''
     if (!current || !next) return
     if (next.length < 6) {
-      setPwError('New password must be at least 6 characters.')
+      setPwError('New password must be at least 10 characters.')
       return
     }
     if (next !== confirm) {
@@ -127,18 +122,12 @@ export default function SettingsPage() {
       setOaiModel(s.openai_chat_model || 'gpt-4o')
       setGemModel(s.gemini_chat_model || 'gemini-2.5-pro')
       setClaudeModel(s.claude_chat_model || 'claude-3-5-sonnet-20241022')
-      // Store masked keys for display
-      setMaskedKeys({
-        deepseek: s.deepseek_api_key_masked || '',
-        openai: s.openai_api_key_masked || '',
-        gemini: s.gemini_api_key_masked || '',
-        claude: s.claude_api_key_masked || '',
+      setProviderConfigured({
+        deepseek: s.has_deepseek_key,
+        openai: s.has_openai_key,
+        gemini: s.has_gemini_key,
+        claude: s.has_claude_key,
       })
-      // Pre-fill password fields with masked values so user sees a key exists
-      if (apiKeyRef.current && s.has_deepseek_key) apiKeyRef.current.value = s.deepseek_api_key_masked
-      if (oaiKeyRef.current && s.has_openai_key) oaiKeyRef.current.value = s.openai_api_key_masked
-      if (gemKeyRef.current && s.has_gemini_key) gemKeyRef.current.value = s.gemini_api_key_masked
-      if (claudeKeyRef.current && s.has_claude_key) claudeKeyRef.current.value = s.claude_api_key_masked
       // General fields
       if (maxStepsRef.current) maxStepsRef.current.value = String(s.max_agent_steps ?? 10)
       if (timeoutRef.current) timeoutRef.current.value = String(s.agent_timeout ?? 600)
@@ -157,15 +146,11 @@ export default function SettingsPage() {
     setSaveError(null)
     try {
       await updateSettings({
-        deepseek_api_key: apiKeyRef.current?.value || '',
         deepseek_base_url: baseUrlRef.current?.value || '',
         deepseek_chat_model: dsModel,
-        openai_api_key: oaiKeyRef.current?.value || '',
         openai_base_url: oaiBaseUrlRef.current?.value || '',
         openai_chat_model: oaiModel,
-        gemini_api_key: gemKeyRef.current?.value || '',
         gemini_chat_model: gemModel,
-        claude_api_key: claudeKeyRef.current?.value || '',
         claude_chat_model: claudeModel,
         max_agent_steps: parseInt(maxStepsRef.current?.value || '10', 10),
         agent_timeout: parseInt(timeoutRef.current?.value || '600', 10),
@@ -328,15 +313,10 @@ export default function SettingsPage() {
         {/* DeepSeek Tab */}
         {activeProvider === 'deepseek' && (
           <div className="space-y-4">
-            <div>
-              <label className="block font-bold text-[13px] text-foreground mb-[7px]">
-                DeepSeek API Key
-              </label>
-              <input ref={apiKeyRef} type="password" defaultValue="" placeholder={maskedKeys.deepseek || 'sk-...'} className="input-af" />
-              {maskedKeys.deepseek && (
-                <p className="text-[10px] text-emerald-500 mt-1">✓ Key configured</p>
-              )}
-            </div>
+            <EnvironmentSecretStatus
+              variable="DEEPSEEK_API_KEY"
+              configured={providerConfigured.deepseek === true}
+            />
             <Field label="Base URL" inputRef={baseUrlRef} defaultValue="https://api.deepseek.com/v1" />
             <div>
               <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
@@ -362,15 +342,10 @@ export default function SettingsPage() {
         {/* OpenAI Tab */}
         {activeProvider === 'openai' && (
           <div className="space-y-4">
-            <div>
-              <label className="block font-bold text-[13px] text-foreground mb-[7px]">
-                OpenAI API Key
-              </label>
-              <input ref={oaiKeyRef} type="password" defaultValue="" placeholder={maskedKeys.openai || 'sk-...'} className="input-af" />
-              {maskedKeys.openai && (
-                <p className="text-[10px] text-emerald-500 mt-1">✓ Key configured</p>
-              )}
-            </div>
+            <EnvironmentSecretStatus
+              variable="OPENAI_API_KEY"
+              configured={providerConfigured.openai === true}
+            />
             <Field label="Base URL" inputRef={oaiBaseUrlRef} defaultValue="https://api.openai.com/v1" />
             <div>
               <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
@@ -391,15 +366,10 @@ export default function SettingsPage() {
         {/* Gemini Tab */}
         {activeProvider === 'gemini' && (
           <div className="space-y-4">
-            <div>
-              <label className="block font-bold text-[13px] text-foreground mb-[7px]">
-                Gemini API Key
-              </label>
-              <input ref={gemKeyRef} type="password" defaultValue="" placeholder={maskedKeys.gemini || 'AIza...'} className="input-af" />
-              {maskedKeys.gemini && (
-                <p className="text-[10px] text-emerald-500 mt-1">✓ Key configured</p>
-              )}
-            </div>
+            <EnvironmentSecretStatus
+              variable="GEMINI_API_KEY"
+              configured={providerConfigured.gemini === true}
+            />
             <div>
               <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
               <select value={gemModel} onChange={(e) => setGemModel(e.target.value)} className="input-af">
@@ -419,15 +389,10 @@ export default function SettingsPage() {
         {/* Claude Tab */}
         {activeProvider === 'claude' && (
           <div className="space-y-4">
-            <div>
-              <label className="block font-bold text-[13px] text-foreground mb-[7px]">
-                Claude API Key
-              </label>
-              <input ref={claudeKeyRef} type="password" defaultValue="" placeholder={maskedKeys.claude || 'sk-ant-...'} className="input-af" />
-              {maskedKeys.claude && (
-                <p className="text-[10px] text-emerald-500 mt-1">✓ Key configured</p>
-              )}
-            </div>
+            <EnvironmentSecretStatus
+              variable="CLAUDE_API_KEY"
+              configured={providerConfigured.claude === true}
+            />
             <div>
               <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
               <select value={claudeModel} onChange={(e) => setClaudeModel(e.target.value)} className="input-af">
@@ -506,7 +471,7 @@ export default function SettingsPage() {
               ref={pwNewRef}
               type="password"
               required
-              minLength={6}
+              minLength={10}
               className="input-af"
             />
           </div>
@@ -569,6 +534,31 @@ function Field({
         step={step}
         className="input-af"
       />
+    </div>
+  )
+}
+
+function EnvironmentSecretStatus({
+  variable,
+  configured,
+}: {
+  variable: string
+  configured: boolean
+}) {
+  return (
+    <div className="rounded-[10px] border border-border bg-surface-secondary p-3">
+      <p className="text-xs font-semibold text-foreground m-0">
+        {variable}
+      </p>
+      <p
+        className={`text-[11px] mt-1 mb-0 ${
+          configured ? 'text-emerald-500' : 'text-amber-500'
+        }`}
+      >
+        {configured
+          ? '✓ Configured from the root .env file'
+          : 'Not configured — add this variable to the root .env file and restart the API'}
+      </p>
     </div>
   )
 }

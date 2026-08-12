@@ -1,8 +1,8 @@
 """Backend Agent Implementation."""
 
 from typing import Any, Dict
-from app.agents.base import BaseAgent
 
+from app.agents.base import BaseAgent
 
 SYSTEM_PROMPT = """You are a Backend Engineer agent specializing in FastAPI, Python,
 and service-layer architecture. Generate complete backend code files.

@@ -4,12 +4,16 @@
 
 ### Current Repository State
 - **Repository Path**: `/home/administrator/cmdx-af`
-- **Current Files**: `plan.md` (Master Specification document)
-- **Status**: Clean baseline repository with complete product requirements defined in `plan.md`.
+- **Current Files**: Implemented cloud API, web control plane, local agent,
+  shared protocol, migrations, tests, and deployment configuration.
+- **Status**: Phases 1–7 completed and verified on 2026-08-11. Later phases
+  remain tracked separately below.
 
 ### Architectural Vision
 AgentForge is an enterprise-grade, agentic software development platform designed with a hybrid architecture:
-- **AgentForge Cloud (Control Plane)**: Next.js frontend + FastAPI backend + PostgreSQL + Redis + Celery + LLM Provider Layer + Agent Orchestrator + Tool Gateway.
+- **AgentForge Cloud (Control Plane)**: Next.js frontend + FastAPI backend +
+  PostgreSQL + Redis + durable SQL worker + LLM Provider Layer + Agent
+  Orchestrator + Tool Gateway.
 - **AgentForge Local Agent (Execution Plane)**: Lightweight Python daemon running on developer workstations. Connects via outbound WSS (port 443) to the Tool Gateway. Executes filesystem CRUD, Git commands, local tests, linters, builds, and local RAG vector indexing directly on local project directories (e.g., `D:\Projects\...` or `/home/user/projects/...`).
 
 ---
@@ -23,8 +27,6 @@ cmdx-af/
 │   │   ├── app/                    # Pages & Layouts (Dashboard, Workspaces, Devices, RAG, Git, Settings)
 │   │   ├── components/             # UI Components (shadcn/ui, Monaco Editor, Live Agent Consoles)
 │   │   ├── lib/                    # API Client, SSE handler, Utils
-│   │   ├── hooks/                  # Custom React Hooks
-│   │   ├── types/                  # TypeScript Data Contracts
 │   │   ├── package.json
 │   │   └── tsconfig.json
 │   │
@@ -33,14 +35,13 @@ cmdx-af/
 │   │   │   ├── api/                # REST Routes (projects, devices, instructions, rag, git, llm)
 │   │   │   ├── core/               # App Configuration, DB Session, Security, Exceptions
 │   │   │   ├── models/             # SQLAlchemy ORM Models (projects, devices, workspaces, instructions, runs, artifacts)
-│   │   │   ├── schemas/            # Pydantic Request/Response Models
 │   │   │   ├── repositories/       # Database Access Layer
 │   │   │   ├── services/           # Business Logic Services
-│   │   │   ├── llm/                # LLM Provider Abstraction Layer (DeepSeek, OpenAI, Ollama)
+│   │   │   ├── llm/                # DeepSeek, OpenAI, Gemini, Claude, Mock
 │   │   │   ├── agents/             # CrewAI / Custom Agents (Planning, Arch, UI/UX, Frontend, Backend, DB, Test, Validation, Git)
 │   │   │   ├── tools/              # Cloud Tools & Tool Gateway Routing
-│   │   │   │   └── gateway/        # WSS Gateway routing tool calls to Local Agents or Cloud Sandboxes
-│   │   │   ├── workers/            # Celery Async Tasks & Pipeline Processors
+│   │   │   │   └── gateway/        # Governed WSS routing to Local Agents
+│   │   │   ├── worker.py           # Durable SQL-backed pipeline processor
 │   │   │   └── wss/                # WebSocket Manager for Local Agent Connections & Event Dispatching
 │   │   ├── alembic/                # DB Migrations
 │   │   ├── tests/                  # Pytest Unit & Integration Tests
@@ -49,9 +50,7 @@ cmdx-af/
 │   │
 │   └── local-agent/                # AgentForge Local Execution Daemon
 │       ├── agentforge_local/
-│       │   ├── auth/               # Pairing & Device Credentials
-│       │   ├── connection/         # Outbound WSS Client & Reconnect Logic
-│       │   ├── protocol/           # JSON-RPC / Structured Message Dispatcher
+│       │   ├── connection/         # Pairing, outbound WSS, reconnect logic
 │       │   ├── filesystem/         # Safe File CRUD & Path Isolation
 │       │   ├── git/                # Git Branching, Commits, Diffs & Rollbacks
 │       │   ├── execution/          # Whitelisted Tool Execution (pytest, npm, ruff, mypy)
@@ -73,7 +72,7 @@ cmdx-af/
 │   ├── docker-compose.yml
 │   └── nginx.conf
 │
-├── .env.example                    # Environment Template
+├── .env                            # VM runtime configuration (not committed)
 ├── Makefile                        # Convenient Build & Run Shortcuts
 └── README.md
 ```
@@ -117,43 +116,69 @@ cmdx-af/
 - [x] Create comprehensive `docs/IMPLEMENTATION_PLAN.md` with hybrid Cloud/Local architecture.
 
 ### Phase 1: Foundation & Base Monorepo Scaffolding
-- [ ] Initialize monorepo directory layout (`apps/web`, `apps/api`, `apps/local-agent`, `infrastructure`).
-- [ ] Create `docker-compose.yml` for PostgreSQL, Redis, Qdrant, FastAPI, Celery, and Next.js.
-- [ ] Set up environment files (`.env.example`).
-- [ ] Implement FastAPI baseline application with CORS, health check endpoint (`GET /api/v1/health`), and database models.
+- [x] Initialize monorepo directory layout (`apps/web`, `apps/api`, `apps/local-agent`, `infrastructure`).
+- [x] Create `docker-compose.yml` for PostgreSQL, Redis, Qdrant, FastAPI,
+  durable background execution, and Next.js. The production implementation
+  uses a database-backed worker with atomic claims, retries, heartbeats, and
+  crash recovery instead of the originally proposed Celery queue.
+- [x] Load deployment configuration and secrets exclusively from the root
+  `.env` file; example or alternate environment files are intentionally not
+  used by this VM deployment.
+- [x] Implement FastAPI baseline application with CORS, health/readiness
+  endpoints, and database models.
 
 ### Phase 2: Local Agent Foundation & Protocol
-- [ ] Build `apps/local-agent` package structure.
-- [ ] Implement JSON message protocol for WSS tool invocation (`tool_request`, `tool_result`, `heartbeat`, `pairing`).
-- [ ] Build Device Pairing flow: Cloud 8-character pairing code generation & Local Agent token exchange.
-- [ ] Build Cloud WSS Device Gateway & Connection Manager in `apps/api/app/wss`.
+- [x] Build `apps/local-agent` package structure.
+- [x] Implement typed JSON messages for WSS tool invocation (`tool_request`,
+  `tool_result`, `heartbeat`, and pairing contracts).
+- [x] Build the device pairing flow with durable, hashed, one-time
+  eight-character codes and local-agent token exchange.
+- [x] Build the authenticated Cloud WSS Device Gateway, heartbeat persistence,
+  and request/result Connection Manager in `apps/api/app/wss`.
 
 ### Phase 3: Database Models & Alembic Migrations
-- [ ] Define SQLAlchemy ORM models: `User`, `Device`, `Workspace`, `Project`, `Instruction`, `AgentRun`, `Artifact`, `FileOperation`, `GitCommit`, `LLMUsage`, `LocalJob`.
-- [ ] Configure Alembic and generate baseline database migration.
-- [ ] Implement Pydantic schemas and Repository pattern data access layer.
+- [x] Define SQLAlchemy ORM models: `User`, `Device`, `Workspace`, `Project`,
+  `Instruction`, `AgentRun`, `Artifact`, `FileOperation`, `GitCommit`,
+  `LLMUsage`, and the durable `BackgroundJob` successor to `LocalJob`.
+- [x] Configure Alembic, maintain the complete migration chain, enforce
+  instruction ownership, and verify zero model/schema drift.
+- [x] Implement validated Pydantic request/response schemas and repository
+  data-access classes for the core aggregates.
 
 ### Phase 4: Tool Gateway & Local Execution Tools
-- [ ] Implement Tool Gateway abstraction in Cloud API (`apps/api/app/tools/gateway`).
-- [ ] Implement Local Agent Filesystem tools (`read_file`, `write_file`, `update_file`, `delete_file`, `list_files`, `get_project_tree`, `search_in_files`).
-- [ ] Implement Local Agent Security rules (Path isolation, traversal protection, secret redaction filter).
-- [ ] Implement Local Agent Command Execution tools (`run_tests`, `run_linter`, `run_formatter`, `run_type_check`, `run_build`) with command array restrictions.
-- [ ] Implement Local Agent Git tools (`git_status`, `git_branch`, `git_diff`, `git_commit`, `git_rollback`).
+- [x] Implement Tool Gateway abstraction in Cloud API (`apps/api/app/tools/gateway`).
+- [x] Implement Local Agent Filesystem tools (`read_file`, `write_file`,
+  `update_file`, `delete_file`, `list_files`, `get_project_tree`,
+  `search_in_files`).
+- [x] Implement Local Agent security rules (path isolation, traversal and
+  symlink protection, sensitive-file blocking, secret redaction, output and
+  execution bounds).
+- [x] Implement Local Agent command tools (`run_tests`, `run_linter`,
+  `run_formatter`, `run_type_check`, `run_build`) with independent task
+  restrictions and non-shell command arrays.
+- [x] Implement Local Agent Git tools (`git_status`, `git_branch`, `git_diff`,
+  `git_commit`, `git_rollback`).
 
 ### Phase 5: Local RAG & Vector Storage
-- [ ] Implement local Code Scanner and Chunker in `apps/local-agent/agentforge_local/rag`.
-- [ ] Integrate Qdrant vector database (Cloud / Local container).
-- [ ] Implement semantic code search (`rag_search`) returning top-K results with similarity scores and line numbers.
-- [ ] Implement file system watcher for incremental vector re-indexing on file changes.
+- [x] Implement local Code Scanner and Chunker in `apps/local-agent/agentforge_local/rag`.
+- [x] Integrate the persisted Qdrant vector database with server/client
+  compatibility and scoped stale-vector cleanup.
+- [x] Implement semantic code search (`rag_search`) returning bounded top-K
+  results with similarity scores, file paths, and line ranges.
+- [x] Implement file system watcher re-indexing for create, modify, delete,
+  and move events.
 
 ### Phase 6: LLM Provider Abstraction Layer
-- [ ] Build provider interface in `apps/api/app/llm/base.py` supporting chat completions, streaming, structured JSON output, retry, and cost calculation.
-- [ ] Implement DeepSeek API provider (`deepseek-chat`, `deepseek-coder`).
-- [ ] Implement Mock Provider for offline testing (`APP_MODE=mock`).
-- [ ] Implement Model Router & Token Usage Tracker.
+- [x] Build the provider interface in `apps/api/app/llm/base.py` supporting
+  chat completions, typed streaming, strict structured JSON output, bounded
+  transient retries, and cost calculation.
+- [x] Implement the DeepSeek API provider (`deepseek-chat`, `deepseek-coder`).
+- [x] Implement Mock Provider for explicit offline testing (`APP_MODE=mock`).
+- [x] Implement Model Router and durable, redacted token/usage tracking for
+  completion and streaming calls.
 
 ### Phase 7: Multi-Agent System & Sequential Pipeline
-- [ ] Implement individual specialized agent modules:
+- [x] Implement individual specialized agent modules:
   - Planning Agent
   - Architecture Agent
   - UI/UX Agent
@@ -164,7 +189,21 @@ cmdx-af/
   - Test Agent
   - Validation Agent
   - Git Agent
-- [ ] Implement Orchestration Engine with checkpointing, error recovery, and confirmation requirements.
+- [x] Implement the durable sequential orchestration engine with ordered
+  agents, persisted checkpoints, resume behavior, bounded job retries,
+  cancellation, failure stops, and human approval pauses.
+
+### Phases 1–7 Verification Evidence (2026-08-11)
+
+- API test suite: 69 passed.
+- Local-agent test suite: 33 passed inside the final CPU-only image.
+- Alembic upgrade: current at `l8g9h0i1j2k3`; `alembic check` reports no
+  upgrade operations.
+- Python Ruff and bytecode compilation: clean across API, migrations, local
+  agent, tests, and shared protocol.
+- Web TypeScript check and optimized Next.js build: passed.
+- Web ESLint: zero errors and 90 warnings; warning cleanup remains quality
+  debt outside the Phase 1–7 acceptance scope.
 
 ### Phase 8: SSE Event Infrastructure & Real-time Broadcasting
 - [ ] Set up Redis Pub/Sub event dispatcher in FastAPI.

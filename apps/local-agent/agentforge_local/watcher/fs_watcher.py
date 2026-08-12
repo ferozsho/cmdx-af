@@ -2,7 +2,8 @@
 
 from pathlib import Path
 from typing import Any
-from watchdog.events import FileSystemEventHandler, FileSystemEvent
+
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from agentforge_local.rag.indexer import _IGNORED_PARTS
@@ -25,6 +26,19 @@ class RAGWatcherHandler(FileSystemEventHandler):
     def on_created(self, event: FileSystemEvent) -> None:
         if not event.is_directory and not self._is_ignored(event.src_path):
             self.callback(event.src_path)
+
+    def on_deleted(self, event: FileSystemEvent) -> None:
+        if not event.is_directory and not self._is_ignored(event.src_path):
+            self.callback(event.src_path)
+
+    def on_moved(self, event: FileSystemEvent) -> None:
+        if event.is_directory:
+            return
+        source_ignored = self._is_ignored(event.src_path)
+        destination = str(getattr(event, "dest_path", ""))
+        destination_ignored = self._is_ignored(destination)
+        if not source_ignored or not destination_ignored:
+            self.callback(destination or event.src_path)
 
 
 class WorkspaceWatcher:

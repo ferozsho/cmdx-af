@@ -1,27 +1,41 @@
-"""Endpoint tests: auth guards, RBAC, and offline degradation.
+"""Endpoint tests for auth guards, RBAC, and offline degradation.
 
-These tests need a reachable Postgres (used for register + project create).
-The device is offline in the test env, so tool-backed endpoints must return
-the structured ``{status: "offline", online: false}`` payload (HTTP 200)
-instead of a 500.
+These integration tests use an ASGI-native HTTP client and a reachable test
+PostgreSQL database. Tool-backed endpoints must degrade to a structured
+offline response when no paired workstation is connected.
 """
 
 import uuid
 
-from fastapi.testclient import TestClient
+import httpx
+import pytest
+import pytest_asyncio
 
+from app.core.config import settings
 from app.main import app
 
-client = TestClient(app)
+pytestmark = pytest.mark.asyncio
 
 
-def _register_user(
+@pytest_asyncio.fixture
+async def api_client():
+    """ASGI-native client compatible with the installed FastAPI release."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://test",
+    ) as client:
+        yield client
+
+
+async def _register_user(
+    api_client: httpx.AsyncClient,
     email: str | None = None,
-    password: str = "testpass123",
+    password: str = "User@323123",
     full_name: str = "Test User",
 ):
-    email = email or f"t{uuid.uuid4().hex[:10]}@example.com"
-    res = client.post(
+    email = email or f"splash-auth-{uuid.uuid4().hex[:10]}@mailinator.com"
+    response = await api_client.post(
         "/api/v1/auth/register",
         json={
             "email": email,
@@ -29,197 +43,317 @@ def _register_user(
             "full_name": full_name,
         },
     )
-    assert res.status_code == 201, res.text
-    data = res.json()
+    assert response.status_code == 201, response.text
+    data = response.json()
     return data["access_token"], data["user"], email, password
 
 
 # ── 401 guards (no token) ──────────────────────────────────────────────────
-def test_rag_search_requires_auth() -> None:
-    assert (
-        client.post(
-            "/api/v1/projects/x/rag/search",
-            json={"query": "q", "top_k": 5},
-        ).status_code
-        == 401
+async def test_rag_search_requires_auth(api_client) -> None:
+    response = await api_client.post(
+        "/api/v1/projects/x/rag/search",
+        json={"query": "q", "top_k": 5},
     )
+    assert response.status_code == 401
 
 
-def test_rag_stats_requires_auth() -> None:
-    assert client.get("/api/v1/projects/x/rag/stats").status_code == 401
-
-
-def test_rag_reindex_requires_auth() -> None:
-    assert client.post("/api/v1/projects/x/rag/reindex").status_code == 401
-
-
-def test_validate_path_requires_auth() -> None:
+async def test_rag_stats_requires_auth(api_client) -> None:
     assert (
-        client.post(
-            "/api/v1/projects/validate-path", json={"path": "/tmp"}
-        ).status_code
-        == 401
-    )
+        await api_client.get("/api/v1/projects/x/rag/stats")
+    ).status_code == 401
 
 
-def test_git_rollback_requires_auth() -> None:
+async def test_rag_reindex_requires_auth(api_client) -> None:
     assert (
-        client.post(
-            "/api/v1/projects/x/git/rollback",
-            json={"commit_hash": "abc123"},
-        ).status_code
-        == 401
+        await api_client.post("/api/v1/projects/x/rag/reindex")
+    ).status_code == 401
+
+
+async def test_validate_path_requires_auth(api_client) -> None:
+    response = await api_client.post(
+        "/api/v1/projects/validate-path",
+        json={"path": "/tmp"},
     )
+    assert response.status_code == 401
 
 
-def test_artifacts_requires_auth() -> None:
-    assert client.get("/api/v1/projects/x/artifacts").status_code == 401
+async def test_git_rollback_requires_auth(api_client) -> None:
+    response = await api_client.post(
+        "/api/v1/projects/x/git/rollback",
+        json={"commit_hash": "abc123"},
+    )
+    assert response.status_code == 401
 
 
-def test_runs_requires_auth() -> None:
-    assert client.get("/api/v1/projects/x/runs").status_code == 401
-
-
-def test_settings_requires_auth() -> None:
-    assert client.get("/api/v1/settings").status_code == 401
-
-
-def test_observability_requires_auth() -> None:
-    assert client.get("/api/v1/observability/agent-metrics").status_code == 401
-
-
-def test_list_instructions_requires_auth() -> None:
-    assert client.get("/api/v1/projects/x/instructions").status_code == 401
-
-
-def test_submit_instruction_requires_auth() -> None:
+async def test_artifacts_requires_auth(api_client) -> None:
     assert (
-        client.post(
-            "/api/v1/projects/x/instructions",
-            json={"prompt": "do something"},
-        ).status_code
-        == 401
+        await api_client.get("/api/v1/projects/x/artifacts")
+    ).status_code == 401
+
+
+async def test_runs_requires_auth(api_client) -> None:
+    assert (
+        await api_client.get("/api/v1/projects/x/runs")
+    ).status_code == 401
+
+
+async def test_settings_requires_auth(api_client) -> None:
+    assert (await api_client.get("/api/v1/settings")).status_code == 401
+
+
+async def test_observability_requires_auth(api_client) -> None:
+    assert (
+        await api_client.get("/api/v1/observability/agent-metrics")
+    ).status_code == 401
+
+
+async def test_list_instructions_requires_auth(api_client) -> None:
+    assert (
+        await api_client.get("/api/v1/projects/x/instructions")
+    ).status_code == 401
+
+
+async def test_submit_instruction_requires_auth(api_client) -> None:
+    response = await api_client.post(
+        "/api/v1/projects/x/instructions",
+        json={"prompt": "do something"},
     )
+    assert response.status_code == 401
 
 
 # ── RBAC ───────────────────────────────────────────────────────────────────
-def test_settings_forbidden_for_user_role() -> None:
-    """A freshly registered (role=user) account cannot read settings."""
-    token, _, _, _ = _register_user()
-    res = client.get(
-        "/api/v1/settings", headers={"Authorization": f"Bearer {token}"}
+async def test_settings_forbidden_for_user_role(api_client) -> None:
+    """A freshly registered user cannot read administrator settings."""
+    token, _, _, _ = await _register_user(api_client)
+    response = await api_client.get(
+        "/api/v1/settings",
+        headers={"Authorization": f"Bearer {token}"},
     )
-    assert res.status_code == 403
+    assert response.status_code == 403
+
+
+async def test_agent_mutation_forbidden_for_user_role(api_client) -> None:
+    """Only administrators may create global agent templates."""
+    token, _, _, _ = await _register_user(api_client)
+    response = await api_client.post(
+        "/api/v1/agents",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"name": "Unauthorized Agent"},
+    )
+    assert response.status_code == 403
 
 
 # ── Offline degradation (no device connected in test env) ─────────────────
-def test_rag_search_returns_offline_not_500() -> None:
+async def test_rag_search_returns_offline_not_500(api_client) -> None:
     """Tool-backed endpoint returns structured offline payload (HTTP 200)."""
-    token, _, _, _ = _register_user()
-    proj = client.post(
+    token, _, _, _ = await _register_user(api_client)
+    headers = {"Authorization": f"Bearer {token}"}
+    project = await api_client.post(
         "/api/v1/projects",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
         json={"name": "smoke-test-proj"},
     )
-    assert proj.status_code == 200, proj.text
-    pid = proj.json()["id"]
+    assert project.status_code == 200, project.text
+    project_id = project.json()["id"]
     try:
-        res = client.post(
-            f"/api/v1/projects/{pid}/rag/search",
-            headers={"Authorization": f"Bearer {token}"},
+        response = await api_client.post(
+            f"/api/v1/projects/{project_id}/rag/search",
+            headers=headers,
             json={"query": "hello", "top_k": 5},
         )
-        assert res.status_code == 200, res.text
-        data = res.json()
+        assert response.status_code == 200, response.text
+        data = response.json()
         assert data.get("status") == "offline"
         assert data.get("online") is False
     finally:
-        client.delete(
-            f"/api/v1/projects/{pid}",
-            headers={"Authorization": f"Bearer {token}"},
+        await api_client.delete(
+            f"/api/v1/projects/{project_id}",
+            headers=headers,
+        )
+
+
+async def test_cross_user_project_access_is_denied(api_client) -> None:
+    """Project-scoped tool and session APIs reject a different user."""
+    owner_token, _, _, _ = await _register_user(api_client)
+    intruder_token, _, _, _ = await _register_user(api_client)
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    intruder_headers = {"Authorization": f"Bearer {intruder_token}"}
+    project = await api_client.post(
+        "/api/v1/projects",
+        headers=owner_headers,
+        json={"name": "ownership-test-proj"},
+    )
+    assert project.status_code == 200, project.text
+    project_id = project.json()["id"]
+
+    try:
+        responses = [
+            await api_client.get(
+                f"/api/v1/projects/{project_id}/tree",
+                headers=intruder_headers,
+            ),
+            await api_client.get(
+                f"/api/v1/projects/{project_id}/files/content",
+                headers=intruder_headers,
+                params={"path": "README.md"},
+            ),
+            await api_client.post(
+                f"/api/v1/projects/{project_id}/rag/search",
+                headers=intruder_headers,
+                json={"query": "secrets", "top_k": 5},
+            ),
+            await api_client.get(
+                f"/api/v1/projects/{project_id}/rag/chunks",
+                headers=intruder_headers,
+            ),
+            await api_client.get(
+                f"/api/v1/projects/{project_id}/rag/stats",
+                headers=intruder_headers,
+            ),
+            await api_client.post(
+                f"/api/v1/projects/{project_id}/rag/reindex",
+                headers=intruder_headers,
+            ),
+            await api_client.get(
+                f"/api/v1/projects/{project_id}/rag/reindex-status",
+                headers=intruder_headers,
+            ),
+            await api_client.get(
+                f"/api/v1/projects/{project_id}/git/status",
+                headers=intruder_headers,
+            ),
+            await api_client.get(
+                f"/api/v1/projects/{project_id}/git/log",
+                headers=intruder_headers,
+            ),
+            await api_client.post(
+                f"/api/v1/projects/{project_id}/git/rollback",
+                headers=intruder_headers,
+                json={"commit_hash": "abc123"},
+            ),
+            await api_client.get(
+                f"/api/v1/projects/{project_id}/files/original",
+                headers=intruder_headers,
+                params={"path": "README.md"},
+            ),
+            await api_client.get(
+                f"/api/v1/projects/{project_id}/sessions",
+                headers=intruder_headers,
+            ),
+            await api_client.post(
+                f"/api/v1/projects/{project_id}/sessions",
+                headers=intruder_headers,
+                json={"name": "stolen session"},
+            ),
+        ]
+        assert all(response.status_code == 404 for response in responses), [
+            (response.status_code, response.text) for response in responses
+        ]
+    finally:
+        await api_client.delete(
+            f"/api/v1/projects/{project_id}",
+            headers=owner_headers,
         )
 
 
 # ── Refresh token rotation ─────────────────────────────────────────────────
-def test_login_returns_refresh_token() -> None:
+async def test_login_returns_refresh_token(api_client) -> None:
     """Login returns both an access and a refresh token."""
-    _, _, email, password = _register_user()
-    res = client.post(
+    _, _, email, password = await _register_user(api_client)
+    response = await api_client.post(
         "/api/v1/auth/login",
         json={"email": email, "password": password},
     )
-    assert res.status_code == 200, res.text
-    data = res.json()
+    assert response.status_code == 200, response.text
+    data = response.json()
     assert data["access_token"]
     assert data["refresh_token"]
 
 
-def test_refresh_rotates_and_revokes_old() -> None:
+async def test_refresh_rotates_and_revokes_old(api_client) -> None:
     """A refresh token is single-use: rotation revokes the old one."""
-    _, _, email, password = _register_user()
-    login_res = client.post(
+    _, _, email, password = await _register_user(api_client)
+    login_response = await api_client.post(
         "/api/v1/auth/login",
         json={"email": email, "password": password},
-    ).json()
-    rt = login_res["refresh_token"]
-
-    rot = client.post(
-        "/api/v1/auth/refresh", json={"refresh_token": rt}
     )
-    assert rot.status_code == 200, rot.text
-    new_rt = rot.json()["refresh_token"]
-    assert new_rt and new_rt != rt
+    refresh_token = login_response.json()["refresh_token"]
 
-    # Old refresh token must now be rejected
-    reuse = client.post("/api/v1/auth/refresh", json={"refresh_token": rt})
-    assert reuse.status_code == 401
+    rotated = await api_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert rotated.status_code == 200, rotated.text
+    new_refresh_token = rotated.json()["refresh_token"]
+    assert new_refresh_token and new_refresh_token != refresh_token
+
+    reused = await api_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert reused.status_code == 401
 
 
-def test_logout_revokes_refresh_token() -> None:
+async def test_logout_revokes_refresh_token(api_client) -> None:
     """Server-side logout revokes the refresh token."""
-    _, _, email, password = _register_user()
-    rt = client.post(
+    _, _, email, password = await _register_user(api_client)
+    login_response = await api_client.post(
         "/api/v1/auth/login",
         json={"email": email, "password": password},
-    ).json()["refresh_token"]
+    )
+    refresh_token = login_response.json()["refresh_token"]
 
-    out = client.post("/api/v1/auth/logout", json={"refresh_token": rt})
-    assert out.status_code == 200
+    logged_out = await api_client.post(
+        "/api/v1/auth/logout",
+        json={"refresh_token": refresh_token},
+    )
+    assert logged_out.status_code == 200
 
-    reuse = client.post("/api/v1/auth/refresh", json={"refresh_token": rt})
-    assert reuse.status_code == 401
+    reused = await api_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert reused.status_code == 401
 
 
 # ── Forgot / reset password ────────────────────────────────────────────────
-def test_forgot_and_reset_password_flow() -> None:
-    """Request a reset token, reset the password, then log in with it."""
-    _, _, email, _ = _register_user()
+async def test_forgot_and_reset_password_flow(api_client, monkeypatch) -> None:
+    """Production hides reset tokens; explicit mock mode supports local tests."""
+    old_password = "User@323122"
+    _, _, email, _ = await _register_user(api_client, password=old_password)
 
-    fp = client.post("/api/v1/auth/forgot-password", json={"email": email})
-    assert fp.status_code == 200, fp.text
-    token = fp.json().get("reset_token")
+    monkeypatch.setattr(settings, "APP_MODE", "production")
+    forgot = await api_client.post(
+        "/api/v1/auth/forgot-password",
+        json={"email": email},
+    )
+    assert forgot.status_code == 200, forgot.text
+    assert "reset_token" not in forgot.json()
+
+    monkeypatch.setattr(settings, "APP_MODE", "mock")
+    forgot = await api_client.post(
+        "/api/v1/auth/forgot-password",
+        json={"email": email},
+    )
+    assert forgot.status_code == 200, forgot.text
+    token = forgot.json().get("reset_token")
     assert token
 
-    new_password = "brandnewpass456"
-    rp = client.post(
+    new_password = "User@323123"
+    reset = await api_client.post(
         "/api/v1/auth/reset-password",
         json={"token": token, "new_password": new_password},
     )
-    assert rp.status_code == 200, rp.text
+    assert reset.status_code == 200, reset.text
 
-    # Old password no longer works; new one does
-    assert (
-        client.post(
-            "/api/v1/auth/login",
-            json={"email": email, "password": "testpass123"},
-        ).status_code
-        == 401
+    old_login = await api_client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": old_password},
     )
-    assert (
-        client.post(
-            "/api/v1/auth/login",
-            json={"email": email, "password": new_password},
-        ).status_code
-        == 200
-    )
+    assert old_login.status_code == 401
 
+    new_login = await api_client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": new_password},
+    )
+    assert new_login.status_code == 200

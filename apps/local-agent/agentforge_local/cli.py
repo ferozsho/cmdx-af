@@ -8,6 +8,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List
+
 from agentforge_local.config import local_settings
 from agentforge_local.connection.device_auth import (
     load_device_credentials,
@@ -86,13 +87,13 @@ def main() -> None:
     connect = subparsers.add_parser(
         "connect", help="Pair this workstation with the cloud using a code"
     )
-    connect.add_argument("pairing_code", help="8-character pairing code from the Devices page")
+    connect.add_argument("pairing_code", help="pairing code from the Devices page")
 
     ws_add = subparsers.add_parser("workspace-add", help="Add an authorized local workspace path")
     ws_add.add_argument("workspace_id", help="Workspace UUID or key")
     ws_add.add_argument("path", help="Local directory path")
 
-    ws_list = subparsers.add_parser("workspace-list", help="List registered workspaces")
+    subparsers.add_parser("workspace-list", help="List registered workspaces")
 
     args = parser.parse_args()
 
@@ -103,7 +104,9 @@ def main() -> None:
             data = asyncio.run(pair_with_cloud(args.pairing_code))
             print(
                 f"✅ Paired! Device ID: {data['device_id']}\n"
-                f"   Token saved. Run 'agentforge start' to connect."
+                "   Add both values to the repository root .env, then restart:\n"
+                f"   AGENTFORGE_DEVICE_ID={data['device_id']}\n"
+                f"   AGENTFORGE_DEVICE_TOKEN={data['device_token']}"
             )
         except Exception as e:
             print(f"✗ Pairing failed: {e}")
@@ -119,9 +122,22 @@ def main() -> None:
     elif args.command == "start":
         print("🚀 Starting AgentForge Local Execution Daemon...")
         creds = load_device_credentials()
-        device_id = creds.get("device_id") or local_settings.DEVICE_ID or "dev_feroz_pc"
+        device_id = local_settings.DEVICE_ID or creds.get("device_id")
+        device_token = local_settings.DEVICE_TOKEN
+        if not device_id or not device_token:
+            print(
+                "✗ AGENTFORGE_DEVICE_ID and AGENTFORGE_DEVICE_TOKEN must be "
+                "set in the repository root .env."
+            )
+            sys.exit(1)
         handler = ToolHandler(ws_mgr)
-        client = LocalWSSClient(local_settings.CLOUD_WSS_URL, device_id, handler.handle_request)
+        client = LocalWSSClient(
+            local_settings.CLOUD_WSS_URL,
+            device_id,
+            device_token,
+            handler.handle_request,
+            workspace_ids=lambda: list(ws_mgr.list_workspaces()),
+        )
 
         watchers = _start_watchers(ws_mgr)
         if watchers:

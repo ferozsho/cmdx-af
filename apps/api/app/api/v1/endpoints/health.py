@@ -6,10 +6,12 @@ from typing import Any
 import asyncpg
 import httpx
 import redis.asyncio as aioredis
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.security import get_current_admin
 
 router = APIRouter()
 
@@ -181,9 +183,34 @@ async def health_check() -> Any:
     )
 
 
+@router.get("/health/ready")
+async def readiness_check() -> JSONResponse:
+    """Fail closed until the durable stores required by workers are ready."""
+    postgres, redis, qdrant = await asyncio.gather(
+        _check_postgres(), _check_redis(), _check_qdrant()
+    )
+    ready = all(
+        component.status == "healthy"
+        for component in (postgres, redis, qdrant)
+    )
+    return JSONResponse(
+        {
+            "status": "ready" if ready else "not_ready",
+            "components": {
+                "postgresql": postgres.status,
+                "redis": redis.status,
+                "qdrant": qdrant.status,
+            },
+        },
+        status_code=200 if ready else 503,
+    )
+
+
 @router.get("/health/full", response_model=FullHealthResponse)
-async def full_health_check() -> Any:
-    """Return comprehensive infrastructure health check."""
+async def full_health_check(
+    current_admin: Any = Depends(get_current_admin),
+) -> Any:
+    """Return comprehensive infrastructure health to administrators."""
     pg_health, redis_health, qdrant_health, ds, oa, cl, gm = (
         await asyncio.gather(
             _check_postgres(),

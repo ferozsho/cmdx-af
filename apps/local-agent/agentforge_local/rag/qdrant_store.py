@@ -89,6 +89,19 @@ class QdrantStore:
         would miss.
         """
         if not chunks:
+            client = self._get_client()
+            if client is None:
+                return 0
+            name = _collection_name(self.workspace_path)
+            try:
+                existing = [
+                    collection.name
+                    for collection in client.get_collections().collections
+                ]
+                if name in existing:
+                    client.delete_collection(collection_name=name)
+            except Exception:
+                return 0
             return 0
         name = self._collection()
         if name is None:
@@ -161,9 +174,6 @@ class QdrantStore:
             return len(points)
         except Exception:
             return 0
-            return len(points)
-        except Exception:
-            return 0
 
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Semantic vector search; returns [] when offline or no collection."""
@@ -176,12 +186,21 @@ class QdrantStore:
             if name not in existing:
                 return []
             vector = self.embedder.embed_text(query)
-            hits = client.search(
-                collection_name=name,
-                query_vector=vector,
-                limit=top_k,
-                with_payload=True,
-            )
+            if hasattr(client, "query_points"):
+                response = client.query_points(
+                    collection_name=name,
+                    query=vector,
+                    limit=top_k,
+                    with_payload=True,
+                )
+                hits = response.points
+            else:
+                hits = client.search(
+                    collection_name=name,
+                    query_vector=vector,
+                    limit=top_k,
+                    with_payload=True,
+                )
             results = []
             for hit in hits:
                 payload = hit.payload or {}

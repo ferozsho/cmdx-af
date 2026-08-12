@@ -2,7 +2,9 @@
 
 import uuid
 from typing import Any, Dict
+
 from agentforge_protocol import ToolRequest, ToolResult
+
 from app.wss.connection_manager import wss_manager
 
 
@@ -17,6 +19,7 @@ class ToolGateway:
         job_id: str,
         tool_name: str,
         arguments: Dict[str, Any],
+        authorization_id: str | None = None,
     ) -> ToolResult:
         """Route tool invocation to target device over WSS."""
         req_id = f"req_{uuid.uuid4().hex[:8]}"
@@ -26,6 +29,7 @@ class ToolGateway:
             workspace_id=workspace_id,
             tool_name=tool_name,
             arguments=arguments,
+            authorization_id=authorization_id,
         )
 
         return await wss_manager.send_tool_request(device_id, req)

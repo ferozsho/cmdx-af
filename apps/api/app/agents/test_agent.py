@@ -5,7 +5,7 @@ import re
 from typing import Any, Dict, List
 
 from app.agents.base import BaseAgent
-
+from app.services.approvals import ApprovalRequiredError
 
 SYSTEM_PROMPT = """You are a Test Engineer agent specializing in pytest, Jest, and
 React Testing Library. Generate comprehensive test suites and report results.
@@ -86,6 +86,8 @@ class TestAgent(BaseAgent):
                     f"{TEST_AGENT_TIMEOUT}s (pytest or LLM may be slow)."
                 ),
             }
+        except ApprovalRequiredError:
+            raise
         except Exception as e:
             return {
                 "status": "FAILED",
@@ -131,7 +133,10 @@ class TestAgent(BaseAgent):
 
             # Run pytest for real results when tests were written
             pytest_run = await self._run_command(
-                context, ["pytest", "-q", "--tb=short"]
+                context,
+                ["pytest", "-q", "--tb=short"],
+                operation="command.validate",
+                category="test",
             )
             output = pytest_run.get("output") or ""
             if output and not _is_unavailable(output):
@@ -160,6 +165,8 @@ class TestAgent(BaseAgent):
                 "tokens_used": response.total_tokens,
                 "cost": response.cost,
             }
+        except ApprovalRequiredError:
+            raise
         except Exception as e:
             return {
                 "status": "FAILED",

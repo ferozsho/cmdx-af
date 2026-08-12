@@ -1,18 +1,32 @@
 """Session Management Endpoints — context window sessions for projects."""
 
 from typing import Any, List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.user import User
-from app.models.session import Session
 from app.models.instruction import Instruction
 from app.models.llm_usage import LLMUsage
+from app.models.session import Session
+from app.models.user import User
+from app.repositories.project_repo import ProjectRepository
 
 router = APIRouter()
+
+
+async def _require_project_owner(
+    project_id: str,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    """Require project ownership without disclosing other users' projects."""
+    if not await ProjectRepository(db).belongs_to(project_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
+
 
 # Model context window limits (tokens)
 MODEL_CONTEXT_LIMITS = {
@@ -58,6 +72,7 @@ async def list_sessions(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """List all sessions for a project."""
+    await _require_project_owner(project_id, current_user, db)
     result = await db.execute(
         select(Session)
         .where(Session.project_id == project_id)
@@ -91,6 +106,7 @@ async def create_session(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Create a new context session for a project."""
+    await _require_project_owner(project_id, current_user, db)
     context_limit = MODEL_CONTEXT_LIMITS.get(
         data.model_name, 65536
     )
@@ -128,6 +144,7 @@ async def get_session_context(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get accumulated context from previous instructions in a session."""
+    await _require_project_owner(project_id, current_user, db)
     session = await db.get(Session, session_id)
     if not session or session.project_id != project_id:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -199,6 +216,7 @@ async def update_session(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Rename a session."""
+    await _require_project_owner(project_id, current_user, db)
     session = await db.get(Session, session_id)
     if not session or session.project_id != project_id:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -216,6 +234,7 @@ async def delete_session(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Delete a session and its associated instructions."""
+    await _require_project_owner(project_id, current_user, db)
     session = await db.get(Session, session_id)
     if not session or session.project_id != project_id:
         raise HTTPException(status_code=404, detail="Session not found")

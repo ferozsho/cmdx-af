@@ -1,8 +1,7 @@
 """SSE Broadcaster Service using Async Queues for Live Web Updates."""
 
 import asyncio
-import json
-from typing import AsyncGenerator, Dict, Set
+from typing import Dict, Set
 
 
 class SSEBroadcaster:

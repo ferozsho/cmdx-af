@@ -1,33 +1,49 @@
-"""Instruction Submission and Agent Execution Endpoints."""
+"""Durable instruction submission, history, and cancellation endpoints."""
 
-import asyncio
 import uuid
-from typing import Any, List, Optional
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from datetime import UTC, datetime
+from typing import Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.agents.pipeline import PipelineOrchestrator
+from sqlalchemy.orm import selectinload
+
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.models.agent_run import AgentRun
+from app.models.instruction import Instruction
+from app.models.session import Session
 from app.models.user import User
 from app.repositories.project_repo import ProjectRepository
-from app.repositories.device_repo import DeviceRepository
-from app.services.sse_broadcaster import broadcaster
+from app.services.instruction_events import append_instruction_event
 
 router = APIRouter()
+
+
+async def _require_project_owner(
+    project_id: str,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    """Return 404 unless the authenticated user owns the project."""
+    if not await ProjectRepository(db).belongs_to(project_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Project not found")
 
 
 class InstructionSubmit(BaseModel):
     """Instruction submission request payload."""
 
-    prompt: str
-    image_bytes: Optional[str] = None
-    image_mime_type: Optional[str] = None
-    session_id: Optional[str] = None
+    prompt: str = Field(min_length=1, max_length=100000)
+    image_bytes: str | None = None
+    image_mime_type: str | None = None
+    session_id: str | None = None
 
 
 class InstructionResponse(BaseModel):
-    """Instruction response schema."""
+    """Instruction queue state returned to clients."""
 
     id: str
     project_id: str
@@ -35,6 +51,9 @@ class InstructionResponse(BaseModel):
     prompt: str
     status: str
     created_at: str | None = None
+    attempt_count: int = 0
+    max_attempts: int = 3
+    cancel_requested_at: str | None = None
 
 
 class UserInstructionItem(BaseModel):
@@ -47,7 +66,7 @@ class UserInstructionItem(BaseModel):
 
 
 class InstructionDetailResponse(BaseModel):
-    """Detailed instruction with agent runs for history view."""
+    """Detailed instruction with persisted agent runs."""
 
     id: str
     project_id: str
@@ -55,12 +74,35 @@ class InstructionDetailResponse(BaseModel):
     prompt: str
     status: str
     created_at: str | None = None
-    runs: list[dict] = []
+    runs: list[dict] = Field(default_factory=list)
+
+
+def _instruction_response(instruction: Instruction) -> InstructionResponse:
+    """Serialize queue state consistently for all endpoints."""
+    return InstructionResponse(
+        id=instruction.id,
+        project_id=instruction.project_id,
+        user_id=instruction.user_id,
+        prompt=instruction.prompt,
+        status=instruction.status,
+        created_at=(
+            instruction.created_at.isoformat()
+            if instruction.created_at
+            else None
+        ),
+        attempt_count=instruction.attempt_count,
+        max_attempts=instruction.max_attempts,
+        cancel_requested_at=(
+            instruction.cancel_requested_at.isoformat()
+            if instruction.cancel_requested_at
+            else None
+        ),
+    )
 
 
 @router.get(
     "/users/me/instructions",
-    response_model=List[UserInstructionItem],
+    response_model=list[UserInstructionItem],
 )
 async def list_user_instructions(
     limit: int = Query(50, ge=1, le=100),
@@ -68,9 +110,6 @@ async def list_user_instructions(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """List recent instructions across all projects for the current user."""
-    from sqlalchemy import select
-    from app.models.instruction import Instruction
-
     result = await db.execute(
         select(Instruction)
         .where(Instruction.user_id == current_user.id)
@@ -79,89 +118,58 @@ async def list_user_instructions(
     )
     return [
         UserInstructionItem(
-            id=i.id,
-            prompt=i.prompt,
-            project_id=i.project_id,
-            created_at=i.created_at.isoformat() if i.created_at else None,
+            id=item.id,
+            prompt=item.prompt,
+            project_id=item.project_id,
+            created_at=(
+                item.created_at.isoformat() if item.created_at else None
+            ),
         )
-        for i in result.scalars().all()
+        for item in result.scalars().all()
     ]
 
 
 @router.get(
     "/projects/{project_id}/instructions",
-    response_model=List[InstructionResponse],
+    response_model=list[InstructionResponse],
 )
 async def list_instructions(
     project_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    """List recent instructions for a project with their status."""
-    from sqlalchemy import select
-
-    from app.models.instruction import Instruction
-
+    """List recent instruction queue states for an owned project."""
+    await _require_project_owner(project_id, current_user, db)
     result = await db.execute(
         select(Instruction)
         .where(Instruction.project_id == project_id)
         .order_by(Instruction.created_at.desc())
         .limit(50)
     )
-    return [
-        InstructionResponse(
-            id=i.id,
-            project_id=i.project_id,
-            user_id=i.user_id,
-            prompt=i.prompt,
-            status=i.status,
-            created_at=i.created_at.isoformat() if i.created_at else None,
-        )
-        for i in result.scalars().all()
-    ]
+    return [_instruction_response(item) for item in result.scalars().all()]
 
 
 @router.get(
     "/projects/{project_id}/instructions/history",
-    response_model=List[InstructionDetailResponse],
+    response_model=list[InstructionDetailResponse],
 )
 async def list_instruction_history(
     project_id: str,
     limit: int = Query(10, ge=1, le=50, description="Items per page"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
-    agent_name: Optional[str] = Query(
-        None, description="Filter by agent name (e.g. 'Test Agent')"
-    ),
-    date_from: Optional[str] = Query(
-        None, description="Filter from date (ISO format, e.g. 2026-08-01)"
-    ),
-    date_to: Optional[str] = Query(
-        None, description="Filter to date (ISO format)"
-    ),
+    agent_name: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    """List instructions with full agent run logs for history review.
-
-    Supports pagination (limit/offset) and filtering by agent name and date
-    range.
-    """
-    from datetime import datetime
-
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
-
-    from app.models.agent_run import AgentRun
-    from app.models.instruction import Instruction
-
-    # Build base query with eager-loaded runs
+    """List instruction history with optional agent and date filters."""
+    await _require_project_owner(project_id, current_user, db)
     query = (
         select(Instruction)
         .where(Instruction.project_id == project_id)
         .options(selectinload(Instruction.runs))
     )
-
-    # Filter by agent name — join through agent_runs
     if agent_name:
         query = query.where(
             Instruction.id.in_(
@@ -170,189 +178,173 @@ async def list_instruction_history(
                 )
             )
         )
-
-    # Filter by date range
     if date_from:
         try:
-            dt_from = datetime.fromisoformat(date_from)
-            query = query.where(Instruction.created_at >= dt_from)
+            query = query.where(
+                Instruction.created_at >= datetime.fromisoformat(date_from)
+            )
         except ValueError:
-            pass
+            raise HTTPException(
+                status_code=422,
+                detail="date_from must be an ISO-8601 datetime",
+            ) from None
     if date_to:
         try:
-            dt_to = datetime.fromisoformat(date_to)
-            query = query.where(Instruction.created_at <= dt_to)
+            query = query.where(
+                Instruction.created_at <= datetime.fromisoformat(date_to)
+            )
         except ValueError:
-            pass
-
-    # Order and paginate
-    query = query.order_by(Instruction.created_at.desc()).offset(offset).limit(limit)
-
-    result = await db.execute(query)
-    instructions = result.scalars().all()
+            raise HTTPException(
+                status_code=422,
+                detail="date_to must be an ISO-8601 datetime",
+            ) from None
+    result = await db.execute(
+        query.order_by(Instruction.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
     return [
         InstructionDetailResponse(
-            id=i.id,
-            project_id=i.project_id,
-            user_id=i.user_id,
-            prompt=i.prompt,
-            status=i.status,
-            created_at=i.created_at.isoformat() if i.created_at else None,
+            id=item.id,
+            project_id=item.project_id,
+            user_id=item.user_id,
+            prompt=item.prompt,
+            status=item.status,
+            created_at=(
+                item.created_at.isoformat() if item.created_at else None
+            ),
             runs=[
                 {
-                    "agent_name": r.agent_name,
-                    "status": r.status,
-                    "duration_seconds": r.duration_seconds,
-                    "output": r.output,
-                    "metadata": r.metadata_json,
-                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "agent_name": run.agent_name,
+                    "status": run.status,
+                    "duration_seconds": run.duration_seconds,
+                    "output": run.output,
+                    "metadata": run.metadata_json,
+                    "created_at": (
+                        run.created_at.isoformat() if run.created_at else None
+                    ),
                 }
-                for r in (i.runs or [])
+                for run in item.runs
             ],
         )
-        for i in instructions
+        for item in result.scalars().all()
     ]
-
-
-def _resolve_device_and_workspace(
-    project_id: str,
-    project_local_path: str | None = None,
-) -> tuple[str, str]:
-    """Resolve device/workspace IDs from project context (sync-safe defaults)."""
-    if project_local_path:
-        return ("dev_feroz_pc", project_local_path)
-    return ("dev_feroz_pc", "ws-test")
 
 
 @router.post(
     "/projects/{project_id}/instructions",
     response_model=InstructionResponse,
+    status_code=202,
 )
 async def submit_instruction(
     project_id: str,
     data: InstructionSubmit,
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        max_length=200,
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    """Submit natural language development instruction and trigger Agent Pipeline."""
-    from app.models.instruction import Instruction
+    """Durably enqueue an instruction, deduplicated by Idempotency-Key."""
+    await _require_project_owner(project_id, current_user, db)
+    normalized_key = idempotency_key.strip() if idempotency_key else None
+    if normalized_key:
+        existing_result = await db.execute(
+            select(Instruction).where(
+                Instruction.project_id == project_id,
+                Instruction.idempotency_key == normalized_key,
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+        if existing:
+            return _instruction_response(existing)
 
-    ins_id = f"ins_{uuid.uuid4().hex[:8]}"
+    if data.session_id:
+        session = await db.get(Session, data.session_id)
+        if (
+            not session
+            or session.project_id != project_id
+            or session.user_id != current_user.id
+        ):
+            raise HTTPException(status_code=404, detail="Session not found")
 
-    # Persist instruction immediately with user_id for query history
     instruction = Instruction(
-        id=ins_id,
+        id=f"ins_{uuid.uuid4().hex[:8]}",
         project_id=project_id,
         user_id=current_user.id,
         session_id=data.session_id,
         prompt=data.prompt,
         image_data=data.image_bytes,
-        status="RUNNING",
+        image_mime_type=data.image_mime_type,
+        status="PENDING",
+        idempotency_key=normalized_key,
     )
     db.add(instruction)
-    await db.commit()
-
-    # Resolve device and workspace for this project
-    device_id = "dev_feroz_pc"
-    workspace_id = "ws-test"
     try:
-        repo = ProjectRepository(db)
-        project = await repo.get_by_id(project_id)
-        if project and project.local_path:
-            workspace_id = project.local_path
-        elif project:
-            # Look up the first workspace for this project
-            from sqlalchemy import select
-            from app.models.workspace import Workspace
-            result = await db.execute(
-                select(Workspace).where(Workspace.project_id == project_id).limit(1)
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        if not normalized_key:
+            raise
+        duplicate_result = await db.execute(
+            select(Instruction).where(
+                Instruction.project_id == project_id,
+                Instruction.idempotency_key == normalized_key,
             )
-            ws = result.scalar_one_or_none()
-            if ws:
-                workspace_id = ws.local_path or ws.id
-                if ws.device_id:
-                    device_id = ws.device_id
-    except Exception:
-        pass
-
-    async def _run_async_pipeline() -> None:
-        orchestrator = PipelineOrchestrator(project_id=project_id)
-
-        async def _event_cb(
-            agent_name: str,
-            status: str,
-            msg: str,
-            data: dict | None = None,
-        ) -> None:
-            payload: dict = {
-                "instruction_id": ins_id,
-                "agent_name": agent_name,
-                "status": status,
-                "message": msg,
-            }
-            if data:
-                payload["data"] = data
-            await broadcaster.broadcast(project_id, payload)
-
-        # Build previous context from session if applicable
-        previous_context: list[dict] = []
-        session_model_name: str | None = None
-        session_context_limit: int | None = None
-        if data.session_id:
-            try:
-                from sqlalchemy import select as sa_select
-                from sqlalchemy.orm import selectinload
-                from app.models.session import Session as SessionModel
-                from app.core.database import AsyncSessionLocal
-
-                async with AsyncSessionLocal() as sdb:
-                    sess = await sdb.get(SessionModel, data.session_id)
-                    if sess and sess.project_id == project_id:
-                        session_model_name = sess.model_name
-                        session_context_limit = sess.context_limit
-                        # Fetch last 5 completed instructions for context
-                        result = await sdb.execute(
-                            sa_select(Instruction)
-                            .where(
-                                Instruction.session_id == data.session_id,
-                                Instruction.status.in_(
-                                    ["COMPLETED", "FAILED"]
-                                ),
-                            )
-                            .order_by(Instruction.created_at.desc())
-                            .limit(5)
-                        )
-                        prev = result.scalars().all()
-                        previous_context = [
-                            {
-                                "instruction_id": p.id,
-                                "prompt": p.prompt,
-                                "status": p.status,
-                            }
-                            for p in reversed(prev)
-                        ]
-            except Exception:
-                pass
-
-        await orchestrator.run_pipeline(
-            ins_id,
-            data.prompt,
-            event_callback=_event_cb,
-            device_id=device_id,
-            workspace_id=workspace_id,
-            image_bytes=data.image_bytes,
-            image_mime_type=data.image_mime_type,
-            previous_context=previous_context,
-            session_model_name=session_model_name,
-            session_context_limit=session_context_limit,
         )
+        return _instruction_response(duplicate_result.scalar_one())
 
-    asyncio.create_task(_run_async_pipeline())
-
-    return InstructionResponse(
-        id=ins_id,
-        project_id=project_id,
-        user_id=current_user.id,
-        prompt=data.prompt,
-        status="RUNNING",
+    await append_instruction_event(
+        project_id,
+        instruction.id,
+        {
+            "instruction_id": instruction.id,
+            "agent_name": "System",
+            "status": "PENDING",
+            "message": "Instruction queued for durable execution.",
+        },
+        db,
     )
+    await db.commit()
+    await db.refresh(instruction)
+    return _instruction_response(instruction)
+
+
+@router.post(
+    "/projects/{project_id}/instructions/{instruction_id}/cancel",
+    response_model=InstructionResponse,
+)
+async def cancel_instruction(
+    project_id: str,
+    instruction_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Idempotently request cancellation of a queued or running instruction."""
+    await _require_project_owner(project_id, current_user, db)
+    instruction = await db.get(Instruction, instruction_id)
+    if not instruction or instruction.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Instruction not found")
+    if instruction.status not in {"COMPLETED", "FAILED", "CANCELLED"}:
+        instruction.cancel_requested_at = (
+            instruction.cancel_requested_at or datetime.now(UTC).replace(tzinfo=None)
+        )
+        if instruction.status == "PENDING":
+            instruction.status = "CANCELLED"
+            instruction.finished_at = datetime.now(UTC).replace(tzinfo=None)
+        await append_instruction_event(
+            project_id,
+            instruction_id,
+            {
+                "instruction_id": instruction_id,
+                "agent_name": "System",
+                "status": "CANCEL_REQUESTED",
+                "message": "Cancellation requested.",
+            },
+            db,
+        )
+        await db.commit()
+        await db.refresh(instruction)
+    return _instruction_response(instruction)

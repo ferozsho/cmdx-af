@@ -4,10 +4,31 @@ import re
 
 SECRET_PATTERNS = [
     (re.compile(r"sk-[a-zA-Z0-9]{20,}", re.IGNORECASE), "[REDACTED_API_KEY]"),
-    (re.compile(r"bearer\s+[a-zA-Z0-9\-\._~\+\/]+=*", re.IGNORECASE), "Bearer [REDACTED_TOKEN]"),
-    (re.compile(r"(postgres|mysql|mongodb|redis):\/\/[^\s]+:[^\s]+@", re.IGNORECASE), r"\1://[REDACTED_DB_CREDS]@"),
-    (re.compile(r"(password|passwd|secret|api_key)\s*[:=]\s*['\"]?[^\s'\"]+['\"]?", re.IGNORECASE), r"\1: [REDACTED_SECRET]"),
-    (re.compile(r"-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----[\s\S]+?-----END \1 PRIVATE KEY-----"), "[REDACTED_PRIVATE_KEY]"),
+    (
+        re.compile(r"bearer\s+[a-zA-Z0-9\-\._~\+\/]+=*", re.IGNORECASE),
+        "Bearer [REDACTED_TOKEN]",
+    ),
+    (
+        re.compile(
+            r"(postgres|mysql|mongodb|redis):\/\/[^\s]+:[^\s]+@",
+            re.IGNORECASE,
+        ),
+        r"\1://[REDACTED_DB_CREDS]@",
+    ),
+    (
+        re.compile(
+            r"(password|passwd|secret|api_key)\s*[:=]\s*['\"]?[^\s'\"]+['\"]?",
+            re.IGNORECASE,
+        ),
+        r"\1: [REDACTED_SECRET]",
+    ),
+    (
+        re.compile(
+            r"-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----[\s\S]+?"
+            r"-----END \1 PRIVATE KEY-----"
+        ),
+        "[REDACTED_PRIVATE_KEY]",
+    ),
 ]
 
 

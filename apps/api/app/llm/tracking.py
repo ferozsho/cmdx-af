@@ -1,12 +1,16 @@
 """LLM usage tracking wrapper that persists usage to the database."""
 
-import asyncio
+import logging
 import time
 import uuid
+from collections.abc import AsyncIterator
 from contextvars import ContextVar
 from typing import Optional
 
-from app.llm.base import BaseLLMProvider, LLMResponse
+from app.llm.base import BaseLLMProvider, LLMResponse, LLMStreamChunk
+from app.services.verification import sanitize_evidence
+
+logger = logging.getLogger(__name__)
 
 # Set per pipeline run so background usage writes know the instruction
 current_instruction_id: ContextVar[Optional[str]] = ContextVar(
@@ -32,7 +36,7 @@ class UsageTrackingProvider(BaseLLMProvider):
         temperature: float = 0.2,
         json_mode: bool = False,
     ) -> LLMResponse:
-        """Delegate to the inner provider, then persist usage in background."""
+        """Delegate to the provider and durably persist its usage record."""
         start_time = time.time()
         request_id = str(uuid.uuid4())
         try:
@@ -44,38 +48,83 @@ class UsageTrackingProvider(BaseLLMProvider):
                 json_mode=json_mode,
             )
             duration_ms = int((time.time() - start_time) * 1000)
-            try:
-                asyncio.create_task(
-                    _persist_usage(
-                        response=response,
-                        prompt=prompt,
-                        system_prompt=system_prompt,
-                        duration_ms=duration_ms,
-                        request_id=request_id,
-                        temperature=temperature,
-                        json_mode=json_mode,
-                    )
-                )
-            except RuntimeError:
-                pass
+            await _persist_usage(
+                response=response,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                duration_ms=duration_ms,
+                request_id=request_id,
+                temperature=temperature,
+                json_mode=json_mode,
+            )
             return response
         except Exception as exc:
             duration_ms = int((time.time() - start_time) * 1000)
-            try:
-                asyncio.create_task(
-                    _persist_error(
-                        prompt=prompt,
-                        system_prompt=system_prompt,
-                        model=model,
-                        error_message=str(exc),
-                        duration_ms=duration_ms,
-                        request_id=request_id,
-                        temperature=temperature,
-                        json_mode=json_mode,
-                    )
-                )
-            except RuntimeError:
-                pass
+            await _persist_error(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model=model,
+                error_message=str(exc),
+                duration_ms=duration_ms,
+                request_id=request_id,
+                temperature=temperature,
+                json_mode=json_mode,
+            )
+            raise
+
+    async def stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+        temperature: float = 0.2,
+        json_mode: bool = False,
+    ) -> AsyncIterator[LLMStreamChunk]:
+        """Delegate streaming and persist one consolidated usage record."""
+        start_time = time.time()
+        request_id = str(uuid.uuid4())
+        content_parts: list[str] = []
+        final_chunk = LLMStreamChunk(model=model or "unknown")
+        try:
+            async for chunk in self.inner.stream(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model=model,
+                temperature=temperature,
+                json_mode=json_mode,
+            ):
+                content_parts.append(chunk.content)
+                final_chunk = chunk
+                yield chunk
+            response = LLMResponse(
+                content="".join(content_parts),
+                prompt_tokens=final_chunk.prompt_tokens,
+                completion_tokens=final_chunk.completion_tokens,
+                total_tokens=final_chunk.total_tokens,
+                cost=0.0,
+                model=final_chunk.model,
+                provider_name=final_chunk.provider_name,
+            )
+            await _persist_usage(
+                response=response,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                duration_ms=int((time.time() - start_time) * 1000),
+                request_id=request_id,
+                temperature=temperature,
+                json_mode=json_mode,
+            )
+        except Exception as exc:
+            await _persist_error(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model=model,
+                error_message=str(exc),
+                duration_ms=int((time.time() - start_time) * 1000),
+                request_id=request_id,
+                temperature=temperature,
+                json_mode=json_mode,
+            )
             raise
 
 
@@ -88,7 +137,7 @@ async def _persist_usage(
     temperature: Optional[float] = None,
     json_mode: bool = False,
 ) -> None:
-    """Persist a successful LLMUsage row in a fire-and-forget background task."""
+    """Persist a successful LLM usage row without failing the LLM call."""
     try:
         from app.core.database import AsyncSessionLocal
         from app.models.llm_usage import LLMUsage
@@ -100,10 +149,14 @@ async def _persist_usage(
                     project_id=current_project_id.get(),
                     provider=response.provider_name,
                     model=response.model,
-                    prompt_text=prompt,
-                    system_prompt_text=system_prompt,
+                    prompt_text=sanitize_evidence(prompt, limit=12000),
+                    system_prompt_text=(
+                        sanitize_evidence(system_prompt, limit=8000)
+                        if system_prompt
+                        else None
+                    ),
                     response_text=(
-                        str(response.content)
+                        sanitize_evidence(str(response.content), limit=12000)
                         if response.content
                         else None
                     ),
@@ -120,7 +173,7 @@ async def _persist_usage(
             )
             await session.commit()
     except Exception:
-        pass
+        logger.exception("Unable to persist successful LLM usage record")
 
 
 async def _persist_error(
@@ -133,7 +186,7 @@ async def _persist_error(
     temperature: Optional[float] = None,
     json_mode: bool = False,
 ) -> None:
-    """Persist a failed LLM call in a fire-and-forget background task."""
+    """Persist a failed LLM call without masking the provider exception."""
     try:
         from app.core.database import AsyncSessionLocal
         from app.models.llm_usage import LLMUsage
@@ -145,15 +198,19 @@ async def _persist_error(
                     project_id=current_project_id.get(),
                     provider="unknown",
                     model=model or "unknown",
-                    prompt_text=prompt,
-                    system_prompt_text=system_prompt,
+                    prompt_text=sanitize_evidence(prompt, limit=12000),
+                    system_prompt_text=(
+                        sanitize_evidence(system_prompt, limit=8000)
+                        if system_prompt
+                        else None
+                    ),
                     prompt_tokens=0,
                     completion_tokens=0,
                     total_tokens=0,
                     cost=0.0,
                     duration_ms=duration_ms,
                     status="error",
-                    error_message=error_message,
+                    error_message=sanitize_evidence(error_message, limit=2000),
                     request_id=request_id,
                     temperature=temperature,
                     json_mode=json_mode,
@@ -161,4 +218,4 @@ async def _persist_error(
             )
             await session.commit()
     except Exception:
-        pass
+        logger.exception("Unable to persist failed LLM usage record")

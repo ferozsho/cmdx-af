@@ -1,8 +1,8 @@
 """Architecture Agent Implementation."""
 
 from typing import Any, Dict
-from app.agents.base import BaseAgent
 
+from app.agents.base import BaseAgent
 
 SYSTEM_PROMPT = """You are a Software Architecture expert. Analyze the project context
 and verify architectural consistency. Return JSON with:

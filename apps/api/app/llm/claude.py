@@ -1,10 +1,11 @@
 """Anthropic Claude API Provider Implementation."""
 
-import json
-import httpx
 from typing import Optional
+
+import httpx
+
 from app.core.config import get_setting
-from app.llm.base import BaseLLMProvider, LLMResponse
+from app.llm.base import BaseLLMProvider, LLMResponse, parse_json_content
 
 
 class ClaudeProvider(BaseLLMProvider):
@@ -79,12 +80,7 @@ class ClaudeProvider(BaseLLMProvider):
         # Claude pricing ($3/1M prompt, $15/1M completion for Sonnet)
         cost = (p_tokens * 0.000003) + (c_tokens * 0.000015)
 
-        parsed_content = choice
-        if json_mode and isinstance(choice, str):
-            try:
-                parsed_content = json.loads(choice)
-            except (json.JSONDecodeError, TypeError):
-                pass
+        parsed_content = parse_json_content(choice) if json_mode else choice
 
         return LLMResponse(
             content=parsed_content,

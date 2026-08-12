@@ -1,8 +1,8 @@
 """UI/UX Agent Implementation."""
 
 from typing import Any, Dict
-from app.agents.base import BaseAgent
 
+from app.agents.base import BaseAgent
 
 SYSTEM_PROMPT = """You are a UI/UX Design expert. Analyze requirements and produce
 detailed UI design specifications. Return JSON with:

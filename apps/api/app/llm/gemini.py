@@ -1,10 +1,11 @@
 """Google Gemini API Provider Implementation."""
 
-import json
-import httpx
 from typing import Optional
+
+import httpx
+
 from app.core.config import get_setting
-from app.llm.base import BaseLLMProvider, LLMResponse
+from app.llm.base import BaseLLMProvider, LLMResponse, parse_json_content
 
 
 class GeminiProvider(BaseLLMProvider):
@@ -77,12 +78,7 @@ class GeminiProvider(BaseLLMProvider):
         # Gemini pricing ($1.25/1M prompt, $10/1M completion for Pro)
         cost = (p_tokens * 0.00000125) + (c_tokens * 0.000010)
 
-        parsed_content = choice
-        if json_mode and isinstance(choice, str):
-            try:
-                parsed_content = json.loads(choice)
-            except (json.JSONDecodeError, TypeError):
-                pass
+        parsed_content = parse_json_content(choice) if json_mode else choice
 
         return LLMResponse(
             content=parsed_content,

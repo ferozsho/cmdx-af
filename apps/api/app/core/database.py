@@ -1,6 +1,7 @@
 """Database engine and session setup."""
 
 from typing import AsyncGenerator
+
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,

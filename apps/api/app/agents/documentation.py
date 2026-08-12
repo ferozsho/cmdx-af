@@ -1,8 +1,8 @@
 """Documentation Agent Implementation."""
 
 from typing import Any, Dict
-from app.agents.base import BaseAgent
 
+from app.agents.base import BaseAgent
 
 SYSTEM_PROMPT = """You are a Technical Documentation expert. Generate documentation
 that follows the project's existing documentation style and conventions.

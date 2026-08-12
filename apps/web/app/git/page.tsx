@@ -7,7 +7,9 @@ import {
   listProjects,
   getGitStatus,
   getGitLog,
+  getGitProvenance,
   rollbackGit,
+  type GitProvenanceResponse,
   type ProjectResponse,
 } from '@/lib/api'
 import ConfirmModal from '@/components/confirm-modal'
@@ -22,6 +24,7 @@ export default function GitHistoryPage() {
   const [selectedProject, setSelectedProject] = useState(urlProject)
   const [gitStatus, setGitStatusState] = useState<any>(null)
   const [commits, setCommits] = useState<any[]>([])
+  const [provenance, setProvenance] = useState<GitProvenanceResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [rollingBack, setRollingBack] = useState<string | null>(null)
   const [rollbackMsg, setRollbackMsg] = useState<string | null>(null)
@@ -62,6 +65,9 @@ export default function GitHistoryPage() {
     getGitLog(selectedProject)
       .then((data) => setCommits(Array.isArray(data) ? data : []))
       .catch(() => setCommits([]))
+    getGitProvenance(selectedProject)
+      .then(setProvenance)
+      .catch(() => setProvenance([]))
   }, [selectedProject])
 
   const handleRollback = (commit: any) => {
@@ -205,24 +211,56 @@ export default function GitHistoryPage() {
             )
             return (
               <>
-                {pagedCommits.map((commit: any) => (
-                  <div
-                    key={commit.hash}
-                    className="card-af p-4 flex items-start gap-3"
-                  >
+                {pagedCommits.map((commit: any) => {
+                  const record = provenance.find(
+                    (item) =>
+                      item.commit_hash === commit.hash ||
+                      commit.hash?.startsWith(item.commit_hash) ||
+                      item.commit_hash?.startsWith(commit.hash),
+                  )
+                  return (
+                    <div
+                      key={commit.hash}
+                      className="card-af p-4 flex items-start gap-3"
+                    >
                     <div className="w-9 h-9 rounded-[9px] bg-primary/10 text-primary grid place-items-center flex-shrink-0 text-sm font-bold">
                       ⑂
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="text-sm font-bold text-foreground m-0">
-                        {commit.message}
-                      </h4>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-sm font-bold text-foreground m-0">
+                          {commit.message}
+                        </h4>
+                        {record?.ai_generated && (
+                          <span className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
+                            AI GENERATED
+                          </span>
+                        )}
+                        {record && (
+                          <span className="rounded border border-border px-1.5 py-0.5 text-[9px] font-bold text-muted">
+                            {record.verification_status}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-muted mt-1 m-0">
                         {commit.author}
                         {commit.files != null && commit.files > 0
                           ? ` · ${commit.files} files`
                           : ''}
                       </p>
+                      {record && (
+                        <details className="mt-2 text-[10px] text-muted">
+                          <summary className="cursor-pointer font-semibold text-primary">
+                            Provenance · {record.model_name || 'model unavailable'}
+                          </summary>
+                          <div className="mt-2 rounded border border-border bg-surface-secondary p-2 font-mono break-all space-y-1">
+                            <div>instruction: {record.instruction_id}</div>
+                            <div>digest: sha256:{record.provenance_digest}</div>
+                            <div>prompt: sha256:{record.prompt_digest}</div>
+                            <div>files: {record.changed_files.join(', ') || 'none recorded'}</div>
+                          </div>
+                        </details>
+                      )}
                     </div>
                     <div className="text-right flex-shrink-0">
                       <div className="text-sm font-mono font-bold text-foreground">
@@ -243,8 +281,9 @@ export default function GitHistoryPage() {
                           : '⏪ Rollback'}
                       </button>
                     </div>
-                  </div>
-                ))}
+                    </div>
+                  )
+                })}
                 <Pagination
                   storageKey="git-perpage"
                   currentPage={safePage}
@@ -263,14 +302,15 @@ export default function GitHistoryPage() {
         )}
       </div>
 
-      {/* Agent Git Commits (from pipeline) */}
+      {/* Durable pipeline provenance remains visible if the workstation is offline. */}
       <div className="card-af p-6 mt-[18px]">
         <h3 className="text-sm font-bold text-foreground m-0 mb-2">
-          Git History by Agent Pipeline
+          AI Change Provenance
         </h3>
         <p className="text-xs text-muted m-0">
-          Agent-generated commits appear here after each pipeline run. Run an
-          instruction from the workspace to see commits.
+          {provenance.length > 0
+            ? `${provenance.length} attributable AI commit record${provenance.length === 1 ? '' : 's'} stored.`
+            : 'Agent-generated commits are recorded with prompt hashes, model identity, and tamper-evident Git trailers.'}
         </p>
       </div>
       <ConfirmModal

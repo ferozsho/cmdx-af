@@ -3,12 +3,38 @@
 import os
 from pathlib import Path
 from typing import Any, Dict, List
+
 from agentforge_local.security.path_guard import PathGuard
 from agentforge_local.security.secret_redactor import SecretRedactor
 
 
 class FilesystemTools:
     """Safe Local Workstation Filesystem Operations."""
+
+    IGNORED_PARTS = frozenset(
+        {
+            "node_modules",
+            "__pycache__",
+            "venv",
+            ".venv",
+            ".git",
+            ".next",
+            "dist",
+            "build",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+        }
+    )
+
+    @classmethod
+    def _visible(cls, path: Path) -> bool:
+        return not any(
+            part in cls.IGNORED_PARTS
+            or part.startswith(".")
+            or PathGuard.is_blocked_part(part)
+            for part in path.parts
+        )
 
     @classmethod
     def read_file(cls, workspace_root: str, path: str) -> str:
@@ -58,20 +84,6 @@ class FilesystemTools:
         """Build directory tree representation of the workspace."""
         root = Path(workspace_root).resolve()
 
-        IGNORED_DIRS = {
-            "node_modules",
-            "__pycache__",
-            "venv",
-            ".venv",
-            ".git",
-            ".next",
-            "dist",
-            "build",
-            ".pytest_cache",
-            ".mypy_cache",
-            ".ruff_cache",
-        }
-
         def _build_tree(dir_path: Path, current_depth: int) -> Dict[str, Any]:
             if current_depth > max_depth:
                 return {"type": "dir", "truncated": True}
@@ -82,9 +94,7 @@ class FilesystemTools:
                 return {"name": dir_path.name, "type": "dir", "children": []}
 
             for item in items:
-                if item.name.startswith(".") and item.name not in (".env.example",):
-                    continue
-                if item.name in IGNORED_DIRS:
+                if not cls._visible(Path(item.name)):
                     continue
                 if item.is_dir():
                     children.append({
@@ -101,6 +111,84 @@ class FilesystemTools:
             return {"name": dir_path.name, "type": "dir", "children": children}
 
         return _build_tree(root, 1)
+
+    @classmethod
+    def list_files(
+        cls,
+        workspace_root: str,
+        path: str = ".",
+        recursive: bool = False,
+        limit: int = 1000,
+    ) -> List[Dict[str, Any]]:
+        """List bounded, non-sensitive workspace entries."""
+        root = Path(workspace_root).resolve()
+        target = PathGuard.validate_path(root, path)
+        if not target.is_dir():
+            raise NotADirectoryError(f"Directory not found: '{path}'")
+        bounded_limit = min(max(int(limit), 1), 5000)
+        iterator = target.rglob("*") if recursive else target.iterdir()
+        entries: List[Dict[str, Any]] = []
+        for item in sorted(iterator):
+            relative = item.relative_to(root)
+            if not cls._visible(relative):
+                continue
+            entries.append(
+                {
+                    "path": relative.as_posix(),
+                    "type": "directory" if item.is_dir() else "file",
+                    "size": item.stat().st_size if item.is_file() else 0,
+                }
+            )
+            if len(entries) >= bounded_limit:
+                break
+        return entries
+
+    @classmethod
+    def search_in_files(
+        cls,
+        workspace_root: str,
+        query: str,
+        path: str = ".",
+        case_sensitive: bool = False,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Search bounded text files and return redacted line-level matches."""
+        if not query:
+            raise ValueError("Search query must not be empty")
+        root = Path(workspace_root).resolve()
+        target = PathGuard.validate_path(root, path)
+        if not target.is_dir():
+            raise NotADirectoryError(f"Directory not found: '{path}'")
+        bounded_limit = min(max(int(limit), 1), 500)
+        needle = query if case_sensitive else query.casefold()
+        matches: List[Dict[str, Any]] = []
+        for file_path in sorted(item for item in target.rglob("*") if item.is_file()):
+            relative = file_path.relative_to(root)
+            if not cls._visible(relative) or file_path.stat().st_size > 2_000_000:
+                continue
+            try:
+                lines = file_path.read_text(
+                    encoding="utf-8",
+                    errors="strict",
+                ).splitlines()
+            except (OSError, UnicodeError):
+                continue
+            for line_number, line in enumerate(lines, start=1):
+                haystack = line if case_sensitive else line.casefold()
+                column = haystack.find(needle)
+                if column < 0:
+                    continue
+                matches.append(
+                    {
+                        "path": relative.as_posix(),
+                        "line": line_number,
+                        "column": column + 1,
+                        "preview": SecretRedactor.redact(line[:500]),
+                    }
+                )
+                if len(matches) >= bounded_limit:
+                    return matches
+        return matches
 
     @classmethod
     def validate_path(cls, path: str) -> Dict[str, Any]:

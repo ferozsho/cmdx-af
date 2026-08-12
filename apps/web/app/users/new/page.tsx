@@ -21,7 +21,7 @@ export default function NewUserPage() {
       return
     }
     if (form.password.length < 6) {
-      setError('Password must be at least 6 characters.')
+      setError('Password must be at least 10 characters.')
       return
     }
     setSaving(true)
@@ -66,7 +66,7 @@ export default function NewUserPage() {
             <label className="block text-sm font-medium text-foreground mb-1">Password *</label>
             <input type="password" value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              className="input-af w-full" placeholder="Min 6 characters" required minLength={6} />
+              className="input-af w-full" placeholder="Min 10 characters" required minLength={10} />
           </div>
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Full Name</label>

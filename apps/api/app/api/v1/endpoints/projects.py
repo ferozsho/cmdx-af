@@ -1,13 +1,12 @@
 """Projects and Workspaces API Endpoints."""
 
-import asyncio
 import os
 import uuid
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,9 +15,18 @@ from app.core.database import get_db
 from app.core.policies import check_fs_policy, check_git_policy
 from app.core.security import get_current_user
 from app.models.agent_run import AgentRun
+from app.models.background_job import BackgroundJob
+from app.models.device import Device
+from app.models.git_commit import GitCommit
+from app.models.instruction import Instruction
+from app.models.project import Project
 from app.models.user import User
-from app.repositories.project_repo import ProjectRepository
+from app.models.verification_run import VerificationRun
+from app.models.workspace import Workspace
 from app.repositories.device_repo import DeviceRepository
+from app.repositories.project_repo import ProjectRepository
+from app.services.approvals import ApprovalRequiredError, authorize_tool
+from app.services.instruction_events import append_instruction_event
 from app.tools.gateway.tool_gateway import ToolGateway
 
 router = APIRouter()
@@ -38,11 +46,15 @@ class ProjectCreate(BaseModel):
     git_enabled: bool = True
     git_branch_patterns: List[str] | None = None
     git_require_pr: bool = False
+    ci_gate_enabled: bool = True
     git_commit_template: str | None = None
     # Filesystem access
     fs_read_enabled: bool = True
     fs_write_enabled: bool = True
     fs_delete_enabled: bool = True
+    approval_mode: Literal["NEVER", "RISKY", "ALWAYS"] = "RISKY"
+    command_allowlist: List[str] | None = None
+    max_command_seconds: int = 120
     default_model: str | None = None
 
 
@@ -63,11 +75,15 @@ class ProjectResponse(BaseModel):
     git_enabled: bool = True
     git_branch_patterns: list | None = None
     git_require_pr: bool = False
+    ci_gate_enabled: bool = True
     git_commit_template: str | None = None
     # Filesystem access
     fs_read_enabled: bool = True
     fs_write_enabled: bool = True
     fs_delete_enabled: bool = True
+    approval_mode: str = "RISKY"
+    command_allowlist: list[str] | None = None
+    max_command_seconds: int = 120
 
 
 class ProjectUpdate(BaseModel):
@@ -82,11 +98,15 @@ class ProjectUpdate(BaseModel):
     git_enabled: bool | None = None
     git_branch_patterns: List[str] | None = None
     git_require_pr: bool | None = None
+    ci_gate_enabled: bool | None = None
     git_commit_template: str | None = None
     # Filesystem access
     fs_read_enabled: bool | None = None
     fs_write_enabled: bool | None = None
     fs_delete_enabled: bool | None = None
+    approval_mode: Literal["NEVER", "RISKY", "ALWAYS"] | None = None
+    command_allowlist: List[str] | None = None
+    max_command_seconds: int | None = None
     default_model: str | None = None
 
 
@@ -214,42 +234,62 @@ def _count_files_and_dirs(project_path: Path, max_depth: int = 4) -> tuple:
 
 # ── API Endpoints ───────────────────────────────────────────────────────────
 
-# Default device/workspace until dynamic resolution is fully wired
-_DEFAULT_DEVICE = "dev_feroz_pc"
 _DEFAULT_WORKSPACE = "ws-test"
 
 
-async def _resolve_workspace(project_id: str, db: AsyncSession) -> str:
-    """Resolve the workspace path/id used for a project's tool calls.
+async def _require_project(
+    project_id: str,
+    current_user: User,
+    db: AsyncSession,
+) -> Project:
+    """Return an owned project without revealing other users' IDs."""
+    project = await ProjectRepository(db).get_by_id(project_id)
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+async def _resolve_user_device(
+    user_id: str,
+    db: AsyncSession,
+    preferred_device_id: str | None = None,
+) -> str | None:
+    """Resolve a device owned by the user, optionally requiring a preferred ID."""
+    repo = DeviceRepository(db)
+    if preferred_device_id:
+        device = await repo.get_by_id(preferred_device_id)
+        if not device or device.user_id != user_id:
+            raise HTTPException(status_code=404, detail="Device not found")
+        return device.id
+    devices = await repo.list_for_user(user_id)
+    return devices[0].id if devices else None
+
+
+async def _resolve_execution_target(
+    project: Project,
+    db: AsyncSession,
+) -> tuple[str, str]:
+    """Resolve an owned device and workspace used for project tool calls.
 
     Priority: project.local_path (the folder set on the project) → a
-    workspace registered in the DB for this project → the default id. Passing
-    a real path as workspace_id lets the local agent treat it as a path
-    directly (its handler falls back to path-based resolution).
+    workspace registered in the DB for this project → the default workspace.
+    A workspace is only accepted when its device belongs to the project owner.
     """
-    try:
-        repo = ProjectRepository(db)
-        project = await repo.get_by_id(project_id)
-        if project and project.local_path:
-            return project.local_path
-    except Exception:
-        pass
-    try:
-        from app.models.workspace import Workspace
-
-        result = await db.execute(
-            select(Workspace)
-            .where(Workspace.project_id == project_id)
-            .limit(1)
+    result = await db.execute(
+        select(Workspace)
+        .join(Device, Device.id == Workspace.device_id)
+        .where(
+            Workspace.project_id == project.id,
+            Device.user_id == project.user_id,
         )
-        ws = result.scalar_one_or_none()
-        if ws and ws.local_path:
-            return ws.local_path
-        if ws:
-            return ws.id
-    except Exception:
-        pass
-    return _DEFAULT_WORKSPACE
+        .limit(1)
+    )
+    workspace = result.scalar_one_or_none()
+    if workspace:
+        return workspace.device_id, workspace.id
+
+    device_id = await _resolve_user_device(project.user_id, db)
+    return device_id or "", _DEFAULT_WORKSPACE
 
 
 def _tool_is_offline(tool_res: Any) -> bool:
@@ -270,20 +310,26 @@ def _offline_response() -> dict:
     }
 
 
-# In-memory background re-index job tracker (project_id -> job state)
-_reindex_jobs: Dict[str, Dict[str, Any]] = {}
-
-
-def _reindex_job_payload(job: Dict[str, Any]) -> dict:
+def _reindex_job_payload(job: BackgroundJob) -> dict:
     """Serialize a re-index job for API responses."""
+    result = job.result_data or {}
+    public_status = {
+        "PENDING": "running",
+        "RUNNING": "running",
+        "COMPLETED": "done",
+        "FAILED": "failed",
+    }.get(job.status, job.status.lower())
     return {
-        "status": job.get("status", "idle"),
-        "files_indexed": job.get("files_indexed", 0),
-        "chunks": job.get("chunks", 0),
-        "last_index": job.get("last_index"),
-        "error": job.get("error"),
-        "started_at": job.get("started_at"),
-        "finished_at": job.get("finished_at"),
+        "id": job.id,
+        "status": public_status,
+        "files_indexed": int(result.get("files_indexed") or 0),
+        "chunks": int(result.get("chunks") or 0),
+        "last_index": result.get("last_index"),
+        "error": job.last_error,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": (
+            job.finished_at.isoformat() if job.finished_at else None
+        ),
     }
 
 
@@ -296,20 +342,30 @@ async def get_project_stats(
     repo = ProjectRepository(db)
     device_repo = DeviceRepository(db)
     total = await repo.count_for_user(current_user.id)
-    online = await device_repo.count_online()
+    online = await device_repo.count_online_for_user(current_user.id)
     total_devices = await device_repo.count_for_user(current_user.id)
 
     # Real agent run count from agent_runs
     runs_result = await db.execute(
-        select(func.count(AgentRun.id)).where(AgentRun.status == "COMPLETED")
+        select(func.count(AgentRun.id))
+        .join(Instruction, Instruction.id == AgentRun.instruction_id)
+        .join(Project, Project.id == Instruction.project_id)
+        .where(
+            AgentRun.status == "COMPLETED",
+            Project.user_id == current_user.id,
+        )
     )
     agent_runs = int(runs_result.scalar() or 0)
 
     # Real tests-passed sum from Test Agent run metadata
     tests_passed = 0
     test_runs = await db.execute(
-        select(AgentRun.metadata_json).where(
-            AgentRun.agent_name == "Test Agent"
+        select(AgentRun.metadata_json)
+        .join(Instruction, Instruction.id == AgentRun.instruction_id)
+        .join(Project, Project.id == Instruction.project_id)
+        .where(
+            AgentRun.agent_name == "Test Agent",
+            Project.user_id == current_user.id,
         )
     )
     for (meta,) in test_runs.all():
@@ -347,10 +403,14 @@ async def list_projects(
             git_enabled=bool(p.git_enabled),
             git_branch_patterns=p.git_branch_patterns if p.git_branch_patterns else None,
             git_require_pr=bool(p.git_require_pr),
+            ci_gate_enabled=bool(p.ci_gate_enabled),
             git_commit_template=p.git_commit_template,
             fs_read_enabled=bool(p.fs_read_enabled),
             fs_write_enabled=bool(p.fs_write_enabled),
             fs_delete_enabled=bool(p.fs_delete_enabled),
+            approval_mode=p.approval_mode,
+            command_allowlist=p.command_allowlist,
+            max_command_seconds=p.max_command_seconds,
             default_model=p.default_model,
         )
         for p in projects
@@ -365,6 +425,14 @@ async def create_project(
 ) -> Any:
     """Create a new project in the database."""
     repo = ProjectRepository(db)
+    initial_prompt = (
+        data.initial_instruction.strip() if data.initial_instruction else ""
+    )
+    await _resolve_user_device(
+        current_user.id,
+        db,
+        data.device_id,
+    )
     tech_stack_list = data.tech_stack or []
     project = await repo.create(
         name=data.name,
@@ -376,66 +444,43 @@ async def create_project(
         git_enabled=data.git_enabled,
         git_branch_patterns=data.git_branch_patterns,
         git_require_pr=data.git_require_pr,
+        ci_gate_enabled=data.ci_gate_enabled,
         git_commit_template=data.git_commit_template,
         fs_read_enabled=data.fs_read_enabled,
         fs_write_enabled=data.fs_write_enabled,
         fs_delete_enabled=data.fs_delete_enabled,
+        approval_mode=data.approval_mode,
+        command_allowlist=data.command_allowlist,
+        max_command_seconds=data.max_command_seconds,
         default_model=data.default_model,
     )
     await db.commit()
     await db.refresh(project)
 
-    # Persist and kick off the initial instruction pipeline if provided
-    initial_prompt = (
-        data.initial_instruction.strip() if data.initial_instruction else ""
-    )
+    # Persist the initial instruction for the durable worker if provided.
     if initial_prompt:
-        from app.agents.pipeline import PipelineOrchestrator
-        from app.models.instruction import Instruction
-        from app.services.sse_broadcaster import broadcaster
-
         ins_id = f"ins_{uuid.uuid4().hex[:8]}"
         db.add(
             Instruction(
                 id=ins_id,
                 project_id=project.id,
+                user_id=current_user.id,
                 prompt=initial_prompt,
-                status="RUNNING",
+                status="PENDING",
             )
         )
+        await append_instruction_event(
+            project.id,
+            ins_id,
+            {
+                "instruction_id": ins_id,
+                "agent_name": "System",
+                "status": "PENDING",
+                "message": "Instruction queued for execution.",
+            },
+            db,
+        )
         await db.commit()
-
-        device_id = data.device_id or _DEFAULT_DEVICE
-        workspace_id = _DEFAULT_WORKSPACE
-
-        async def _run_initial_pipeline() -> None:
-            orchestrator = PipelineOrchestrator(project_id=project.id)
-
-            async def _event_cb(
-                agent_name: str,
-                status: str,
-                msg: str,
-                data: dict | None = None,
-            ) -> None:
-                payload: dict = {
-                    "instruction_id": ins_id,
-                    "agent_name": agent_name,
-                    "status": status,
-                    "message": msg,
-                }
-                if data:
-                    payload["data"] = data
-                await broadcaster.broadcast(project.id, payload)
-
-            await orchestrator.run_pipeline(
-                ins_id,
-                initial_prompt,
-                event_callback=_event_cb,
-                device_id=device_id,
-                workspace_id=workspace_id,
-            )
-
-        asyncio.create_task(_run_initial_pipeline())
 
     return ProjectResponse(
         id=project.id,
@@ -450,10 +495,14 @@ async def create_project(
         git_enabled=bool(project.git_enabled),
         git_branch_patterns=project.git_branch_patterns if project.git_branch_patterns else None,
         git_require_pr=bool(project.git_require_pr),
+        ci_gate_enabled=bool(project.ci_gate_enabled),
         git_commit_template=project.git_commit_template,
         fs_read_enabled=bool(project.fs_read_enabled),
         fs_write_enabled=bool(project.fs_write_enabled),
         fs_delete_enabled=bool(project.fs_delete_enabled),
+        approval_mode=project.approval_mode,
+        command_allowlist=project.command_allowlist,
+        max_command_seconds=project.max_command_seconds,
         default_model=project.default_model,
     )
 
@@ -465,10 +514,7 @@ async def get_project(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get project details by ID from the database."""
-    repo = ProjectRepository(db)
-    project = await repo.get_by_id(project_id)
-    if not project or project.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = await _require_project(project_id, current_user, db)
     return ProjectResponse(
         id=project.id,
         name=project.name,
@@ -482,10 +528,14 @@ async def get_project(
         git_enabled=bool(project.git_enabled),
         git_branch_patterns=project.git_branch_patterns if project.git_branch_patterns else None,
         git_require_pr=bool(project.git_require_pr),
+        ci_gate_enabled=bool(project.ci_gate_enabled),
         git_commit_template=project.git_commit_template,
         fs_read_enabled=bool(project.fs_read_enabled),
         fs_write_enabled=bool(project.fs_write_enabled),
         fs_delete_enabled=bool(project.fs_delete_enabled),
+        approval_mode=project.approval_mode,
+        command_allowlist=project.command_allowlist,
+        max_command_seconds=project.max_command_seconds,
         default_model=project.default_model,
     )
 
@@ -512,10 +562,14 @@ async def update_project(
         git_enabled=data.git_enabled,
         git_branch_patterns=data.git_branch_patterns,
         git_require_pr=data.git_require_pr,
+        ci_gate_enabled=data.ci_gate_enabled,
         git_commit_template=data.git_commit_template,
         fs_read_enabled=data.fs_read_enabled,
         fs_write_enabled=data.fs_write_enabled,
         fs_delete_enabled=data.fs_delete_enabled,
+        approval_mode=data.approval_mode,
+        command_allowlist=data.command_allowlist,
+        max_command_seconds=data.max_command_seconds,
         default_model=data.default_model,
     )
     if not project:
@@ -533,10 +587,14 @@ async def update_project(
         git_enabled=bool(project.git_enabled),
         git_branch_patterns=project.git_branch_patterns if project.git_branch_patterns else None,
         git_require_pr=bool(project.git_require_pr),
+        ci_gate_enabled=bool(project.ci_gate_enabled),
         git_commit_template=project.git_commit_template,
         fs_read_enabled=bool(project.fs_read_enabled),
         fs_write_enabled=bool(project.fs_write_enabled),
         fs_delete_enabled=bool(project.fs_delete_enabled),
+        approval_mode=project.approval_mode,
+        command_allowlist=project.command_allowlist,
+        max_command_seconds=project.max_command_seconds,
         default_model=project.default_model,
     )
 
@@ -560,6 +618,7 @@ async def delete_project(
 @router.post("/projects/validate-path", response_model=ValidatePathResponse)
 async def validate_project_path(
     data: ValidatePathRequest,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Validate a project directory path via the connected Local Agent.
@@ -572,8 +631,17 @@ async def validate_project_path(
     if not raw_path:
         return ValidatePathResponse(valid=False, warnings=["Path is empty."])
 
+    device_id = await _resolve_user_device(current_user.id, db)
+    if not device_id:
+        return ValidatePathResponse(
+            valid=False,
+            warnings=[
+                "No paired workstation is available. Pair a device to "
+                "validate folders."
+            ],
+        )
     tool_res = await ToolGateway.invoke_tool(
-        device_id=_DEFAULT_DEVICE,
+        device_id=device_id,
         workspace_id=raw_path,
         job_id="job_validate_path",
         tool_name="validate_path",
@@ -616,13 +684,11 @@ async def get_project_tree(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Fetch real project file tree from connected Local Agent."""
-    repo = ProjectRepository(db)
-    project = await repo.get_by_id(project_id)
-    if project:
-        check_fs_policy(project, "read")
-    workspace = await _resolve_workspace(project_id, db)
+    project = await _require_project(project_id, current_user, db)
+    check_fs_policy(project, "read")
+    device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
-        device_id=_DEFAULT_DEVICE,
+        device_id=device_id,
         workspace_id=workspace,
         job_id="job_tree",
         tool_name="get_project_tree",
@@ -643,13 +709,11 @@ async def read_project_file(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Read real project file content from connected Local Agent."""
-    repo = ProjectRepository(db)
-    project = await repo.get_by_id(project_id)
-    if project:
-        check_fs_policy(project, "read")
-    workspace = await _resolve_workspace(project_id, db)
+    project = await _require_project(project_id, current_user, db)
+    check_fs_policy(project, "read")
+    device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
-        device_id=_DEFAULT_DEVICE,
+        device_id=device_id,
         workspace_id=workspace,
         job_id="job_read_file",
         tool_name="read_file",
@@ -670,9 +734,10 @@ async def rag_search_project(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Perform real semantic search via Local Agent RAG Indexer."""
-    workspace = await _resolve_workspace(project_id, db)
+    project = await _require_project(project_id, current_user, db)
+    device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
-        device_id=_DEFAULT_DEVICE,
+        device_id=device_id,
         workspace_id=workspace,
         job_id="job_rag",
         tool_name="rag_search",
@@ -698,9 +763,10 @@ async def list_rag_chunks(
 
     Used by the RAG tab's default "All Chunks" view.
     """
-    workspace = await _resolve_workspace(project_id, db)
+    project = await _require_project(project_id, current_user, db)
+    device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
-        device_id=_DEFAULT_DEVICE,
+        device_id=device_id,
         workspace_id=workspace,
         job_id="job_rag_chunks",
         tool_name="rag_chunks",
@@ -720,13 +786,11 @@ async def get_git_status(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get real Git status from Local Agent workspace."""
-    repo = ProjectRepository(db)
-    project = await repo.get_by_id(project_id)
-    if project:
-        check_git_policy(project, "read")
-    workspace = await _resolve_workspace(project_id, db)
+    project = await _require_project(project_id, current_user, db)
+    check_git_policy(project, "read")
+    device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
-        device_id=_DEFAULT_DEVICE,
+        device_id=device_id,
         workspace_id=workspace,
         job_id="job_git",
         tool_name="git_status",
@@ -747,13 +811,11 @@ async def get_git_log(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get recent git commit log from Local Agent workspace."""
-    repo = ProjectRepository(db)
-    project = await repo.get_by_id(project_id)
-    if project:
-        check_git_policy(project, "read")
-    workspace = await _resolve_workspace(project_id, db)
+    project = await _require_project(project_id, current_user, db)
+    check_git_policy(project, "read")
+    device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
-        device_id=_DEFAULT_DEVICE,
+        device_id=device_id,
         workspace_id=workspace,
         job_id="job_git_log",
         tool_name="git_log",
@@ -764,6 +826,78 @@ async def get_git_log(
             return _offline_response()
         raise HTTPException(status_code=500, detail=tool_res.error)
     return tool_res.result
+
+
+@router.get("/projects/{project_id}/git/provenance")
+async def list_git_provenance(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """List durable AI authorship and verification metadata for owned commits."""
+    await _require_project(project_id, current_user, db)
+    records = await db.scalars(
+        select(GitCommit)
+        .where(
+            GitCommit.project_id == project_id,
+            GitCommit.user_id == current_user.id,
+        )
+        .order_by(GitCommit.created_at.desc())
+        .limit(100)
+    )
+    return [
+        {
+            "id": record.id,
+            "instruction_id": record.instruction_id,
+            "commit_hash": record.commit_hash,
+            "branch": record.branch,
+            "message": record.message,
+            "ai_generated": record.ai_generated,
+            "provenance_digest": record.provenance_digest,
+            "prompt_digest": record.prompt_digest,
+            "model_name": record.model_name,
+            "changed_files": record.changed_files,
+            "commit_metadata": record.commit_metadata,
+            "verification_status": record.verification_status,
+            "created_at": record.created_at.isoformat(),
+        }
+        for record in records.all()
+    ]
+
+
+@router.get("/projects/{project_id}/verifications")
+async def list_verification_runs(
+    project_id: str,
+    instruction_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """List bounded, redacted verification evidence for an owned project."""
+    await _require_project(project_id, current_user, db)
+    query = select(VerificationRun).where(
+        VerificationRun.project_id == project_id
+    )
+    if instruction_id:
+        query = query.where(VerificationRun.instruction_id == instruction_id)
+    records = await db.scalars(
+        query.order_by(VerificationRun.created_at.desc()).limit(200)
+    )
+    return [
+        {
+            "id": record.id,
+            "instruction_id": record.instruction_id,
+            "category": record.category,
+            "executable": record.executable,
+            "command_digest": record.command_digest,
+            "status": record.status,
+            "exit_code": record.exit_code,
+            "duration_seconds": record.duration_seconds,
+            "output_digest": record.output_digest,
+            "output_excerpt": record.output_excerpt,
+            "created_at": record.created_at.isoformat(),
+        }
+        for record in records.all()
+    ]
 
 
 class GitRollbackRequest(BaseModel):
@@ -782,17 +916,35 @@ async def rollback_git_commit(
     """Hard-reset the workspace to a specified commit hash."""
     if not data.commit_hash:
         raise HTTPException(status_code=400, detail="commit_hash is required")
-    repo = ProjectRepository(db)
-    project = await repo.get_by_id(project_id)
-    if project:
-        check_git_policy(project, "rollback")
-    workspace = await _resolve_workspace(project_id, db)
+    project = await _require_project(project_id, current_user, db)
+    check_git_policy(project, "rollback")
+    try:
+        authorization_id = await authorize_tool(
+            project=project,
+            user_id=current_user.id,
+            instruction_id=None,
+            tool_name="git_rollback",
+            operation="git.rollback",
+            arguments={"commit_hash": data.commit_hash},
+            summary=f"Roll back the workspace to commit {data.commit_hash}.",
+        )
+    except ApprovalRequiredError as exc:
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "WAITING_APPROVAL",
+                "approval_id": exc.approval_id,
+                "detail": exc.summary,
+            },
+        )
+    device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
-        device_id=_DEFAULT_DEVICE,
+        device_id=device_id,
         workspace_id=workspace,
         job_id="job_git_rollback",
         tool_name="git_rollback",
         arguments={"commit_hash": data.commit_hash},
+        authorization_id=authorization_id,
     )
     if not tool_res.success:
         if _tool_is_offline(tool_res):
@@ -812,10 +964,11 @@ async def get_rag_stats(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get live RAG indexing stats + progress from the Local Agent."""
+    project = await _require_project(project_id, current_user, db)
     try:
-        workspace = await _resolve_workspace(project_id, db)
+        device_id, workspace = await _resolve_execution_target(project, db)
         tool_res = await ToolGateway.invoke_tool(
-            device_id=_DEFAULT_DEVICE,
+            device_id=device_id,
             workspace_id=workspace,
             job_id="job_rag_stats",
             tool_name="rag_status",
@@ -863,80 +1016,63 @@ async def reindex_project_rag(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    """Kick off a background RAG re-index (click-and-forget) and return."""
-    existing = _reindex_jobs.get(project_id)
-    if existing and existing.get("status") == "running":
+    """Durably enqueue a RAG re-index for the worker process."""
+    locked_project = await db.scalar(
+        select(Project)
+        .where(
+            Project.id == project_id,
+            Project.user_id == current_user.id,
+        )
+        .with_for_update()
+    )
+    if not locked_project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    existing = await db.scalar(
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.project_id == project_id,
+            BackgroundJob.job_type == "RAG_REINDEX",
+            BackgroundJob.status.in_(["PENDING", "RUNNING"]),
+        )
+        .order_by(BackgroundJob.created_at.desc())
+        .limit(1)
+    )
+    if existing:
         return {"status": "running", "job": _reindex_job_payload(existing)}
 
-    workspace = await _resolve_workspace(project_id, db)
-    job: Dict[str, Any] = {
-        "status": "running",
-        "files_indexed": 0,
-        "chunks": 0,
-        "last_index": None,
-        "error": None,
-        "started_at": datetime.utcnow().isoformat() + "Z",
-        "finished_at": None,
-    }
-    _reindex_jobs[project_id] = job
-    asyncio.create_task(_run_reindex_job(project_id, workspace, job))
-    return {"status": "started", "job": _reindex_job_payload(job)}
-
-
-async def _run_reindex_job(
-    project_id: str,
-    workspace: str,
-    job: Dict[str, Any],
-) -> None:
-    """Run the RAG re-index tool in the background and update the job."""
-    from app.core.config import (
-        DEFAULT_RAG_CHUNK_OVERLAP,
-        DEFAULT_RAG_CHUNK_SIZE,
-        get_setting,
+    job = BackgroundJob(
+        project_id=project_id,
+        user_id=current_user.id,
+        job_type="RAG_REINDEX",
+        status="PENDING",
     )
-
-    try:
-        tool_res = await ToolGateway.invoke_tool(
-            device_id=_DEFAULT_DEVICE,
-            workspace_id=workspace,
-            job_id="job_rag_reindex",
-            tool_name="rag_reindex",
-            arguments={
-                # Settings-page RAG chunking drives the local chunker
-                "chunk_size": int(
-                    get_setting("RAG_CHUNK_SIZE", DEFAULT_RAG_CHUNK_SIZE)
-                ),
-                "chunk_overlap": int(
-                    get_setting("RAG_CHUNK_OVERLAP", DEFAULT_RAG_CHUNK_OVERLAP)
-                ),
-            },
-        )
-        if not tool_res.success:
-            job["status"] = "failed"
-            job["error"] = tool_res.error
-        else:
-            result = tool_res.result if isinstance(tool_res.result, dict) else {}
-            job["status"] = "done"
-            job["files_indexed"] = int(result.get("files_indexed", 0))
-            job["chunks"] = int(result.get("chunks", 0))
-            job["last_index"] = result.get("last_index")
-    except Exception as e:
-        job["status"] = "failed"
-        job["error"] = str(e)
-    finally:
-        job["finished_at"] = datetime.utcnow().isoformat() + "Z"
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    return {"status": "started", "job": _reindex_job_payload(job)}
 
 
 @router.get("/projects/{project_id}/rag/reindex-status")
 async def get_reindex_status(
     project_id: str,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Return the status of the background RAG re-index job."""
-    job = _reindex_jobs.get(project_id)
+    await _require_project(project_id, current_user, db)
+    job = await db.scalar(
+        select(BackgroundJob)
+        .where(
+            BackgroundJob.project_id == project_id,
+            BackgroundJob.job_type == "RAG_REINDEX",
+        )
+        .order_by(BackgroundJob.created_at.desc())
+        .limit(1)
+    )
     if not job:
         return {"status": "idle", "job": None}
-    return {"status": job["status"], "job": _reindex_job_payload(job)}
+    payload = _reindex_job_payload(job)
+    return {"status": payload["status"], "job": payload}
 
 
 @router.get("/projects/{project_id}/files/original")
@@ -947,13 +1083,11 @@ async def get_file_original(
     current_user: User = Depends(get_current_user),
 ) -> Any:
     """Get the original (git HEAD) version of a file for diff baseline."""
-    repo = ProjectRepository(db)
-    project = await repo.get_by_id(project_id)
-    if project:
-        check_fs_policy(project, "read")
-    workspace = await _resolve_workspace(project_id, db)
+    project = await _require_project(project_id, current_user, db)
+    check_fs_policy(project, "read")
+    device_id, workspace = await _resolve_execution_target(project, db)
     tool_res = await ToolGateway.invoke_tool(
-        device_id=_DEFAULT_DEVICE,
+        device_id=device_id,
         workspace_id=workspace,
         job_id="job_file_original",
         tool_name="git_show_file",
