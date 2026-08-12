@@ -6,8 +6,10 @@
 - **Repository Path**: `/home/administrator/cmdx-af`
 - **Current Files**: Implemented cloud API, web control plane, local agent,
   shared protocol, migrations, tests, and deployment configuration.
-- **Status**: Phases 1–7 completed and verified on 2026-08-11. Later phases
-  remain tracked separately below.
+- **Status**: Phases 1–11 completed and verified (Phase 1–7 evidence
+  2026-08-11; Phases 8–11 verified alongside). Forward-looking claims are
+  framed against market reality in §5 — market-standard capabilities are
+  not written as future predictions.
 
 ### Architectural Vision
 AgentForge is an enterprise-grade, agentic software development platform designed with a hybrid architecture:
@@ -205,17 +207,21 @@ cmdx-af/
 - Web ESLint: zero errors and 90 warnings; warning cleanup remains quality
   debt outside the Phase 1–7 acceptance scope.
 
-### Phase 8: SSE Event Infrastructure & Real-time Broadcasting
-- [ ] Set up Redis Pub/Sub event dispatcher in FastAPI.
-- [ ] Implement SSE endpoint (`GET /api/v1/projects/{id}/stream`).
-- [ ] Connect agent lifecycle events, file CRUD notifications, and terminal outputs to the event stream.
+### Phase 8: SSE Event Infrastructure & Real-time Broadcasting [COMPLETED]
+- [x] Set up Redis Pub/Sub event dispatcher in FastAPI.
+- [x] Implement SSE endpoint (`GET /api/v1/projects/{id}/stream`).
+- [x] Connect agent lifecycle events, file CRUD notifications, and terminal
+  outputs to the event stream.
 
-### Phase 9: Frontend Web Application
-- [ ] Set up Next.js 16+ App Router project with Tailwind CSS, shadcn/ui components, and Lucide icons.
-- [ ] Build Dashboard screen (project statistics, active pipelines, recent activity).
-- [ ] Build Device Management screen (`/devices`) with device pairing UI.
-- [ ] Build Project Creation Wizard with Local Machine vs Cloud Workspace selection.
-- [ ] Build Project Workspace screen:
+### Phase 9: Frontend Web Application [COMPLETED]
+- [x] Set up Next.js 16+ App Router project with Tailwind CSS, shadcn/ui
+  components, and Lucide icons.
+- [x] Build Dashboard screen (project statistics, active pipelines, recent
+  activity).
+- [x] Build Device Management screen (`/devices`) with device pairing UI.
+- [x] Build Project Creation Wizard with Local Machine vs Cloud Workspace
+  selection.
+- [x] Build Project Workspace screen:
   - Instruction submission prompt
   - Live Agent Execution pipeline cards
   - Live SSE Event Console
@@ -223,13 +229,100 @@ cmdx-af/
   - RAG Manager screen
   - Git History & Rollback UI
   - Test & Validation Status screen
+- [x] Build IDE-style approval, agent, Git, verification, and technical-lead
+  interfaces.
 
-### Phase 10: Testing, Hardening & End-to-End Verification
-- [ ] Run end-to-end acceptance workflow:
+### Phase 10: Testing, Hardening & End-to-End Verification [COMPLETED]
+- [x] Run end-to-end acceptance workflow:
   1. Pair Local Agent with Cloud Control Plane.
   2. Create Project targeting local directory.
   3. Index local repository with RAG.
   4. Submit instruction ("Create payment management module").
-  5. Validate full agent execution sequence, local file generation, automated tests, linting, and local Git commits.
-- [ ] Verify safety constraints (E501 line length < 100 in Python code, zero secret leaks, zero path traversal).
-- [ ] Perform linting (`Ruff`, `ESLint`), type checking (`mypy`, `tsc`), and test pass verification.
+  5. Validate full agent execution sequence, local file generation, automated
+     tests, linting, and local Git commits.
+- [x] Verify safety constraints (E501 line length < 100 in Python code, zero
+  secret leaks, zero path traversal).
+- [x] Perform linting (`Ruff`, `ESLint`), type checking (`mypy`, `tsc`), and
+  test pass verification.
+
+Verification evidence: API test suite 69 passed; local-agent suite 33 passed
+inside the final CPU-only image; Alembic current at `l8g9h0i1j2k3` with no
+upgrade operations; Ruff and bytecode compilation clean across API,
+migrations, local agent, tests, and shared protocol; web TypeScript check and
+optimized Next.js build passed; ESLint zero errors (90 warnings remain tracked
+as quality debt).
+
+### Phase 11: Governance, Provenance & Responsible-AI Hardening [COMPLETED]
+- [x] Durable agent jobs with retries, heartbeats, cancellation, idempotency,
+  and event history.
+- [x] Risk-based approvals, one-time authorization, and command policies.
+- [x] AI commit provenance with prompt/manifest digests and CI verification
+  gates.
+- [x] Stored validation evidence covering tests, linting, security analysis,
+  builds, profiling, and browser commands.
+- [x] Repository-aware technical-lead assistant with task view, audited
+  conversations, and authenticated MCP integration.
+- [x] User-scoped observability and responsible-AI control evidence.
+- [x] Container hardening: non-root, read-only containers, readiness checks,
+  rate limiting, request limits, security headers, and secret-redacted logs.
+- [x] Automatic removal of persistent legacy provider secrets from runtime
+  settings.
+
+Key implementation areas: `apps/api/app/agents/pipeline.py`,
+`apps/api/app/api/v1/endpoints/approvals.py`,
+`apps/api/app/services/provenance.py`,
+`apps/api/app/services/verification.py`, `apps/api/app/mcp/router.py`, and
+`infrastructure/docker-compose.yml`.
+
+---
+
+## 5. Market Context & Roadmap Positioning
+
+> Market review of the earlier roadmap draft (2026-08-12): the scenario is
+> directionally correct, but several sections were written entirely as future
+> predictions even though the capabilities already exist in the market. This
+> section rewrites those claims: market-standard capabilities are framed as
+> capabilities AgentForge adopts or completes — not speculation — and genuinely
+> frontier areas are flagged with the caveats that apply today.
+
+### 5.1 Market-Standard Capabilities (already shipped elsewhere — adopt, don't predict)
+
+The following capabilities are already offered by leading products and must
+not be presented as AgentForge-only future features:
+
+| Capability | Market precedent | AgentForge positioning |
+|---|---|---|
+| Autonomous issue handling | [GitHub Copilot agents](https://docs.github.com/en/copilot/concepts/agents/cloud-agent), [Cursor Background Agents](https://docs.cursor.com/background-agent) | Completed as governed, auditable agent runs (Phase 11 durable jobs) |
+| Asynchronous / background agents | Cursor Background Agents | Durable SQL-backed worker provides retries, heartbeats, cancellation, idempotency |
+| Centralized session monitoring | GitHub Copilot agents, Cursor | Per-user SSE + observability surfaces agent sessions centrally |
+| Agents creating PRs | GitHub Copilot agents, Cursor Background Agents | Git agent creates isolated branches and commits today; PR creation is a natural extension, not a novel prediction |
+| Automated debugging & performance investigation | [Sentry Seer](https://docs.sentry.io/product/ai-in-sentry/seer) | Stored validation evidence (tests, linting, security, builds, profiling, browser commands) covers the repository side; deeper runtime triage is a follow-on |
+| AI-specific quality gates & project labeling | [Sonar AI Code Assurance](https://docs.sonarsource.com/sonarqube-cloud/ai-capabilities/ai-code-assurance) | CI verification gates plus stored validation evidence are the equivalent, focused on the repo rather than the project |
+| Repository-wide assistants over issue trackers, docs, and external systems via MCP | [GitHub Copilot code review](https://docs.github.com/en/copilot/concepts/agents/code-review) (MCP context; human validation still required) | Repository-aware technical-lead assistant with authenticated MCP integration matches this, with approval gates preserved |
+| "AI as technical lead" — Q&A and task coordination | GitHub Copilot, Cursor | Repository-aware technical-lead assistant with task view and audited conversations implements this today |
+
+### 5.2 Genuinely Frontier (not yet market-ready — keep human gates)
+
+- **Fully autonomous architectural authority without human review** is not
+  reliably market-ready. AgentForge intentionally keeps human approval gates
+  (risk-based approvals, one-time authorization, command policies) rather than
+  promising unsupervised architectural autonomy.
+- **Universal `AI-generated` Git-tag standard** does not exist. Git-level AI
+  traceability is real, but there is no universal tag standard; GitHub uses
+  signed agent commits, co-authorship, and links to session logs
+  ([GitHub agent traceability](https://docs.github.com/en/enterprise-cloud%40latest/copilot/concepts/agents/cloud-agent/risks-and-mitigations)).
+  AgentForge implements AI commit provenance with prompt/manifest digests
+  instead of relying on a non-existent universal tag.
+
+### 5.3 Compliance & Standards Accuracy
+
+- **EU AI Act** ([Regulation (EU) 2024/1689](https://eur-lex.europa.eu/eli/reg/2024/1689/oj?locale=en))
+  does not create a universal requirement to tag every AI-written source-code
+  line. It establishes logging requirements for applicable high-risk AI
+  systems and transparency requirements for certain synthetic content.
+  AgentForge's user-scoped observability and responsible-AI control evidence
+  align with the logging side of that model.
+- **NIST AI RMF** ([nist.gov](https://www.nist.gov/itl/ai-risk-management-framework))
+  is a voluntary framework — not a certification. It supports governance,
+  testing, and accountability; AgentForge references it as guidance, not as a
+  certification claim.
