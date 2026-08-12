@@ -27,8 +27,10 @@ RUNTIME_SETTING_KEYS = frozenset(
     {
         "DEEPSEEK_BASE_URL",
         "DEEPSEEK_CHAT_MODEL",
+        "DEEPSEEK_MAX_TOKENS",
         "OPENAI_BASE_URL",
         "OPENAI_CHAT_MODEL",
+        "OPENAI_MAX_TOKENS",
         "GEMINI_CHAT_MODEL",
         "CLAUDE_CHAT_MODEL",
         "MAX_AGENT_STEPS",
@@ -131,6 +133,11 @@ def get_setting(key: str, default: str = "") -> str:
 DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_DEEPSEEK_CHAT_MODEL = "deepseek-chat"
 DEFAULT_DEEPSEEK_CODER_MODEL = "deepseek-coder"
+# DeepSeek's max output for deepseek-chat is 8192 tokens; a generous default
+# prevents long structured outputs (e.g. file content in JSON) from being
+# truncated mid-object, which otherwise yields invalid JSON.
+DEFAULT_DEEPSEEK_MAX_TOKENS = "8192"
+DEFAULT_OPENAI_MAX_TOKENS = "16384"
 
 # Non-secret RAG defaults may be changed from the Settings page.
 DEFAULT_RAG_TOP_K = "5"
@@ -170,6 +177,11 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
     CLAUDE_API_KEY: str = ""
+
+    # Max output tokens for structured/completion calls. Kept high so large
+    # JSON payloads (complete file content) are not silently truncated.
+    DEEPSEEK_MAX_TOKENS: str = "8192"
+    OPENAI_MAX_TOKENS: str = "16384"
 
     CORS_ORIGINS: str = "http://localhost:3000"
 

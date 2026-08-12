@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from app.core.config import (
     DEFAULT_DEEPSEEK_BASE_URL,
     DEFAULT_DEEPSEEK_CHAT_MODEL,
+    DEFAULT_DEEPSEEK_MAX_TOKENS,
+    DEFAULT_OPENAI_MAX_TOKENS,
     DEFAULT_RAG_CHUNK_OVERLAP,
     DEFAULT_RAG_CHUNK_SIZE,
     DEFAULT_RAG_TOP_K,
@@ -38,10 +40,12 @@ class SettingsPayload(BaseModel):
     # DeepSeek
     deepseek_base_url: str = ""
     deepseek_chat_model: str = ""
+    deepseek_max_tokens: int = 8192
 
     # OpenAI
     openai_base_url: str = ""
     openai_chat_model: str = ""
+    openai_max_tokens: int = 16384
 
     # Gemini
     gemini_chat_model: str = ""
@@ -90,6 +94,11 @@ async def get_settings(
         "deepseek_chat_model": runtime_settings.get(
             "DEEPSEEK_CHAT_MODEL", DEFAULT_DEEPSEEK_CHAT_MODEL
         ),
+        "deepseek_max_tokens": int(
+            runtime_settings.get(
+                "DEEPSEEK_MAX_TOKENS", DEFAULT_DEEPSEEK_MAX_TOKENS
+            )
+        ),
         "has_deepseek_key": bool(dsk),
         # OpenAI
         "openai_base_url": runtime_settings.get(
@@ -97,6 +106,11 @@ async def get_settings(
         ),
         "openai_chat_model": runtime_settings.get(
             "OPENAI_CHAT_MODEL", "gpt-4o"
+        ),
+        "openai_max_tokens": int(
+            runtime_settings.get(
+                "OPENAI_MAX_TOKENS", DEFAULT_OPENAI_MAX_TOKENS
+            )
         ),
         "has_openai_key": bool(oak),
         # Gemini
@@ -146,12 +160,14 @@ async def update_settings(
         runtime_settings["DEEPSEEK_BASE_URL"] = data.deepseek_base_url
     if data.deepseek_chat_model:
         runtime_settings["DEEPSEEK_CHAT_MODEL"] = data.deepseek_chat_model
+    runtime_settings["DEEPSEEK_MAX_TOKENS"] = str(data.deepseek_max_tokens)
 
     # OpenAI
     if data.openai_base_url:
         runtime_settings["OPENAI_BASE_URL"] = data.openai_base_url
     if data.openai_chat_model:
         runtime_settings["OPENAI_CHAT_MODEL"] = data.openai_chat_model
+    runtime_settings["OPENAI_MAX_TOKENS"] = str(data.openai_max_tokens)
 
     # Gemini
     if data.gemini_chat_model:

@@ -34,8 +34,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const baseUrlRef = useRef<HTMLInputElement>(null)
+  const dsMaxTokensRef = useRef<HTMLInputElement>(null)
   // OpenAI
   const oaiBaseUrlRef = useRef<HTMLInputElement>(null)
+  const oaiMaxTokensRef = useRef<HTMLInputElement>(null)
   // General
   const maxStepsRef = useRef<HTMLInputElement>(null)
   const timeoutRef = useRef<HTMLInputElement>(null)
@@ -124,8 +126,10 @@ export default function SettingsPage() {
     getSettings().then((s) => {
       if (baseUrlRef.current) baseUrlRef.current.value = s.deepseek_base_url || ''
       setDsModel(s.deepseek_chat_model || 'deepseek-chat')
+      if (dsMaxTokensRef.current) dsMaxTokensRef.current.value = String(s.deepseek_max_tokens ?? 8192)
       if (oaiBaseUrlRef.current) oaiBaseUrlRef.current.value = s.openai_base_url || ''
       setOaiModel(s.openai_chat_model || 'gpt-4o')
+      if (oaiMaxTokensRef.current) oaiMaxTokensRef.current.value = String(s.openai_max_tokens ?? 16384)
       setGemModel(s.gemini_chat_model || 'gemini-2.5-pro')
       setClaudeModel(s.claude_chat_model || 'claude-3-5-sonnet-20241022')
       setProviderConfigured({
@@ -154,8 +158,10 @@ export default function SettingsPage() {
       await updateSettings({
         deepseek_base_url: baseUrlRef.current?.value || '',
         deepseek_chat_model: dsModel,
+        deepseek_max_tokens: parseInt(dsMaxTokensRef.current?.value || '8192', 10),
         openai_base_url: oaiBaseUrlRef.current?.value || '',
         openai_chat_model: oaiModel,
+        openai_max_tokens: parseInt(oaiMaxTokensRef.current?.value || '16384', 10),
         gemini_chat_model: gemModel,
         claude_chat_model: claudeModel,
         max_agent_steps: parseInt(maxStepsRef.current?.value || '10', 10),
@@ -336,6 +342,12 @@ export default function SettingsPage() {
                 ))}
               </select>
             </div>
+            <Field
+              label="Max Output Tokens"
+              inputRef={dsMaxTokensRef}
+              defaultValue="8192"
+              hint="Cap on generated tokens per call. Higher values prevent long JSON (complete file content) from being truncated mid-object."
+            />
             <div className="flex flex-wrap gap-2">
               <button type="button" className="btn-secondary-af text-xs" onClick={() => testProviderConn('deepseek')} disabled={testResults['deepseek']?.status === 'testing'}>
                 {testResults['deepseek']?.status === 'testing' ? 'Testing...' : 'Test Connection'}
@@ -369,6 +381,12 @@ export default function SettingsPage() {
                 ))}
               </select>
             </div>
+            <Field
+              label="Max Output Tokens"
+              inputRef={oaiMaxTokensRef}
+              defaultValue="16384"
+              hint="Cap on generated tokens per call (capped at the selected model's maximum)."
+            />
             <p className="text-[10px] text-muted">Supports: gpt-4o, gpt-4-turbo, gpt-3.5-turbo</p>
             <button type="button" className="btn-secondary-af text-xs" onClick={() => testProviderConn('openai')} disabled={testResults['openai']?.status === 'testing'}>
               {testResults['openai']?.status === 'testing' ? 'Testing...' : 'Test Connection'}
@@ -536,12 +554,14 @@ function Field({
   defaultValue,
   type = 'text',
   step,
+  hint,
   inputRef,
 }: {
   label: string
   defaultValue: string
   type?: string
   step?: string
+  hint?: string
   inputRef: React.RefObject<HTMLInputElement | null>
 }) {
   return (
@@ -556,6 +576,7 @@ function Field({
         step={step}
         className="input-af"
       />
+      {hint && <p className="text-[10px] text-muted mt-1">{hint}</p>}
     </div>
   )
 }

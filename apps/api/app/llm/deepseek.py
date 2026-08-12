@@ -10,6 +10,7 @@ import httpx
 from app.core.config import (
     DEFAULT_DEEPSEEK_BASE_URL,
     DEFAULT_DEEPSEEK_CHAT_MODEL,
+    DEFAULT_DEEPSEEK_MAX_TOKENS,
     get_setting,
 )
 from app.llm.base import (
@@ -66,6 +67,14 @@ class DeepSeekProvider(BaseLLMProvider):
             "messages": messages,
             "temperature": temperature,
             "stream": stream,
+            # A generous output cap avoids mid-JSON truncation on long
+            # structured outputs (e.g. complete file content). 8192 is the
+            # maximum supported by deepseek-chat and safe for all models.
+            "max_tokens": int(
+                get_setting(
+                    "DEEPSEEK_MAX_TOKENS", DEFAULT_DEEPSEEK_MAX_TOKENS
+                )
+            ),
         }
         if stream:
             payload["stream_options"] = {"include_usage": True}

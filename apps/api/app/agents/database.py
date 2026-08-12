@@ -7,7 +7,7 @@ from app.agents.base import BaseAgent
 SYSTEM_PROMPT = """You are a Database Engineer agent specializing in SQLAlchemy ORM,
 PostgreSQL, and Alembic migrations. Generate database code that follows existing
 model patterns. Return JSON with:
-- "files_generated": list of file paths created (models, migrations)
+- "files": list of {path, content} objects with COMPLETE file content
 - "tables_created": list of table/entity names
 - "relationships": list of relationship descriptions
 - "summary": brief description"""
@@ -37,22 +37,29 @@ class DatabaseAgent(BaseAgent):
                 prompt=(
                     f"User instruction: {prompt}\n\n"
                     f"Implementation plan: {plan}\n\n"
-                    "Generate required SQLAlchemy ORM models and Alembic migration. "
-                    "Include COMPLETE file content for each generated file. "
-                    "Return each file as {path, content}."
+                    "Generate required SQLAlchemy ORM models and Alembic "
+                    "migration. Include COMPLETE file content for each "
+                    "generated file. Return each file as {path, content}."
                 ),
                 system_prompt=self.get_system_prompt(SYSTEM_PROMPT),
                 json_mode=True,
             )
-            files = response.content.get("files", [])
-            write_results = await self._write_files(context, files) if files else []
+            content = response.content
+            files = [
+                {"path": item["path"], "content": item.get("content", "")}
+                for item in (content.get("files") or [])
+                if isinstance(item, dict) and item.get("path")
+            ]
+            write_results = (
+                await self._write_files(context, files) if files else []
+            )
             return {
                 "status": "COMPLETED",
                 "files_generated": [f["path"] for f in files],
                 "files_written": write_results,
-                "tables_created": response.content.get("tables_created", []),
-                "relationships": response.content.get("relationships", []),
-                "summary": response.content.get("summary", ""),
+                "tables_created": content.get("tables_created", []),
+                "relationships": content.get("relationships", []),
+                "summary": content.get("summary", ""),
                 "tokens_used": response.total_tokens,
                 "cost": response.cost,
             }

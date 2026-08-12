@@ -350,9 +350,11 @@ export function getModels(visionOnly = false): Promise<
 export function getSettings(): Promise<{
   deepseek_base_url: string
   deepseek_chat_model: string
+  deepseek_max_tokens: number
   has_deepseek_key: boolean
   openai_base_url: string
   openai_chat_model: string
+  openai_max_tokens: number
   has_openai_key: boolean
   gemini_chat_model: string
   has_gemini_key: boolean
@@ -374,8 +376,10 @@ export function getSettings(): Promise<{
 export function updateSettings(data: {
   deepseek_base_url?: string
   deepseek_chat_model?: string
+  deepseek_max_tokens?: number
   openai_base_url?: string
   openai_chat_model?: string
+  openai_max_tokens?: number
   gemini_chat_model?: string
   claude_chat_model?: string
   max_agent_steps?: number
