@@ -12,11 +12,20 @@ import {
   listRagChunks,
   type ProjectResponse,
   type RagChunk,
-  type RagChunksPage,
   type ReindexJob,
   type RagStats,
 } from '@/lib/api'
 import Pagination from '@/components/pagination'
+
+interface RagSearchResult {
+  file?: string
+  file_path?: string
+  lines?: number
+  text?: string
+  content?: string
+  snippet?: string
+  score?: number | string
+}
 
 export default function RagManagerPage() {
   const router = useRouter()
@@ -26,7 +35,7 @@ export default function RagManagerPage() {
   const [projects, setProjects] = useState<ProjectResponse[]>([])
   const [selectedProject, setSelectedProject] = useState(urlProject)
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<any[]>([])
+  const [results, setResults] = useState<RagSearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [loadingProjects, setLoadingProjects] = useState(true)
   const [searchError, setSearchError] = useState<string | null>(null)
@@ -54,7 +63,7 @@ export default function RagManagerPage() {
     }
     const qs = params.toString()
     router.replace(`/rag${qs ? `?${qs}` : ''}`, { scroll: false })
-  }, [selectedProject])
+  }, [selectedProject, urlProject, searchParams, router])
 
   useEffect(() => {
     return () => {
@@ -75,19 +84,32 @@ export default function RagManagerPage() {
   // Load chunks when project changes (default list with pagination)
   useEffect(() => {
     if (!selectedProject || ragStats?.online === false) return
-    setChunksLoading(true)
-    setChunksPage(1)
-    listRagChunks(selectedProject, 0, chunksPerPage, '')
-      .then((data) => {
+    let ignore = false
+    const run = async () => {
+      try {
+        const data = await listRagChunks(
+          selectedProject,
+          0,
+          chunksPerPage,
+          '',
+        )
+        if (ignore) return
         setChunks(data.chunks || [])
         setChunksTotal(data.total || 0)
-      })
-      .catch(() => {
+        setChunksPage(1)
+      } catch {
+        if (ignore) return
         setChunks([])
         setChunksTotal(0)
-      })
-      .finally(() => setChunksLoading(false))
-  }, [selectedProject, ragStats?.online])
+      } finally {
+        if (!ignore) setChunksLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      ignore = true
+    }
+  }, [selectedProject, ragStats?.online, chunksPerPage])
 
   const loadChunksPage = (p: number, pp?: number) => {
     if (!selectedProject) return
@@ -188,7 +210,11 @@ export default function RagManagerPage() {
     setSearchError(null)
     try {
       const data = await ragSearch(selectedProject, query)
-      setResults(Array.isArray(data) ? data : [data])
+      setResults(
+        Array.isArray(data)
+          ? (data as RagSearchResult[])
+          : [data as RagSearchResult],
+      )
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : 'Search failed')
     } finally {
@@ -350,7 +376,7 @@ export default function RagManagerPage() {
         {/* Results */}
         {results.length > 0 && (
           <div className="space-y-3 pt-2">
-            {results.map((r: any, i: number) => (
+            {results.map((r: RagSearchResult, i: number) => (
               <div
                 key={i}
                 className="card-af p-4 flex gap-3 text-xs"

@@ -163,6 +163,12 @@ class Settings(BaseSettings):
     GIT_AUTHOR_NAME: str = "AgentForge AI"
     GIT_AUTHOR_EMAIL: str = "agent@agentforge.ai"
 
+    # API-wide rate limiting (G1): ceilings per user and per client IP for
+    # mutating/tool endpoints; auth endpoints keep their own tighter limits.
+    RATE_LIMIT_MUTATING_PER_MIN: int = 30
+    RATE_LIMIT_IP_PER_MIN: int = 120
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+
     @property
     def cors_origins(self) -> list[str]:
         """Return the configured explicit CORS origin allowlist."""

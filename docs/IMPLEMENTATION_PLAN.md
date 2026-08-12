@@ -99,7 +99,10 @@ cmdx-af/
    - **Validation Agent**: Runs linting (`Ruff`, `ESLint`), type checks (`mypy`, `tsc`), security scans (`Bandit`).
    - **Git Agent**: Manages isolated feature branches (`agent/{instruction_id}`) and commits.
 5. **Tool Gateway**: Distributes tool requests to either Local Agent WSS channels or Cloud Sandboxes transparently.
-6. **SSE Event Engine**: Broadcasts real-time pipeline events (agent status, file changes, terminal logs) to web clients via Redis Pub/Sub.
+6. **SSE Event Engine**: Delivers real-time pipeline events (agent status,
+  file changes, terminal logs) to web clients through a durable, authenticated
+  DB-replay SSE endpoint (`InstructionEvent` history with `Last-Event-ID`
+  resume) rather than Redis Pub/Sub.
 
 ### 3.2 Local Agent (`apps/local-agent`)
 1. **Outbound WSS Connection**: Initiates encrypted WSS connection to Cloud (`wss://<domain>/ws/devices`). No open inbound ports or port forwarding required.
@@ -208,8 +211,10 @@ cmdx-af/
   debt outside the Phase 1–7 acceptance scope.
 
 ### Phase 8: SSE Event Infrastructure & Real-time Broadcasting [COMPLETED]
-- [x] Set up Redis Pub/Sub event dispatcher in FastAPI.
-- [x] Implement SSE endpoint (`GET /api/v1/projects/{id}/stream`).
+- [x] Implement a durable, authenticated SSE endpoint
+  (`GET /api/v1/projects/{id}/stream`) that replays persisted
+  `InstructionEvent` history (resumable via `Last-Event-ID`) and then follows
+  new events — no in-memory loss across API/worker processes.
 - [x] Connect agent lifecycle events, file CRUD notifications, and terminal
   outputs to the event stream.
 
@@ -326,3 +331,15 @@ not be presented as AgentForge-only future features:
   is a voluntary framework — not a certification. It supports governance,
   testing, and accountability; AgentForge references it as guidance, not as a
   certification claim.
+
+---
+
+## 6. Tracked Remaining Work
+
+Open gaps and the plan to close them are tracked in
+[`docs/GAPS_COMPLETION_PLAN.md`](GAPS_COMPLETION_PLAN.md): API-wide rate
+limiting, SSE in-process fast-path integration (the existing broadcaster is
+retained, not removed), an external hosted-CI verification gate, container
+hardening tests, ESLint warning debt, and the Phase 12 roadmap items
+(screenshot-to-UI generation and cloud sandbox execution, framed per §5 as
+market-standard adoptions). No existing code is slated for removal.

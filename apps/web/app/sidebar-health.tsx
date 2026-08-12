@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getFullHealth } from '@/lib/api'
+import { getFullHealth, type ComponentHealth } from '@/lib/api'
 
 export function SidebarHealth() {
   const [status, setStatus] = useState<string>('healthy')
@@ -12,7 +12,9 @@ export function SidebarHealth() {
     getFullHealth()
       .then((data) => {
         const comps = data.components || {}
-        const statuses: string[] = Object.values(comps).map((c: any) => c.status)
+        const statuses: string[] = Object.values(comps).map(
+          (c: ComponentHealth) => c.status,
+        )
         const hasProblem = statuses.some(
           (s: string) => s === 'unhealthy' || s === 'degraded',
         )

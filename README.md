@@ -15,8 +15,8 @@ AgentForge is an enterprise-grade, multi-agent software development platform des
 - **Packages**:
   - `packages/protocol`: Shared JSON-RPC message protocol schemas (`ToolRequest`, `ToolResult`, `AgentEventMessage`, etc.).
 - **Infrastructure**:
-  - PostgreSQL 16 (Relational metadata)
-  - Redis 7 (SSE Pub/Sub & task queue)
+  - PostgreSQL 16 (Relational metadata & durable event history)
+  - Redis 7 (rate limiting for credential endpoints & health checks)
   - Qdrant Vector DB (Vector embeddings & semantic code search)
 
 ---

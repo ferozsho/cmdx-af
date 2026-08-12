@@ -76,7 +76,7 @@ export default function AiLogsPage() {
     }
     const qs = params.toString()
     router.replace(`/ai-logs${qs ? `?${qs}` : ''}`, { scroll: false })
-  }, [selectedProject])
+  }, [selectedProject, urlProject, searchParams, router])
 
   // Load projects on mount
   useEffect(() => {
@@ -94,40 +94,37 @@ export default function AiLogsPage() {
   // Load logs and stats when project or filters change — reset to page 1
   useEffect(() => {
     if (!selectedProject) return
-    setLogsLoading(true)
-    setPage(1)
-
-    Promise.all([
-      getProjectLlmLogs(selectedProject, {
-        status: filterStatus || undefined,
-        provider: filterProvider || undefined,
-        model: filterModel || undefined,
-        limit: perPage,
-        offset: 0,
-      }),
-      getLlmLogStats(selectedProject).catch(() => null),
-    ])
-      .then(([logData, statsData]) => {
+    let ignore = false
+    const run = async () => {
+      try {
+        const [logData, statsData] = await Promise.all([
+          getProjectLlmLogs(selectedProject, {
+            status: filterStatus || undefined,
+            provider: filterProvider || undefined,
+            model: filterModel || undefined,
+            limit: perPage,
+            offset: 0,
+          }),
+          getLlmLogStats(selectedProject).catch(() => null),
+        ])
+        if (ignore) return
         setLogs(logData.items)
         setTotal(logData.total)
         setStats(statsData)
-      })
-      .catch((err) => {
+        setPage(1)
+      } catch (err) {
+        if (ignore) return
         console.error('Failed to load logs:', err)
         setError('Could not load AI interaction logs.')
-      })
-      .finally(() => setLogsLoading(false))
-  }, [selectedProject, filterStatus, filterProvider, filterModel, perPage])
-
-  // Load initial page from URL on first mount (after perPage is known)
-  useEffect(() => {
-    if (!selectedProject || !loading) return
-    if (urlPage > 1) {
-      loadPage(urlPage)
+      } finally {
+        if (!ignore) setLogsLoading(false)
+      }
     }
-    // Only run once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading])
+    void run()
+    return () => {
+      ignore = true
+    }
+  }, [selectedProject, filterStatus, filterProvider, filterModel, perPage])
 
   const syncPageUrl = (p: number, pp: number) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -171,6 +168,35 @@ export default function AiLogsPage() {
       .finally(() => setLogsLoading(false))
     syncPageUrl(p, limit)
   }
+
+  // Load initial page from URL on first mount (after perPage is known)
+  useEffect(() => {
+    if (!selectedProject || !loading || urlPage <= 1) return
+    let ignore = false
+    const run = async () => {
+      try {
+        const data = await getProjectLlmLogs(selectedProject, {
+          status: filterStatus || undefined,
+          provider: filterProvider || undefined,
+          model: filterModel || undefined,
+          limit: perPage,
+          offset: (urlPage - 1) * perPage,
+        })
+        if (ignore) return
+        setLogs(data.items)
+        setTotal(data.total)
+        setPage(urlPage)
+      } catch (err) {
+        if (!ignore) console.error('Failed to load initial page:', err)
+      }
+    }
+    void run()
+    return () => {
+      ignore = true
+    }
+    // Only run once on mount — filters/perPage are stable until loaded
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading])
 
   const totalPages = Math.max(1, Math.ceil(total / perPage))
   const currentPage = page

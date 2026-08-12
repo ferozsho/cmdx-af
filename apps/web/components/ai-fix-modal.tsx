@@ -26,17 +26,24 @@ export default function AiFixModal({
 }: AiFixModalProps) {
   const confirmRef = useRef<HTMLButtonElement>(null)
   const [step, setStep] = useState<'review' | 'submitting'>('review')
+  const [prevOpen, setPrevOpen] = useState(open)
+
+  // Reset to the review step whenever the modal opens. Adjusting state during
+  // render is the React-recommended pattern for resetting state on a prop
+  // change (avoids react-hooks/set-state-in-effect).
+  if (open !== prevOpen) {
+    setPrevOpen(open)
+    if (open) setStep('review')
+  }
+
+  // The submitting prop drives the submitting step directly.
+  const effectiveStep = submitting ? 'submitting' : step
 
   useEffect(() => {
     if (open) {
-      setStep('review')
       setTimeout(() => confirmRef.current?.focus(), 100)
     }
   }, [open])
-
-  useEffect(() => {
-    if (submitting) setStep('submitting')
-  }, [submitting])
 
   useEffect(() => {
     if (!open) return
@@ -77,7 +84,7 @@ export default function AiFixModal({
               AI Auto-Fix
             </h2>
             <p className="text-[11px] text-gray-500 dark:text-gray-400">
-              {step === 'review'
+              {effectiveStep === 'review'
                 ? 'Review the issues and confirm to fix'
                 : 'Fix submitted — agents are working…'}
             </p>
@@ -89,19 +96,19 @@ export default function AiFixModal({
           {/* Step indicator */}
           <div className="flex items-center gap-2">
             <div className={`w-6 h-6 rounded-full grid place-items-center text-[10px] font-bold text-white transition-all duration-300 ${
-              step === 'review' ? 'bg-primary scale-110 shadow-lg shadow-primary/30' : 'bg-emerald-500'
+              effectiveStep === 'review' ? 'bg-primary scale-110 shadow-lg shadow-primary/30' : 'bg-emerald-500'
             }`}>
-              {step === 'review' ? '1' : '✓'}
+              {effectiveStep === 'review' ? '1' : '✓'}
             </div>
             <div className="flex-1 h-1 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
               <div
                 className={`h-full rounded-full bg-primary transition-all duration-700 ease-out ${
-                  step === 'submitting' ? 'w-full' : 'w-0'
+                  effectiveStep === 'submitting' ? 'w-full' : 'w-0'
                 }`}
               />
             </div>
             <div className={`w-6 h-6 rounded-full grid place-items-center text-[10px] font-bold transition-all duration-300 ${
-              step === 'submitting'
+              effectiveStep === 'submitting'
                 ? 'bg-primary text-white animate-pulse shadow-lg shadow-primary/30'
                 : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500'
             }`}>

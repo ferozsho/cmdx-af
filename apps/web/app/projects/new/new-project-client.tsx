@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createProject, validateProjectPath, type ValidatePathResponse } from '@/lib/api'
 
 const ALL_TECHS = [
@@ -11,6 +12,7 @@ const ALL_TECHS = [
 ]
 
 export default function NewProjectClient() {
+  const router = useRouter()
   const [target, setTarget] = useState<'LOCAL' | 'CLOUD'>('LOCAL')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -72,7 +74,7 @@ export default function NewProjectClient() {
         tech_stack: techStack,
         initial_instruction: initialInstruction,
       })
-      window.location.href = '/'
+      router.replace('/')
     } catch (err) {
       setSubmitError(
         err instanceof Error ? err.message : 'Failed to create project.',

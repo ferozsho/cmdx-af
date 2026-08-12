@@ -48,8 +48,8 @@ export default function EditAgentPage() {
       })
       setMsg('Agent updated. New version created.')
       setTimeout(() => router.push('/agents'), 1200)
-    } catch (err: any) {
-      setError(err?.message || 'Failed to update agent')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to update agent')
     } finally {
       setSaving(false)
     }

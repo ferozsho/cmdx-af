@@ -29,8 +29,8 @@ export default function NewUserPage() {
     try {
       await createUser(form)
       router.push('/users')
-    } catch (err: any) {
-      setError(err?.message || 'Failed to create user')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create user')
     } finally {
       setSaving(false)
     }

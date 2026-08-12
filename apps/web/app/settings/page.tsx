@@ -19,6 +19,14 @@ interface TestResult {
   message: string
 }
 
+interface ModelInfo {
+  name: string
+  provider: string
+  context_limit: number
+  vision: boolean
+  label: string
+}
+
 export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -43,17 +51,13 @@ export default function SettingsPage() {
   const [oaiModel, setOaiModel] = useState('gpt-4o')
   const [gemModel, setGemModel] = useState('gemini-2.5-pro')
   const [claudeModel, setClaudeModel] = useState('claude-3-5-sonnet-20241022')
-  const [allModels, setAllModels] = useState<any[]>([])
+  const [allModels, setAllModels] = useState<ModelInfo[]>([])
 
   const [providerConfigured, setProviderConfigured] = useState<
     Record<string, boolean>
   >({})
   const [testResults, setTestResults] = useState<Record<string, TestResult>>({})
 
-  const [deepseekResult, setDeepseekResult] = useState<TestResult>({
-    status: 'idle',
-    message: '',
-  })
   const [dbResult, setDbResult] = useState<TestResult>({
     status: 'idle',
     message: '',
@@ -105,14 +109,14 @@ export default function SettingsPage() {
     getModels().then(setAllModels).catch(() => {
       // Fallback model list if API fails
       setAllModels([
-        { name: 'deepseek-chat', provider: 'deepseek', label: 'DeepSeek-V3' },
-        { name: 'deepseek-coder', provider: 'deepseek', label: 'DeepSeek-Coder' },
-        { name: 'gpt-4o', provider: 'openai', label: 'GPT-4o' },
-        { name: 'gpt-4-turbo', provider: 'openai', label: 'GPT-4 Turbo' },
-        { name: 'gemini-2.5-pro', provider: 'gemini', label: 'Gemini 2.5 Pro' },
-        { name: 'gemini-2.5-flash', provider: 'gemini', label: 'Gemini 2.5 Flash' },
-        { name: 'claude-3.5-sonnet', provider: 'claude', label: 'Claude 3.5 Sonnet' },
-        { name: 'claude-3-opus', provider: 'claude', label: 'Claude 3 Opus' },
+        { name: 'deepseek-chat', provider: 'deepseek', label: 'DeepSeek-V3', context_limit: 64000, vision: false },
+        { name: 'deepseek-coder', provider: 'deepseek', label: 'DeepSeek-Coder', context_limit: 64000, vision: false },
+        { name: 'gpt-4o', provider: 'openai', label: 'GPT-4o', context_limit: 128000, vision: true },
+        { name: 'gpt-4-turbo', provider: 'openai', label: 'GPT-4 Turbo', context_limit: 128000, vision: true },
+        { name: 'gemini-2.5-pro', provider: 'gemini', label: 'Gemini 2.5 Pro', context_limit: 1000000, vision: true },
+        { name: 'gemini-2.5-flash', provider: 'gemini', label: 'Gemini 2.5 Flash', context_limit: 1000000, vision: true },
+        { name: 'claude-3.5-sonnet', provider: 'claude', label: 'Claude 3.5 Sonnet', context_limit: 200000, vision: true },
+        { name: 'claude-3-opus', provider: 'claude', label: 'Claude 3 Opus', context_limit: 200000, vision: true },
       ])
     })
     getSettings().then((s) => {

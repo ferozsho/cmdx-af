@@ -5,6 +5,12 @@ import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { getUser, updateUser, type UserResponse } from '@/lib/api'
 
+interface UserDetail extends UserResponse {
+  org_name?: string
+  job_title?: string
+  agent_quota?: number
+}
+
 export default function EditUserPage() {
   const router = useRouter()
   const params = useParams()
@@ -24,15 +30,15 @@ export default function EditUserPage() {
   useEffect(() => {
     async function load() {
       try {
-        const u = await getUser(userId)
+        const u = (await getUser(userId)) as UserDetail
         setUser(u)
         setForm({
           full_name: u.full_name || '', role: u.role,
-          org_name: (u as any).org_name || '', job_title: (u as any).job_title || '',
-          agent_quota: (u as any).agent_quota ?? 10,
+          org_name: u.org_name || '', job_title: u.job_title || '',
+          agent_quota: u.agent_quota ?? 10,
         })
-      } catch (err: any) {
-        setError(err?.message || 'Failed to load user')
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to load user')
       } finally {
         setLoading(false)
       }
@@ -53,8 +59,8 @@ export default function EditUserPage() {
       await updateUser(userId, form)
       setMsg('User updated successfully.')
       setTimeout(() => router.push('/users'), 1000)
-    } catch (err: any) {
-      setError(err?.message || 'Failed to update user')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to update user')
     } finally {
       setSaving(false)
     }

@@ -15,6 +15,26 @@ import {
 import ConfirmModal from '@/components/confirm-modal'
 import Pagination from '@/components/pagination'
 
+interface GitStatusResponse {
+  status?: string
+  detail?: string
+  branch?: string
+  current_branch?: string
+  is_dirty?: boolean
+  dirty?: boolean
+  modified_files?: string[]
+  untracked_files?: string[]
+}
+
+interface GitCommitSummary {
+  hash: string
+  message?: string
+  author?: string
+  time?: string
+  date?: string
+  files?: number
+}
+
 export default function GitHistoryPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -22,13 +42,13 @@ export default function GitHistoryPage() {
 
   const [projects, setProjects] = useState<ProjectResponse[]>([])
   const [selectedProject, setSelectedProject] = useState(urlProject)
-  const [gitStatus, setGitStatusState] = useState<any>(null)
-  const [commits, setCommits] = useState<any[]>([])
+  const [gitStatus, setGitStatusState] = useState<GitStatusResponse | null>(null)
+  const [commits, setCommits] = useState<GitCommitSummary[]>([])
   const [provenance, setProvenance] = useState<GitProvenanceResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [rollingBack, setRollingBack] = useState<string | null>(null)
   const [rollbackMsg, setRollbackMsg] = useState<string | null>(null)
-  const [rollbackTarget, setRollbackTarget] = useState<any>(null)
+  const [rollbackTarget, setRollbackTarget] = useState<GitCommitSummary | null>(null)
 
   // Pagination (client-side)
   const [perPage, setPerPage] = useState(10)
@@ -45,7 +65,7 @@ export default function GitHistoryPage() {
     }
     const qs = params.toString()
     router.replace(`/git${qs ? `?${qs}` : ''}`, { scroll: false })
-  }, [selectedProject])
+  }, [selectedProject, urlProject, searchParams, router])
 
   useEffect(() => {
     listProjects()
@@ -58,19 +78,26 @@ export default function GitHistoryPage() {
 
   useEffect(() => {
     if (!selectedProject) return
-    setPage(1)
-    getGitStatus(selectedProject)
-      .then((data) => setGitStatusState(data))
-      .catch(console.error)
-    getGitLog(selectedProject)
-      .then((data) => setCommits(Array.isArray(data) ? data : []))
-      .catch(() => setCommits([]))
-    getGitProvenance(selectedProject)
-      .then(setProvenance)
-      .catch(() => setProvenance([]))
+    let ignore = false
+    const run = async () => {
+      const [status, log, prov] = await Promise.all([
+        getGitStatus(selectedProject).catch(() => null),
+        getGitLog(selectedProject).catch(() => null),
+        getGitProvenance(selectedProject).catch(() => null),
+      ])
+      if (ignore) return
+      if (status) setGitStatusState(status as GitStatusResponse)
+      if (Array.isArray(log)) setCommits(log as GitCommitSummary[])
+      if (Array.isArray(prov)) setProvenance(prov)
+      setPage(1)
+    }
+    void run()
+    return () => {
+      ignore = true
+    }
   }, [selectedProject])
 
-  const handleRollback = (commit: any) => {
+  const handleRollback = (commit: GitCommitSummary) => {
     if (!selectedProject) return
     setRollbackTarget(commit)
   }
@@ -88,8 +115,8 @@ export default function GitHistoryPage() {
         getGitStatus(selectedProject),
         getGitLog(selectedProject),
       ])
-      setGitStatusState(status)
-      setCommits(Array.isArray(log) ? log : [])
+      setGitStatusState(status as GitStatusResponse)
+      setCommits(Array.isArray(log) ? (log as GitCommitSummary[]) : [])
     } catch (err) {
       setRollbackMsg(
         `✗ Rollback failed: ${err instanceof Error ? err.message : 'unknown error'}`,
@@ -169,12 +196,16 @@ export default function GitHistoryPage() {
                   : 'Clean'}
               </span>
             </div>
-            {gitStatus.modified_files?.length > 0 && (
-              <div className="text-xs text-muted">
-                Modified: {gitStatus.modified_files.length} | Untracked:{' '}
-                {gitStatus.untracked_files?.length || 0}
-              </div>
-            )}
+            {(() => {
+              const modified = gitStatus.modified_files
+              if (!modified || modified.length === 0) return null
+              return (
+                <div className="text-xs text-muted">
+                  Modified: {modified.length} | Untracked:{' '}
+                  {gitStatus.untracked_files?.length || 0}
+                </div>
+              )
+            })()}
           </div>
         </div>
       )}
@@ -211,7 +242,7 @@ export default function GitHistoryPage() {
             )
             return (
               <>
-                {pagedCommits.map((commit: any) => {
+                {pagedCommits.map((commit: GitCommitSummary) => {
                   const record = provenance.find(
                     (item) =>
                       item.commit_hash === commit.hash ||

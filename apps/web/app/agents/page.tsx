@@ -20,7 +20,27 @@ export default function AgentsPage() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    let ignore = false
+    const run = async () => {
+      try {
+        const data = await listAgents()
+        if (!ignore) setAgents(data)
+      } catch (err) {
+        if (!ignore) {
+          setError(
+            err instanceof Error ? err.message : 'Failed to load agents',
+          )
+        }
+      } finally {
+        if (!ignore) setLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      ignore = true
+    }
+  }, [])
 
   return (
     <div>

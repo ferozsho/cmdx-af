@@ -19,6 +19,7 @@ from app.models.session import Session
 from app.models.user import User
 from app.repositories.project_repo import ProjectRepository
 from app.services.instruction_events import append_instruction_event
+from app.services.rate_limit import api_rate_limit
 
 router = APIRouter()
 
@@ -239,6 +240,7 @@ async def list_instruction_history(
 async def submit_instruction(
     project_id: str,
     data: InstructionSubmit,
+    _rate_limit_guard: None = Depends(api_rate_limit("instructions")),
     idempotency_key: str | None = Header(
         default=None,
         alias="Idempotency-Key",
@@ -319,6 +321,7 @@ async def submit_instruction(
 async def cancel_instruction(
     project_id: str,
     instruction_id: str,
+    _rate_limit_guard: None = Depends(api_rate_limit("instructions")),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:

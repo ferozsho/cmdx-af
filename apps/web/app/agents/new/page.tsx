@@ -29,8 +29,8 @@ export default function NewAgentPage() {
         tools: form.tools.split(',').map((t) => t.trim()).filter(Boolean),
       })
       router.push('/agents')
-    } catch (err: any) {
-      setError(err?.message || 'Failed to create agent')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create agent')
     } finally {
       setSaving(false)
     }

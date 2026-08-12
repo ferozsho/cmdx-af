@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 
 const PER_PAGE_OPTIONS = [5, 10, 20, 50, 100]
 
@@ -42,14 +42,16 @@ export default function Pagination({
   onPageChange,
   onPerPageChange,
 }: PaginationProps) {
-  const [hydrated, setHydrated] = useState(false)
+  // Hydration guard: the select shows the resolved value only on the client.
+  const hydrated = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  )
 
   // On mount, load saved per-page preference from localStorage
   useEffect(() => {
-    if (!storageKey) {
-      setHydrated(true)
-      return
-    }
+    if (!storageKey) return
     try {
       const saved = localStorage.getItem(storageKey)
       if (saved) {
@@ -61,7 +63,6 @@ export default function Pagination({
     } catch {
       // localStorage unavailable (SSR / private browsing)
     }
-    setHydrated(true)
     // Only run on mount — storageKey and perPageOptions are stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

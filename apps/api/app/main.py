@@ -1,7 +1,9 @@
 """FastAPI AgentForge Cloud Control Plane Main Application."""
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
 from app.core.config import settings
@@ -17,6 +19,27 @@ def create_app() -> FastAPI:
         version="0.1.0",
         openapi_url=f"{settings.API_PREFIX}/openapi.json",
         docs_url=f"{settings.API_PREFIX}/docs",
+    )
+
+    async def _http_exception_handler(
+        request: Request,
+        exc: StarletteHTTPException,
+    ) -> JSONResponse:
+        """Return structured rate-limit 429 bodies flat; keep default shape."""
+        if exc.status_code == 429 and isinstance(exc.detail, dict):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content=exc.detail,
+                headers=exc.headers,
+            )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=exc.headers,
+        )
+
+    app.add_exception_handler(
+        StarletteHTTPException, _http_exception_handler
     )
 
     app.add_middleware(

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { listDevices, getProjectStats, listProjects, type DeviceResponse } from '@/lib/api'
+import { listDevices, getProjectStats, type DeviceResponse } from '@/lib/api'
 
 interface NotificationItem {
   id: string
@@ -142,7 +142,6 @@ export default function NotificationBell() {
     tick()
     const timer = window.setInterval(tick, POLL_MS)
     return () => window.clearInterval(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seenIds])
 
   const onlineCount = devices.filter((d) => d.status === 'online').length

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import DiffViewer from '@/components/diff-viewer'
 import AiFixModal from '@/components/ai-fix-modal'
@@ -42,7 +43,124 @@ import {
   type ProjectResponse,
   type ApprovalResponse,
   type RagStats,
+  type RagChunk,
 } from '@/lib/api'
+
+// ── Local types for loosely-typed API payloads ────────────────────────────
+interface GitStatusData {
+  status?: string
+  detail?: string
+  branch?: string
+  current_branch?: string
+  is_dirty?: boolean
+  dirty?: boolean
+  modified_files?: string[]
+  untracked_files?: string[]
+  staged_files?: string[]
+  unpushed_files?: string[]
+  offline?: boolean
+}
+
+interface GitChangedFile {
+  path: string
+  insertions?: number
+  deletions?: number
+}
+
+interface GitCommitLogEntry {
+  hash?: string
+  message?: string
+  author?: string
+  time?: string
+  insertions?: number
+  deletions?: number
+  changed_files?: GitChangedFile[]
+}
+
+interface FileTreeNodeData {
+  name: string
+  type: 'file' | 'dir'
+  size?: number
+  status?: string
+  children?: FileTreeNodeData[]
+}
+
+interface RagResultItem {
+  file?: string
+  file_path?: string
+  lines?: number
+  start_line?: number
+  end_line?: number
+  text?: string
+  content?: string
+  snippet?: string
+  score?: number | string
+}
+
+interface SseConsoleEvent {
+  time: string
+  text: string
+}
+
+interface HistoryRun {
+  agent_name: string
+  status: string
+  duration_seconds: number
+  output: string | null
+  metadata: Record<string, unknown>
+  created_at: string | null
+}
+
+interface InstructionSummary {
+  id: string
+  project_id: string
+  user_id: string | null
+  prompt: string
+  status: string
+  created_at: string | null
+  runs?: HistoryRun[]
+}
+
+interface ModelInfo {
+  name: string
+  provider: string
+  context_limit: number
+  vision: boolean
+  label: string
+}
+
+interface AgentResultPayload {
+  branch?: string
+  commit_message?: string
+}
+
+interface TestAgentMeta {
+  tests_passed?: number
+  tests_failed?: number
+  coverage_percent?: number
+  test_summary?: string
+  tests_generated?: string[]
+}
+
+interface ValidationAgentMeta {
+  lint_issues?: number
+  type_errors?: number
+  security_issues?: number
+  build_status?: string
+  tool_checks?: unknown[]
+  auto_fixes_applied?: string[]
+  recommendations?: string[]
+}
+
+function isOfflineResponse(
+  value: unknown,
+): value is { status: 'offline'; detail?: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { status?: unknown }).status === 'offline'
+  )
+}
 
 function formatFileSize(bytes?: number): string {
   if (bytes === undefined || bytes === null) return ''
@@ -125,7 +243,10 @@ function highlightJSON(raw: string): React.ReactNode {
   }
 }
 
-function hasChangedChild(dirPath: string, gitStatus?: any): boolean {
+function hasChangedChild(
+  dirPath: string,
+  gitStatus?: GitStatusData | null,
+): boolean {
   if (!gitStatus) return false
   const cleanDir = cleanPath(dirPath)
   const prefix = cleanDir ? `${cleanDir}/` : ''
@@ -133,11 +254,11 @@ function hasChangedChild(dirPath: string, gitStatus?: any): boolean {
     const cleanF = cleanPath(f)
     return cleanF.startsWith(prefix)
   }
-  return (
+  return Boolean(
     gitStatus.modified_files?.some(isMatch) ||
-    gitStatus.untracked_files?.some(isMatch) ||
-    gitStatus.staged_files?.some(isMatch) ||
-    gitStatus.unpushed_files?.some(isMatch)
+      gitStatus.untracked_files?.some(isMatch) ||
+      gitStatus.staged_files?.some(isMatch) ||
+      gitStatus.unpushed_files?.some(isMatch),
   )
 }
 
@@ -149,11 +270,11 @@ function FileTreeNode({
   gitStatus,
   mode = 'auto',
 }: {
-  node: any
+  node: FileTreeNodeData
   parentPath?: string
   selectedPath: string
   onSelectFile: (path: string) => void
-  gitStatus?: any
+  gitStatus?: GitStatusData | null
   mode?: 'auto' | 'collapsed' | 'expanded'
 }) {
   const currentPath = parentPath ? `${parentPath}/${node.name}` : node.name
@@ -167,11 +288,14 @@ function FileTreeNode({
     Boolean(cleanSelected && cleanCurrent && (cleanSelected === cleanCurrent || cleanSelected.startsWith(`${cleanCurrent}/`)))
 
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null)
+  const [prevSelected, setPrevSelected] = useState(cleanSelected)
 
-  // Reset user toggle when selected file changes
-  useEffect(() => {
+  // Reset user toggle when selected file changes. Adjusting state during
+  // render is the React-recommended pattern (avoids set-state-in-effect).
+  if (prevSelected !== cleanSelected) {
+    setPrevSelected(cleanSelected)
     setUserExpanded(null)
-  }, [cleanSelected])
+  }
 
   // Explicit user toggle wins; otherwise honor the global tree mode
   // ('auto' auto-opens ancestors of the selected file)
@@ -212,7 +336,7 @@ function FileTreeNode({
         </button>
         {isOpen && (
           <div className="border-l border-border pl-2 space-y-0.5">
-            {(node.children || []).map((child: any) => {
+            {(node.children || []).map((child: FileTreeNodeData) => {
               const childPath = currentPath
                 ? `${currentPath}/${child.name}`
                 : child.name
@@ -372,7 +496,7 @@ export default function WorkspaceClient({
   const [fixSubmitting, setFixSubmitting] = useState(false)
   const [fixingIds, setFixingIds] = useState<string[]>([])
   const [fixedIds, setFixedIds] = useState<Set<string>>(new Set())
-  const fixInstructionRef = useRef<any>(null)
+  const fixInstructionRef = useRef<InstructionSummary | null>(null)
 
   // Agent enablement prompt state
   const [agentEnablePrompt, setAgentEnablePrompt] = useState<{
@@ -384,9 +508,9 @@ export default function WorkspaceClient({
   const [sessions, setSessions] = useState<SessionResponse[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [sessionContext, setSessionContext] = useState<SessionContextResponse | null>(null)
-  const [events, setEvents] = useState<any[]>([])
+  const [events, setEvents] = useState<SseConsoleEvent[]>([])
   const [ragQuery, setRagQuery] = useState(urlQuery)
-  const [ragResults, setRagResults] = useState<any[]>([])
+  const [ragResults, setRagResults] = useState<RagResultItem[]>([])
   const [ragStats, setRagStats] = useState<RagStats | null>(null)
   const [ragPage, setRagPage] = useState(0)
   const [ragSearching, setRagSearching] = useState(false)
@@ -399,7 +523,7 @@ export default function WorkspaceClient({
   )
   // RAG browse view: "All Chunks" (default) vs search results
   const [ragView, setRagView] = useState<'chunks' | 'search'>(urlView)
-  const [ragChunks, setRagChunks] = useState<any[]>([])
+  const [ragChunks, setRagChunks] = useState<RagChunk[]>([])
   const [ragChunksTotal, setRagChunksTotal] = useState(0)
   const [ragChunksLoading, setRagChunksLoading] = useState(false)
   const [chunksPage, setChunksPage] = useState(0)
@@ -409,7 +533,7 @@ export default function WorkspaceClient({
     () => new Set(),
   )
 
-  const [fileTree, setFileTree] = useState<any>(null)
+  const [fileTree, setFileTree] = useState<FileTreeNodeData | null>(null)
   const [fileTreeError, setFileTreeError] = useState<string | null>(null)
   // Global offline state — set when any tool-backed endpoint returns offline
   const [isOffline, setIsOffline] = useState(false)
@@ -418,8 +542,8 @@ export default function WorkspaceClient({
     'auto',
   )
   const [treeKey, setTreeKey] = useState(0)
-  const [gitStatus, setGitStatus] = useState<any>(null)
-  const [gitLog, setGitLog] = useState<any[]>([])
+  const [gitStatus, setGitStatus] = useState<GitStatusData | null>(null)
+  const [gitLog, setGitLog] = useState<GitCommitLogEntry[]>([])
   const [gitLogLoading, setGitLogLoading] = useState(false)
   const [selectedFilePath, setSelectedFilePath] = useState<string>(cleanPath(urlFile))
   const [selectedFileContent, setSelectedFileContent] = useState<string>('')
@@ -485,10 +609,14 @@ export default function WorkspaceClient({
   }
 
   // Store structured results from agent pipeline executions
-  const [pipelineResults, setPipelineResults] = useState<Record<string, any>>({})
+  const [pipelineResults, setPipelineResults] = useState<
+    Record<string, unknown>
+  >({})
 
   // Instruction history for the history panel
-  const [instructionHistory, setInstructionHistory] = useState<any[]>([])
+  const [instructionHistory, setInstructionHistory] = useState<
+    InstructionSummary[]
+  >([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null)
   const [historyPage, setHistoryPage] = useState(0)
@@ -527,8 +655,27 @@ export default function WorkspaceClient({
   }
 
   useEffect(() => {
-    loadHistory(0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let ignore = false
+    const run = async () => {
+      try {
+        const data = await listInstructionHistory(projectId, {
+          limit: PAGE_SIZE_HISTORY + 1,
+          offset: 0,
+        })
+        if (ignore) return
+        setHistoryHasMore(data.length > PAGE_SIZE_HISTORY)
+        setInstructionHistory(data.slice(0, PAGE_SIZE_HISTORY))
+        setHistoryPage(0)
+      } catch (err) {
+        if (!ignore) console.error('Failed to load instruction history:', err)
+      } finally {
+        if (!ignore) setHistoryLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      ignore = true
+    }
   }, [projectId])
 
   // Load user-wide instruction prompts for UP/DOWN arrow key cycling
@@ -552,31 +699,64 @@ export default function WorkspaceClient({
 
   // Load sessions for this project
   useEffect(() => {
+    let ignore = false
     listSessions(projectId)
       .then((data) => {
+        if (ignore) return
         setSessions(data)
-        if (data.length > 0 && !activeSessionId) {
-          setActiveSessionId(data[0].id)
-        }
+        setActiveSessionId((prev) => prev ?? data[0]?.id ?? null)
       })
       .catch(() => {})
+    return () => {
+      ignore = true
+    }
   }, [projectId])
 
   // Load session context when active session changes
   useEffect(() => {
-    if (activeSessionId) {
-      getSessionContext(projectId, activeSessionId)
-        .then(setSessionContext)
-        .catch(() => setSessionContext(null))
-    } else {
-      setSessionContext(null)
+    if (!activeSessionId) return
+    let ignore = false
+    getSessionContext(projectId, activeSessionId)
+      .then((ctx) => {
+        if (!ignore) setSessionContext(ctx)
+      })
+      .catch(() => {
+        if (!ignore) setSessionContext(null)
+      })
+    return () => {
+      ignore = true
     }
   }, [activeSessionId, projectId])
 
+  // Derive the effective context — null whenever no session is active.
+  const effectiveSessionContext = activeSessionId ? sessionContext : null
+
   // Refresh history after pipeline completes
   useEffect(() => {
-    if (!isRunning && activeTab === 'AGENTS') {
-      loadHistory(0, historyAgentFilter, historyDateFrom, historyDateTo)
+    if (isRunning || activeTab !== 'AGENTS') return
+    let ignore = false
+    const run = async () => {
+      try {
+        const data = await listInstructionHistory(projectId, {
+          limit: PAGE_SIZE_HISTORY + 1,
+          offset: 0,
+          agent_name: historyAgentFilter || undefined,
+          date_from: historyDateFrom || undefined,
+          date_to: historyDateTo || undefined,
+        })
+        if (ignore) return
+        setHistoryHasMore(data.length > PAGE_SIZE_HISTORY)
+        setInstructionHistory(data.slice(0, PAGE_SIZE_HISTORY))
+        setHistoryPage(0)
+      } catch (err) {
+        if (!ignore) console.error('Failed to load instruction history:', err)
+      } finally {
+        if (!ignore) setHistoryLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      ignore = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning, projectId, activeTab])
@@ -717,7 +897,7 @@ export default function WorkspaceClient({
       const data = await getFileContent(projectId, targetPath)
       if (data.content !== undefined) {
         setSelectedFileContent(data.content)
-      } else if ((data as any).status === 'offline') {
+      } else if (isOfflineResponse(data)) {
         setSelectedFileContent(
           '// Workstation offline — connect a device to read this file.',
         )
@@ -735,7 +915,7 @@ export default function WorkspaceClient({
     setSelectedFileOriginal('')
     try {
       const orig = await getFileOriginal(projectId, targetPath)
-      if ((orig as any).status === 'offline') {
+      if (isOfflineResponse(orig)) {
         setSelectedFileOriginal('')
       } else {
         setSelectedFileOriginal(orig.content || '')
@@ -758,16 +938,18 @@ export default function WorkspaceClient({
     setExpandedResults(new Set())
     try {
       const data = await ragSearch(projectId, q, 30)
-      if ((data as any)?.status === 'offline') {
+      if (isOfflineResponse(data)) {
         setRagResults([])
         setRagSearched(true)
         setRagError(
-          (data as any)?.detail ||
+          data.detail ||
             'Local agent workstation is offline. Start `agentforge start` to enable RAG search.',
         )
         return
       }
-      const results = Array.isArray(data) ? data : [data]
+      const results = Array.isArray(data)
+        ? (data as RagResultItem[])
+        : [data as RagResultItem]
       setRagResults(results)
       setRagPage(page)
       setRagSearched(true)
@@ -786,7 +968,7 @@ export default function WorkspaceClient({
     setRagChunksLoading(true)
     try {
       const data = await listRagChunks(projectId, offset, PAGE_SIZE)
-      if ((data as any)?.status === 'offline') {
+      if (isOfflineResponse(data)) {
         setRagChunks([])
         setRagChunksTotal(0)
         return
@@ -872,8 +1054,26 @@ export default function WorkspaceClient({
   const wasIndexingRef = useRef(false)
   useEffect(() => {
     const indexing = ragStats?.indexing === true
-    if (wasIndexingRef.current && !indexing && ragStats?.state === 'complete') {
-      if (ragView === 'chunks') loadRagChunks(chunksPage * PAGE_SIZE)
+    if (
+      wasIndexingRef.current &&
+      !indexing &&
+      ragStats?.state === 'complete' &&
+      ragView === 'chunks'
+    ) {
+      const offset = chunksPage * PAGE_SIZE
+      const run = async () => {
+        try {
+          const data = await listRagChunks(projectId, offset, PAGE_SIZE)
+          setRagChunks(data.chunks || [])
+          setRagChunksTotal(data.total || 0)
+        } catch {
+          setRagChunks([])
+          setRagChunksTotal(0)
+        } finally {
+          setRagChunksLoading(false)
+        }
+      }
+      void run()
     }
     wasIndexingRef.current = indexing
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -957,8 +1157,8 @@ export default function WorkspaceClient({
     if (activeTab === 'FILES') {
       if (!fileTree && !fileTreeError) {
         getProjectTree(projectId)
-          .then((data: any) => {
-            if (data?.status === 'offline') {
+          .then((data: unknown) => {
+            if (isOfflineResponse(data)) {
               setIsOffline(true)
               setFileTree(null)
               setFileTreeError(
@@ -966,7 +1166,7 @@ export default function WorkspaceClient({
               )
             } else {
               setIsOffline(false)
-              setFileTree(data)
+              setFileTree(data as FileTreeNodeData)
               setFileTreeError(null)
             }
           })
@@ -978,14 +1178,19 @@ export default function WorkspaceClient({
       }
       if (!gitStatus) {
         getGitStatus(projectId)
-          .then((data: any) => {
-            const offline = data?.status === 'offline'
+          .then((data: unknown) => {
+            const offline = isOfflineResponse(data)
             setIsOffline(offline)
-            setGitStatus(offline ? { ...data, offline: true } : data)
+            setGitStatus(
+              offline
+                ? { ...(data as GitStatusData), offline: true }
+                : ((data as GitStatusData) ?? null),
+            )
           })
           .catch((err) => console.error('Failed to load git status:', err))
       }
       if (urlFile) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- tab activation intentionally triggers file loading that sets state
         handleSelectFile(urlFile)
       }
     }
@@ -1003,19 +1208,23 @@ export default function WorkspaceClient({
     }
     if (activeTab === 'GIT' && !gitStatus) {
       getGitStatus(projectId)
-        .then((data: any) => {
-          const offline = data?.status === 'offline'
+        .then((data: unknown) => {
+          const offline = isOfflineResponse(data)
           setIsOffline(offline)
-          setGitStatus(offline ? { ...data, offline: true } : data)
+          setGitStatus(
+            offline
+              ? { ...(data as GitStatusData), offline: true }
+              : ((data as GitStatusData) ?? null),
+          )
         })
         .catch((err) => console.error('Failed to load git status:', err))
       // Also fetch git log
       if (gitLog.length === 0 && !gitLogLoading) {
         setGitLogLoading(true)
         getGitLog(projectId, 10)
-          .then((data: any) => {
+          .then((data: unknown) => {
             if (Array.isArray(data)) {
-              setGitLog(data)
+              setGitLog(data as GitCommitLogEntry[])
             }
           })
           .catch((err) => console.error('Failed to load git log:', err))
@@ -1054,6 +1263,7 @@ export default function WorkspaceClient({
           ),
         )
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load-once-per-tab; adding data deps would refetch on every data change
   }, [activeTab, projectId])
 
   // One-time URL cleanup: strip stale %3D (=) artifacts from query params
@@ -1083,33 +1293,6 @@ export default function WorkspaceClient({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  const handleStartPipeline = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!prompt.trim()) return
-    setIsRunning(true)
-    setEvents((prev) => [
-      ...prev,
-      { time: new Date().toLocaleTimeString(), text: `[Instruction Submitted] ${prompt}` },
-    ])
-
-    setAgentsState((prev) =>
-      prev.map((ag) =>
-        ag.enabled ? { ...ag, status: 'PENDING', duration: '-' } : ag,
-      ),
-    )
-
-    try {
-      const instruction = await submitInstruction(projectId, prompt)
-      setActiveInstructionId(instruction.id)
-      activeInstructionIdRef.current = instruction.id
-    } catch (err) {
-      console.error('Failed to trigger instruction pipeline:', err)
-      setIsRunning(false)
-      setActiveInstructionId(null)
-      activeInstructionIdRef.current = null
-    }
-  }
 
   const handleCancelPipeline = async () => {
     const instructionId = activeInstructionIdRef.current
@@ -1189,7 +1372,7 @@ export default function WorkspaceClient({
   }
 
   // AI FIX: open confirmation modal, then submit with error context
-  const handleAiFix = (instruction: any) => {
+  const handleAiFix = (instruction: InstructionSummary) => {
     if (!instruction || isRunning) return
 
     // Collect errors and recommendations from failed runs
@@ -1294,7 +1477,7 @@ export default function WorkspaceClient({
   // Clear fixing state when pipeline completes, refresh session context
   useEffect(() => {
     if (!isRunning && fixingIds.length > 0) {
-      // Refresh history to show updated status
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- pipeline completion intentionally refreshes history + clears state
       loadHistory(historyPage, historyAgentFilter, historyDateFrom, historyDateTo)
       // Refresh session context to reflect any changes
       if (activeSessionId) {
@@ -1304,6 +1487,7 @@ export default function WorkspaceClient({
       }
       setFixingIds([])
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reacts to pipeline completion; other deps are stable refs/state
   }, [isRunning])
 
   return (
@@ -1473,21 +1657,21 @@ export default function WorkspaceClient({
                   <option value="__new__">+ New Session</option>
                 </select>
               </div>
-              {sessionContext ? (
+              {effectiveSessionContext ? (
                 <div className="flex-1 min-w-[200px] flex items-center gap-2">
                   <div className="flex-1 h-2.5 bg-surface-secondary rounded-full overflow-hidden border border-border/50">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${
-                        sessionContext.context_used_pct > 80 ? 'bg-red-500' : sessionContext.context_used_pct > 50 ? 'bg-amber-500' : 'bg-emerald-500'
+                        effectiveSessionContext.context_used_pct > 80 ? 'bg-red-500' : effectiveSessionContext.context_used_pct > 50 ? 'bg-amber-500' : 'bg-emerald-500'
                       }`}
-                      style={{ width: `${Math.min(sessionContext.context_used_pct, 100)}%` }}
+                      style={{ width: `${Math.min(effectiveSessionContext.context_used_pct, 100)}%` }}
                     />
                   </div>
                   <span className="text-[10px] text-muted font-mono whitespace-nowrap">
-                    {(sessionContext.total_tokens_used / 1000).toFixed(0)}K / {(sessionContext.context_limit / 1000).toFixed(0)}K
+                    {(effectiveSessionContext.total_tokens_used / 1000).toFixed(0)}K / {(effectiveSessionContext.context_limit / 1000).toFixed(0)}K
                   </span>
                   <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-semibold">
-                    {sessionContext.model_name}
+                    {effectiveSessionContext.model_name}
                   </span>
                 </div>
               ) : (
@@ -1743,9 +1927,12 @@ export default function WorkspaceClient({
                     key={i}
                     className="relative group w-16 h-16 rounded-lg border border-border overflow-hidden bg-surface-secondary"
                   >
-                    <img
+                    <Image
                       src={att.dataUrl}
                       alt={att.name}
+                      width={64}
+                      height={64}
+                      unoptimized
                       className="w-full h-full object-cover"
                     />
                     <button
@@ -1877,11 +2064,11 @@ export default function WorkspaceClient({
                 Agent Sequence
               </h2>
               <div className="flex items-center gap-2">
-                {sessionContext && (
+                {effectiveSessionContext && (
                   <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-semibold">
-                    {sessionContext.context_limit >= 1000000
-                      ? `${(sessionContext.context_limit / 1000000).toFixed(1)}M`
-                      : `${(sessionContext.context_limit / 1000).toFixed(0)}K`} Context
+                    {effectiveSessionContext.context_limit >= 1000000
+                      ? `${(effectiveSessionContext.context_limit / 1000000).toFixed(1)}M`
+                      : `${(effectiveSessionContext.context_limit / 1000).toFixed(0)}K`} Context
                   </span>
                 )}
                 {agentsLoading && (
@@ -2085,7 +2272,7 @@ export default function WorkspaceClient({
                       [Instruction] {ins.prompt}
                     </div>
                     {ins.runs && ins.runs.length > 0 ? (
-                      ins.runs.map((run: any, ri: number) => (
+                      ins.runs.map((run: HistoryRun, ri: number) => (
                         <div key={ri} className="text-[#49e56d]">
                           <span className="text-[#7f899c]">
                             [{run.created_at
@@ -2096,21 +2283,34 @@ export default function WorkspaceClient({
                           [{run.agent_name}] {run.status === 'COMPLETED'
                             ? `Finished in ${run.duration_seconds?.toFixed(1) || '?'}s`
                             : run.status}
-                          {run.metadata?.test_summary && (
-                            <div className="ml-4 text-[#c8d0df]">
-                              ↳ {run.metadata.test_summary}
-                            </div>
-                          )}
-                          {run.metadata?.files_generated && run.metadata.files_generated.length > 0 && (
-                            <div className="ml-4 text-[#7f899c]">
-                              ↳ Generated: {run.metadata.files_generated.join(', ')}
-                            </div>
-                          )}
-                          {run.metadata?.error && (
-                            <div className="ml-4 text-red-400">
-                              ↳ Error: {run.metadata.error}
-                            </div>
-                          )}
+                          {(() => {
+                            const summary = run.metadata?.test_summary
+                            const files = run.metadata?.files_generated
+                            const error = run.metadata?.error
+                            const filesList = Array.isArray(files)
+                              ? files
+                              : null
+                            return (
+                              <>
+                                {summary && (
+                                  <div className="ml-4 text-[#c8d0df]">
+                                    ↳ {String(summary)}
+                                  </div>
+                                )}
+                                {filesList && filesList.length > 0 && (
+                                  <div className="ml-4 text-[#7f899c]">
+                                    ↳ Generated:{' '}
+                                    {filesList.map(String).join(', ')}
+                                  </div>
+                                )}
+                                {error && (
+                                  <div className="ml-4 text-red-400">
+                                    ↳ Error: {String(error)}
+                                  </div>
+                                )}
+                              </>
+                            )
+                          })()}
                         </div>
                       ))
                     ) : (
@@ -2258,7 +2458,7 @@ export default function WorkspaceClient({
                 <div className="font-bold text-primary flex items-center gap-1.5 pb-1">
                   <span>📁</span> {fileTree.name}/
                 </div>
-                {(fileTree.children || []).map((node: any) => (
+                {(fileTree.children || []).map((node: FileTreeNodeData) => (
                   <FileTreeNode
                     key={node.name}
                     node={node}
@@ -2568,7 +2768,7 @@ export default function WorkspaceClient({
                         </span>
                         <span className="shrink-0 flex items-center gap-3">
                           <span className="text-primary font-sans font-semibold">
-                            Relevance: {(res.score * 100).toFixed(0)}%
+                            Relevance: {(Number(res.score ?? 0) * 100).toFixed(0)}%
                           </span>
                           <span className="text-muted font-sans">
                             {isOpen ? '−' : '+'}
@@ -2648,75 +2848,97 @@ export default function WorkspaceClient({
                       : 'Clean Working Tree'}
                   </span>
                 </div>
-                {gitStatus.staged_files?.length > 0 && (
-                  <div>
-                    <div className="text-muted mt-2 font-sans font-semibold">
-                      Staged:
-                    </div>
-                    {gitStatus.staged_files.map((f: string, i: number) => (
-                      <div key={i} className="text-primary pl-2">
-                        ● {f}
+                {(() => {
+                  const staged = gitStatus.staged_files
+                  if (!staged || staged.length === 0) return null
+                  return (
+                    <div>
+                      <div className="text-muted mt-2 font-sans font-semibold">
+                        Staged:
                       </div>
-                    ))}
-                  </div>
-                )}
-                {gitStatus.modified_files?.length > 0 && (
-                  <div>
-                    <div className="text-muted mt-2 font-sans font-semibold">
-                      Modified:
+                      {staged.map((f: string, i: number) => (
+                        <div key={i} className="text-primary pl-2">
+                          ● {f}
+                        </div>
+                      ))}
                     </div>
-                    {gitStatus.modified_files.map((f: string, i: number) => (
-                      <div key={i} className="text-amber-500 pl-2">
-                        ~ {f}
+                  )
+                })()}
+                {(() => {
+                  const modified = gitStatus.modified_files
+                  if (!modified || modified.length === 0) return null
+                  return (
+                    <div>
+                      <div className="text-muted mt-2 font-sans font-semibold">
+                        Modified:
                       </div>
-                    ))}
-                  </div>
-                )}
-                {gitStatus.untracked_files?.length > 0 && (
-                  <div>
-                    <div className="text-muted mt-2 font-sans font-semibold">
-                      Untracked:
+                      {modified.map((f: string, i: number) => (
+                        <div key={i} className="text-amber-500 pl-2">
+                          ~ {f}
+                        </div>
+                      ))}
                     </div>
-                    {gitStatus.untracked_files.map((f: string, i: number) => (
-                      <div key={i} className="text-emerald-500 pl-2">
-                        + {f}
+                  )
+                })()}
+                {(() => {
+                  const untracked = gitStatus.untracked_files
+                  if (!untracked || untracked.length === 0) return null
+                  return (
+                    <div>
+                      <div className="text-muted mt-2 font-sans font-semibold">
+                        Untracked:
                       </div>
-                    ))}
-                  </div>
-                )}
-                {gitStatus.unpushed_files?.length > 0 && (
-                  <div>
-                    <div className="text-muted mt-2 font-sans font-semibold">
-                      Unpushed:
+                      {untracked.map((f: string, i: number) => (
+                        <div key={i} className="text-emerald-500 pl-2">
+                          + {f}
+                        </div>
+                      ))}
                     </div>
-                    {gitStatus.unpushed_files.map((f: string, i: number) => (
-                      <div key={i} className="text-blue-500 pl-2">
-                        ↑ {f}
+                  )
+                })()}
+                {(() => {
+                  const unpushed = gitStatus.unpushed_files
+                  if (!unpushed || unpushed.length === 0) return null
+                  return (
+                    <div>
+                      <div className="text-muted mt-2 font-sans font-semibold">
+                        Unpushed:
                       </div>
-                    ))}
-                  </div>
-                )}
+                      {unpushed.map((f: string, i: number) => (
+                        <div key={i} className="text-blue-500 pl-2">
+                          ↑ {f}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
               </div>
 
-              {pipelineResults['Git Agent'] && (
-                <div className="bg-surface-secondary border border-border rounded-lg p-4 space-y-2">
-                  <div className="text-xs font-semibold text-foreground">
-                    Last Agent Commit
+              {(() => {
+                const gitAgentResult = pipelineResults['Git Agent'] as
+                  | AgentResultPayload
+                  | undefined
+                if (!gitAgentResult) return null
+                return (
+                  <div className="bg-surface-secondary border border-border rounded-lg p-4 space-y-2">
+                    <div className="text-xs font-semibold text-foreground">
+                      Last Agent Commit
+                    </div>
+                    <div className="font-mono text-xs">
+                      <span className="text-muted">Branch: </span>
+                      <span className="text-primary">
+                        {gitAgentResult.branch}
+                      </span>
+                    </div>
+                    <div className="font-mono text-xs">
+                      <span className="text-muted">Message: </span>
+                      <span className="text-foreground">
+                        {gitAgentResult.commit_message}
+                      </span>
+                    </div>
                   </div>
-                  <div className="font-mono text-xs">
-                    <span className="text-muted">Branch: </span>
-                    <span className="text-primary">
-                      {pipelineResults['Git Agent'].branch}
-                    </span>
-                  </div>
-                  <div className="font-mono text-xs">
-                    <span className="text-muted">Message: </span>
-                    <span className="text-foreground">
-                      {pipelineResults['Git Agent'].commit_message}
-                    </span>
-                  </div>
-                </div>
-              )}
+                )
+              })()}
 
               {/* Commit History Log */}
               <div className="bg-surface-secondary border border-border rounded-lg p-4 space-y-3">
@@ -2733,23 +2955,26 @@ export default function WorkspaceClient({
                   </div>
                 ) : gitLog.length > 0 ? (
                   <div className="font-mono text-xs space-y-0.5 max-h-[500px] overflow-y-auto">
-                    {gitLog.map((commit: any, i: number) => {
+                    {gitLog.map((commit: GitCommitLogEntry, i: number) => {
                       const commitId = commit.hash || `commit-${i}`
                       const isExpanded = expandedHistory === commitId
                       const shortHash = commit.hash
                         ? commit.hash.substring(0, 7)
                         : '—'
-                      const filesList: any[] = commit.changed_files || []
+                      const filesList: GitChangedFile[] =
+                        commit.changed_files || []
                       const totalInsertions: number =
                         commit.insertions ||
                         filesList.reduce(
-                          (s: number, f: any) => s + (f.insertions || 0),
+                          (s: number, f: GitChangedFile) =>
+                            s + (f.insertions || 0),
                           0,
                         )
                       const totalDeletions: number =
                         commit.deletions ||
                         filesList.reduce(
-                          (s: number, f: any) => s + (f.deletions || 0),
+                          (s: number, f: GitChangedFile) =>
+                            s + (f.deletions || 0),
                           0,
                         )
                       return (
@@ -2794,7 +3019,7 @@ export default function WorkspaceClient({
                                 </span>
                               </div>
                               <div className="divide-y divide-[#30363d]/30">
-                                {filesList.map((f: any) => (
+                                {filesList.map((f: GitChangedFile) => (
                                   <div
                                     key={f.path}
                                     className="flex items-center gap-3 px-3 py-1 text-[11px]"
@@ -2922,8 +3147,8 @@ export default function WorkspaceClient({
             const run = runs.find(
               (r) => r.agent_name === 'Test Agent' && r.metadata,
             )
-            const meta = ((run?.metadata as any) ||
-              pipelineResults['Test Agent']) as any
+            const meta = (run?.metadata ??
+              pipelineResults['Test Agent']) as TestAgentMeta | null
 
             if (runsLoading && !meta) {
               return (
@@ -2986,7 +3211,9 @@ export default function WorkspaceClient({
                     <div className="text-xs font-semibold text-foreground mb-1">
                       Summary
                     </div>
-                    <p className="text-xs text-muted">{meta.test_summary}</p>
+                    <p className="text-xs text-muted">
+                      {String(meta.test_summary)}
+                    </p>
                   </div>
                 )}
                 {Array.isArray(meta.tests_generated) &&
@@ -3039,8 +3266,8 @@ export default function WorkspaceClient({
             const run = runs.find(
               (r) => r.agent_name === 'Validation Agent' && r.metadata,
             )
-            const meta = ((run?.metadata as any) ||
-              pipelineResults['Validation Agent']) as any
+            const meta = (run?.metadata ??
+              pipelineResults['Validation Agent']) as ValidationAgentMeta | null
 
             if (runsLoading && !meta) {
               return (
@@ -3110,7 +3337,7 @@ export default function WorkspaceClient({
                         : 'bg-red-500/15 text-red-500 border border-red-500/30'
                     }`}
                   >
-                    {meta.build_status || '—'}
+                    {String(meta.build_status ?? '—')}
                   </span>
                 </div>
                 {verificationRuns.length > 0 && (
@@ -3355,7 +3582,7 @@ function SettingsPanel({
   const [maxCommandSeconds, setMaxCommandSeconds] = useState(
     project?.max_command_seconds ?? 120,
   )
-  const [availableModels, setAvailableModels] = useState<any[]>([])
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -3366,23 +3593,26 @@ function SettingsPanel({
     )
   }, [])
 
-  // Sync state when project loads/changes
-  useEffect(() => {
-    if (project) {
-      setGitEnabled(project.git_enabled ?? true)
-      setBranchPatterns((project.git_branch_patterns || ['*']).join(', '))
-      setGitRequirePr(project.git_require_pr ?? false)
-      setCiGateEnabled(project.ci_gate_enabled ?? true)
-      setGitCommitTemplate(project.git_commit_template || '')
-      setFsRead(project.fs_read_enabled ?? true)
-      setFsWrite(project.fs_write_enabled ?? true)
-      setFsDelete(project.fs_delete_enabled ?? true)
-      setDefaultModel(project.default_model || '')
-      setApprovalMode(project.approval_mode || 'RISKY')
-      setCommandAllowlist((project.command_allowlist || []).join(', '))
-      setMaxCommandSeconds(project.max_command_seconds ?? 120)
-    }
-  }, [project])
+  // Sync form state when the project loads/changes. Adjusting state during
+  // render (keyed on the project id) is the React-recommended pattern for
+  // initializing a form from an async-loaded prop (avoids set-state-in-effect).
+  const syncProjectId = project?.id ?? null
+  const [prevSyncProjectId, setPrevSyncProjectId] = useState(syncProjectId)
+  if (project && syncProjectId !== prevSyncProjectId) {
+    setPrevSyncProjectId(syncProjectId)
+    setGitEnabled(project.git_enabled ?? true)
+    setBranchPatterns((project.git_branch_patterns || ['*']).join(', '))
+    setGitRequirePr(project.git_require_pr ?? false)
+    setCiGateEnabled(project.ci_gate_enabled ?? true)
+    setGitCommitTemplate(project.git_commit_template || '')
+    setFsRead(project.fs_read_enabled ?? true)
+    setFsWrite(project.fs_write_enabled ?? true)
+    setFsDelete(project.fs_delete_enabled ?? true)
+    setDefaultModel(project.default_model || '')
+    setApprovalMode(project.approval_mode || 'RISKY')
+    setCommandAllowlist((project.command_allowlist || []).join(', '))
+    setMaxCommandSeconds(project.max_command_seconds ?? 120)
+  }
 
   const handleSave = async () => {
     setSaving(true)

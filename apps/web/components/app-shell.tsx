@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import { usePathname } from 'next/navigation'
 import { getToken } from '@/lib/api'
 import { HeaderBreadcrumb } from '@/app/header-breadcrumb'
@@ -64,19 +64,30 @@ function Sidebar() {
   )
 }
 
+function subscribeToToken(callback: () => void): () => void {
+  window.addEventListener('storage', callback)
+  return () => window.removeEventListener('storage', callback)
+}
+
 /**
  * AppShell gates the sidebar and header behind authentication.
  * On public pages (/login, /forgot-password), only the children are rendered.
  */
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const [hasToken, setHasToken] = useState(false)
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setHasToken(!!getToken())
-    setMounted(true)
-  }, [pathname])
+  // Hydration guard: render nothing until mounted on the client.
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  )
+  // Token presence as an external store: re-read on every render (including
+  // navigation after login/logout) without setState inside an effect.
+  const hasToken = useSyncExternalStore(
+    subscribeToToken,
+    () => !!getToken(),
+    () => false,
+  )
 
   // During SSR / before hydration, render nothing inside the shell to avoid
   // flash of the sidebar on public pages.

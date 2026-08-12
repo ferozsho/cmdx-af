@@ -16,6 +16,7 @@ from app.models.tech_lead_interaction import TechLeadInteraction
 from app.models.user import User
 from app.repositories.project_repo import ProjectRepository
 from app.services.project_context import build_project_context
+from app.services.rate_limit import api_rate_limit
 
 router = APIRouter()
 
@@ -69,6 +70,7 @@ async def list_project_tasks(
 async def query_tech_lead(
     project_id: str,
     data: TechLeadQuery,
+    _rate_limit_guard: None = Depends(api_rate_limit("tech-lead")),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:

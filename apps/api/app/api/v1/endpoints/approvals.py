@@ -15,6 +15,7 @@ from app.models.instruction import Instruction
 from app.models.user import User
 from app.repositories.project_repo import ProjectRepository
 from app.services.instruction_events import append_instruction_event
+from app.services.rate_limit import api_rate_limit
 
 router = APIRouter()
 
@@ -134,6 +135,7 @@ async def _decide(
 async def approve_request(
     approval_id: str,
     data: ApprovalDecision,
+    _rate_limit_guard: None = Depends(api_rate_limit("approvals")),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -145,6 +147,7 @@ async def approve_request(
 async def reject_request(
     approval_id: str,
     data: ApprovalDecision,
+    _rate_limit_guard: None = Depends(api_rate_limit("approvals")),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:

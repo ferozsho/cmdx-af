@@ -38,14 +38,34 @@ export default function UsersPage() {
     try {
       const data = await listUsers()
       setUsers(data)
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load users')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load users')
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { loadUsers() }, [])
+  useEffect(() => {
+    let ignore = false
+    const run = async () => {
+      try {
+        const data = await listUsers()
+        if (!ignore) setUsers(data)
+      } catch (err: unknown) {
+        if (!ignore) {
+          setError(
+            err instanceof Error ? err.message : 'Failed to load users',
+          )
+        }
+      } finally {
+        if (!ignore) setLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      ignore = true
+    }
+  }, [])
 
   const handleDelete = (userId: string, email: string) => {
     setDeleteTarget({ id: userId, email })
@@ -58,8 +78,8 @@ export default function UsersPage() {
       await deleteUser(deleteTarget.id)
       setMsg(`User "${deleteTarget.email}" deleted.`)
       loadUsers()
-    } catch (err: any) {
-      setMsg(err?.message || 'Delete failed')
+    } catch (err: unknown) {
+      setMsg(err instanceof Error ? err.message : 'Delete failed')
     } finally {
       setDeleteTarget(null)
     }

@@ -27,6 +27,7 @@ from app.repositories.device_repo import DeviceRepository
 from app.repositories.project_repo import ProjectRepository
 from app.services.approvals import ApprovalRequiredError, authorize_tool
 from app.services.instruction_events import append_instruction_event
+from app.services.rate_limit import api_rate_limit
 from app.tools.gateway.tool_gateway import ToolGateway
 
 router = APIRouter()
@@ -420,6 +421,7 @@ async def list_projects(
 @router.post("/projects", response_model=ProjectResponse)
 async def create_project(
     data: ProjectCreate,
+    _rate_limit_guard: None = Depends(api_rate_limit("projects")),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
@@ -544,6 +546,7 @@ async def get_project(
 async def update_project(
     project_id: str,
     data: ProjectUpdate,
+    _rate_limit_guard: None = Depends(api_rate_limit("projects")),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
@@ -602,6 +605,7 @@ async def update_project(
 @router.delete("/projects/{project_id}")
 async def delete_project(
     project_id: str,
+    _rate_limit_guard: None = Depends(api_rate_limit("projects")),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
@@ -618,6 +622,7 @@ async def delete_project(
 @router.post("/projects/validate-path", response_model=ValidatePathResponse)
 async def validate_project_path(
     data: ValidatePathRequest,
+    _rate_limit_guard: None = Depends(api_rate_limit("validate-path")),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
@@ -730,6 +735,7 @@ async def read_project_file(
 async def rag_search_project(
     project_id: str,
     data: RagQueryRequest,
+    _rate_limit_guard: None = Depends(api_rate_limit("rag-search")),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
@@ -910,6 +916,7 @@ class GitRollbackRequest(BaseModel):
 async def rollback_git_commit(
     project_id: str,
     data: GitRollbackRequest,
+    _rate_limit_guard: None = Depends(api_rate_limit("git-rollback")),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
@@ -1013,6 +1020,7 @@ async def get_rag_stats(
 @router.post("/projects/{project_id}/rag/reindex")
 async def reindex_project_rag(
     project_id: str,
+    _rate_limit_guard: None = Depends(api_rate_limit("rag-reindex")),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
