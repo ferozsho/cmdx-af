@@ -1,11 +1,15 @@
 """Base Agent Class."""
 
 import hashlib
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
 from app.llm.router import ModelRouter
+from app.services.file_diff import compute_unified_diff
 from app.tools.gateway.tool_gateway import ToolGateway
+
+logger = logging.getLogger(__name__)
 
 
 class BaseAgent(ABC):
@@ -137,6 +141,17 @@ class BaseAgent(ABC):
         workspace = self._get_workspace_id(context)
         job = self._get_job_id(context)
         for f in files:
+            # Capture the existing file (if any) so we can report a
+            # git-style (+/-) diff for the live console.
+            old_content = ""
+            try:
+                old_res = await self._read_file(context, f["path"])
+                if old_res.get("success") and isinstance(
+                    old_res.get("content"), str
+                ):
+                    old_content = old_res["content"]
+            except Exception:
+                pass
             try:
                 res = await ToolGateway.invoke_tool(
                     device_id=device,
@@ -151,8 +166,26 @@ class BaseAgent(ABC):
                     "success": res.success,
                     "error": res.error if not res.success else None,
                 })
+                if res.success:
+                    new_content = f.get("content", "")
+                    diff_text, added, removed = compute_unified_diff(
+                        old_content, new_content, f["path"]
+                    )
+                    if added or removed:
+                        await self._emit_file_change(
+                            context,
+                            f["path"],
+                            "created" if not old_content else "modified",
+                            diff_text,
+                            added,
+                            removed,
+                        )
             except Exception as e:
-                results.append({"path": f["path"], "success": False, "error": str(e)})
+                results.append({
+                    "path": f["path"],
+                    "success": False,
+                    "error": str(e),
+                })
             # Audit log each write to the file_operations table
             try:
                 from app.core.database import AsyncSessionLocal
@@ -212,6 +245,17 @@ class BaseAgent(ABC):
         device = self._get_device_id(context)
         workspace = self._get_workspace_id(context)
         job = self._get_job_id(context)
+        # Capture the file content before deletion so the console can show
+        # the removed lines as a git-style diff.
+        old_content = ""
+        try:
+            old_res = await self._read_file(context, path)
+            if old_res.get("success") and isinstance(
+                old_res.get("content"), str
+            ):
+                old_content = old_res["content"]
+        except Exception:
+            pass
         try:
             res = await ToolGateway.invoke_tool(
                 device_id=device,
@@ -223,9 +267,64 @@ class BaseAgent(ABC):
             )
             if not res.success:
                 return {"path": path, "success": False, "error": res.error}
+            diff_text, added, removed = compute_unified_diff(
+                old_content, "", path
+            )
+            if removed:
+                await self._emit_file_change(
+                    context, path, "deleted", diff_text, added, removed
+                )
             return {"path": path, "success": True}
         except Exception as e:
             return {"path": path, "success": False, "error": str(e)}
+
+    async def _emit_file_change(
+        self,
+        context: Dict[str, Any],
+        path: str,
+        operation: str,
+        diff_text: str,
+        added: int,
+        removed: int,
+    ) -> None:
+        """Persist + broadcast a live file-change event for the SSE console."""
+        try:
+            from app.services.instruction_events import append_instruction_event
+
+            project_id = context.get("project_id")
+            instruction_id = context.get("instruction_id")
+            if not project_id or not instruction_id:
+                return
+            op_icon = {
+                "created": "➕",
+                "modified": "📝",
+                "deleted": "🗑",
+            }.get(operation, "📄")
+            await append_instruction_event(
+                project_id,
+                instruction_id,
+                {
+                    "instruction_id": instruction_id,
+                    "agent_name": self.agent_name,
+                    "status": "file_change",
+                    "event_type": "file_change",
+                    "message": (
+                        f"{op_icon} {operation} {path}"
+                        f" (+{added} −{removed})"
+                    ),
+                    "data": {
+                        "path": path,
+                        "operation": operation,
+                        "added": added,
+                        "removed": removed,
+                        "diff": diff_text,
+                    },
+                },
+            )
+        except Exception:
+            logger.exception(
+                "Unable to emit file-change event for %s", path
+            )
 
     async def _run_command(
         self,

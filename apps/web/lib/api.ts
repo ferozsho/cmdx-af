@@ -1011,6 +1011,7 @@ export interface ProjectStreamEvent {
   event_id?: string
   instruction_id?: string
   agent_name?: string
+  event_type?: string
   status: string
   message: string
   duration_seconds?: number

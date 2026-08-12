@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import DiffViewer from '@/components/diff-viewer'
 import AiFixModal from '@/components/ai-fix-modal'
+import FileDiffModal from '@/components/file-diff-modal'
 import Markdown from '@/components/markdown'
 import {
   getProject,
@@ -101,6 +102,13 @@ interface RagResultItem {
 interface SseConsoleEvent {
   time: string
   text: string
+  fileChange?: {
+    path: string
+    operation: 'created' | 'modified' | 'deleted'
+    added: number
+    removed: number
+    diff: string
+  }
 }
 
 interface HistoryRun {
@@ -518,6 +526,9 @@ export default function WorkspaceClient({
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [sessionContext, setSessionContext] = useState<SessionContextResponse | null>(null)
   const [events, setEvents] = useState<SseConsoleEvent[]>([])
+  const [selectedDiff, setSelectedDiff] = useState<
+    NonNullable<SseConsoleEvent['fileChange']> | null
+  >(null)
   const [ragQuery, setRagQuery] = useState(urlQuery)
   const [ragResults, setRagResults] = useState<RagResultItem[]>([])
   const [ragStats, setRagStats] = useState<RagStats | null>(null)
@@ -1162,6 +1173,29 @@ export default function WorkspaceClient({
       projectId,
       (data) => {
         const time = new Date().toLocaleTimeString()
+
+        // File changes (write/delete) are rendered as clickable diff rows.
+        if (data.event_type === 'file_change' && data.data) {
+          const fc = data.data
+          setEvents((prev) => [
+            ...prev,
+            {
+              time,
+              text: `[${data.agent_name || 'System'}] ${data.message}`,
+              fileChange: {
+                path: String(fc.path || ''),
+                operation: (String(fc.operation || 'modified') as
+                  | 'created'
+                  | 'modified'
+                  | 'deleted'),
+                added: Number(fc.added) || 0,
+                removed: Number(fc.removed) || 0,
+                diff: String(fc.diff || ''),
+              },
+            },
+          ])
+          return
+        }
 
         setEvents((prev) => [
           ...prev,
@@ -2216,11 +2250,34 @@ export default function WorkspaceClient({
             </h2>
             <div className="flex-1 bg-[#0f141e] border border-border/80 rounded-[10px] p-3 font-mono text-xs overflow-y-auto space-y-2 text-[#c8d0df]">
               <div className="text-muted">[System] Connected to SSE stream for project {projectId}</div>
-              {events.map((ev, i) => (
-                <div key={i} className="text-[#49e56d]">
-                  <span className="text-[#7f899c]">[{ev.time}]</span> {ev.text}
-                </div>
-              ))}
+              {events.map((ev, i) =>
+                ev.fileChange ? (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setSelectedDiff(ev.fileChange || null)}
+                    className="w-full text-left flex items-baseline gap-2 cursor-pointer hover:underline group"
+                    title={`View diff: ${ev.fileChange.path}`}
+                  >
+                    <span className="text-[#7f899c] shrink-0">[{ev.time}]</span>
+                    <span className="text-[#4fc1ff] truncate group-hover:underline">
+                      {ev.fileChange.operation === 'created'
+                        ? '➕'
+                        : ev.fileChange.operation === 'deleted'
+                          ? '🗑'
+                          : '📝'}{' '}
+                      {ev.fileChange.path}
+                    </span>
+                    <span className="text-[#4ade80] shrink-0">+{ev.fileChange.added}</span>
+                    <span className="text-[#f87171] shrink-0">−{ev.fileChange.removed}</span>
+                    <span className="text-[#7f899c] shrink-0 group-hover:text-[#4fc1ff]">▸</span>
+                  </button>
+                ) : (
+                  <div key={i} className="text-[#49e56d]">
+                    <span className="text-[#7f899c]">[{ev.time}]</span> {ev.text}
+                  </div>
+                ),
+              )}
             </div>
           </div>
         </section>
@@ -3723,6 +3780,14 @@ export default function WorkspaceClient({
         onCancel={() => setFixModalOpen(false)}
         submitting={fixSubmitting}
       />
+
+      {/* Agent file-change diff viewer */}
+      {selectedDiff && (
+        <FileDiffModal
+          fileChange={selectedDiff}
+          onClose={() => setSelectedDiff(null)}
+        />
+      )}
     </div>
   )
 }

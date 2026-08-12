@@ -4,7 +4,6 @@ import uuid
 from typing import Any, Dict
 
 import httpx
-
 from agentforge_protocol import ToolRequest, ToolResult
 
 from app.core.config import settings
@@ -50,6 +49,14 @@ class ToolGateway:
         cls, req: ToolRequest, device_id: str
     ) -> ToolResult:
         """POST the tool request to the API's internal relay endpoint."""
+        if not settings.INTERNAL_API_TOKEN:
+            return ToolResult(
+                request_id=req.request_id,
+                job_id=req.job_id,
+                tool_name=req.tool_name,
+                success=False,
+                error="Tool gateway relay is missing INTERNAL_API_TOKEN.",
+            )
         url = (
             f"{settings.TOOL_GATEWAY_URL.rstrip('/')}"
             "/api/v1/internal/tools/invoke"
@@ -60,6 +67,7 @@ class ToolGateway:
                 resp = await client.post(
                     url,
                     json={
+                        "request_id": req.request_id,
                         "device_id": device_id,
                         "workspace_id": req.workspace_id,
                         "job_id": req.job_id,
