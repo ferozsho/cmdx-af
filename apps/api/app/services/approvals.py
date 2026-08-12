@@ -27,6 +27,7 @@ TOOL_RISK = {
     "delete_file": "HIGH",
     "git_commit": "HIGH",
     "git_rollback": "CRITICAL",
+    "create_pull_request": "HIGH",
 }
 OPERATION_RISK = {
     "command.validate": "MEDIUM",

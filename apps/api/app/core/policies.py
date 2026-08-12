@@ -95,6 +95,17 @@ def check_git_policy(
     if operation == "rollback":
         return  # Always allowed if git_enabled (no branch check needed)
 
+    # Pull request head branches must match the allowed branch patterns.
+    if operation == "pull_request":
+        if branch and not _match_branch(branch, patterns):
+            raise PolicyBlockedError(
+                status_code=403,
+                detail=(
+                    f"Branch '{branch}' does not match allowed patterns: "
+                    f"{patterns}"
+                ),
+            )
+
 
 def check_fs_policy(project: object, operation: str) -> None:
     """Raise HTTPException(403) if the project's Filesystem policy blocks *operation*.

@@ -193,7 +193,35 @@ agentforge start
 - **RAG Tab**: Perform semantic vector code search across indexed project chunks with relevance score metrics.
 - **GIT Tab**: Inspect local Git isolation branch (`agent/{instruction_id}`), modified files, untracked files, and trigger branch rollbacks.
 
-## �🛠️ Developer Shortcuts
+## 🤖 External CI Verification Gate (GitHub Actions)
+
+AgentForge records durable verification evidence (tests, linting, security,
+builds, profiling, browser commands) for every AI-authored change. A
+templated GitHub Actions workflow,
+[`infrastructure/ci/agentforge-ci-gate.yml`](infrastructure/ci/agentforge-ci-gate.yml),
+lets a repository enforce that evidence externally: it runs the verification
+suite, digests the output, and fails the build if the AgentForge gate reports
+anything other than `PASSED` (missing evidence, a failed stored run, or a
+digest mismatch = stale/tampered evidence).
+
+To enable the gate in your repository:
+
+1. Copy `infrastructure/ci/agentforge-ci-gate.yml` into
+   `.github/workflows/` and adapt the verification commands to your stack.
+2. Configure repository Variables/Secrets:
+   - `AGENTFORGE_API_URL` — e.g. `https://api.agentforge.example`
+   - `AGENTFORGE_TOKEN` — a user access token (store as a **Secret**)
+   - `AGENTFORGE_PROJECT_ID` — the owned project id in AgentForge
+3. If any of the three are unset, the gate logs a warning and passes
+   (opt-in). The evidence is served by
+   `GET /api/v1/projects/{project_id}/verification/latest` (optionally with
+   `?local_output_digest=...` to fail on mismatch server-side).
+
+The in-pipeline gate (`git_agent.py`, enabled per project via
+`ci_gate_enabled`) remains the default; the external workflow is an
+additional enforcement point for hosted CI.
+
+## 🛠️ Developer Shortcuts
 
 Common shortcuts available via `Makefile`:
 

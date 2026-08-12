@@ -1,5 +1,6 @@
 """Local Agent Git Operations Module."""
 
+import subprocess
 from typing import Any, Dict, List
 
 import git
@@ -147,3 +148,56 @@ class GitTools:
         repo = git.Repo(root)
         repo.git.reset("--hard", commit_hash)
         return f"Successfully reset repository to '{commit_hash}'"
+
+    @classmethod
+    def create_pull_request(
+        cls,
+        workspace_root: str,
+        branch_name: str,
+        title: str,
+        body: str = "",
+        base: str = "main",
+    ) -> Dict[str, str]:
+        """Create a pull request from the agent branch via the GitHub CLI.
+
+        Requires the ``gh`` CLI to be installed and authenticated on the
+        workstation. Returns the pull request URL on success.
+        """
+        root = PathGuard.validate_path(workspace_root, ".")
+        cmd = [
+            "gh",
+            "pr",
+            "create",
+            "--base",
+            base,
+            "--head",
+            branch_name,
+            "--title",
+            title,
+            "--body",
+            body,
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "GitHub CLI ('gh') is not installed or not on PATH."
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                "GitHub CLI timed out creating the pull request."
+            ) from exc
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()
+            raise RuntimeError(f"GitHub CLI failed to create PR: {detail[:2000]}")
+        return {
+            "pr_url": (proc.stdout or "").strip(),
+            "branch": branch_name,
+            "base": base,
+        }

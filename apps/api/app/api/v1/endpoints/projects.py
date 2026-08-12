@@ -1,13 +1,14 @@
 """Projects and Workspaces API Endpoints."""
 
 import os
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +29,7 @@ from app.repositories.project_repo import ProjectRepository
 from app.services.approvals import ApprovalRequiredError, authorize_tool
 from app.services.instruction_events import append_instruction_event
 from app.services.rate_limit import api_rate_limit
+from app.services.verification import evaluate_gate, record_verification
 from app.tools.gateway.tool_gateway import ToolGateway
 
 router = APIRouter()
@@ -906,6 +908,56 @@ async def list_verification_runs(
     ]
 
 
+@router.get("/projects/{project_id}/verification/latest")
+async def get_latest_verification(
+    project_id: str,
+    local_output_digest: str | None = Query(None, max_length=64),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return the latest stored verification evidence for the CI gate.
+
+    When ``local_output_digest`` is supplied (the digest a CI run computed
+    from its own verification output), the returned ``gate_status`` also
+    fails on a mismatch with the stored digest — letting an external
+    pipeline enforce AgentForge's evidence.
+    """
+    await _require_project(project_id, current_user, db)
+    record = await db.scalar(
+        select(VerificationRun)
+        .where(VerificationRun.project_id == project_id)
+        .order_by(VerificationRun.created_at.desc())
+        .limit(1)
+    )
+    if record is None:
+        return {
+            "project_id": project_id,
+            "gate_status": "NO_EVIDENCE",
+            "latest": None,
+        }
+    return {
+        "project_id": project_id,
+        "gate_status": evaluate_gate(
+            stored_status=record.status,
+            stored_output_digest=record.output_digest,
+            local_output_digest=local_output_digest,
+        ),
+        "latest": {
+            "id": record.id,
+            "instruction_id": record.instruction_id,
+            "category": record.category,
+            "executable": record.executable,
+            "command_digest": record.command_digest,
+            "status": record.status,
+            "exit_code": record.exit_code,
+            "duration_seconds": record.duration_seconds,
+            "output_digest": record.output_digest,
+            "output_excerpt": record.output_excerpt,
+            "created_at": record.created_at.isoformat(),
+        },
+    }
+
+
 class GitRollbackRequest(BaseModel):
     """Schema for git rollback request."""
 
@@ -961,6 +1013,171 @@ async def rollback_git_commit(
         "ok": True,
         "detail": f"Workspace reset to {data.commit_hash}",
         "result": tool_res.result,
+    }
+
+
+class PullRequestRequest(BaseModel):
+    """Schema for creating a pull request from an agent branch."""
+
+    branch_name: str = Field(min_length=1, max_length=200)
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(default="", max_length=20000)
+    base: str = Field(default="main", min_length=1, max_length=100)
+
+
+@router.post("/projects/{project_id}/git/pull-request")
+async def create_project_pull_request(
+    project_id: str,
+    data: PullRequestRequest,
+    _rate_limit_guard: None = Depends(api_rate_limit("git-pull-request")),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Create a PR from an isolated agent branch, gated by approval."""
+    project = await _require_project(project_id, current_user, db)
+    check_git_policy(project, "pull_request", branch=data.branch_name)
+    try:
+        authorization_id = await authorize_tool(
+            project=project,
+            user_id=current_user.id,
+            instruction_id=None,
+            tool_name="create_pull_request",
+            operation="git.pull_request",
+            arguments={
+                "branch_name": data.branch_name,
+                "base": data.base,
+            },
+            summary=(
+                f"Create a pull request from '{data.branch_name}' "
+                f"into '{data.base}'."
+            ),
+        )
+    except ApprovalRequiredError as exc:
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "WAITING_APPROVAL",
+                "approval_id": exc.approval_id,
+                "detail": exc.summary,
+            },
+        )
+    device_id, workspace = await _resolve_execution_target(project, db)
+    tool_res = await ToolGateway.invoke_tool(
+        device_id=device_id,
+        workspace_id=workspace,
+        job_id="job_git_pr",
+        tool_name="create_pull_request",
+        arguments={
+            "branch_name": data.branch_name,
+            "title": data.title,
+            "body": data.body,
+            "base": data.base,
+        },
+        authorization_id=authorization_id,
+    )
+    if not tool_res.success:
+        if _tool_is_offline(tool_res):
+            return _offline_response()
+        raise HTTPException(status_code=500, detail=tool_res.error)
+    return {"ok": True, "result": tool_res.result}
+
+
+class DiagnosticsRequest(BaseModel):
+    """Optional instruction context for diagnostics capture."""
+
+    instruction_id: str | None = None
+
+
+@router.post("/projects/{project_id}/diagnostics")
+async def capture_project_diagnostics(
+    project_id: str,
+    data: DiagnosticsRequest,
+    _rate_limit_guard: None = Depends(api_rate_limit("diagnostics")),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """Capture bounded runtime diagnostics as verification evidence.
+
+    Runs the project test suite with timing on the local agent and records
+    the result under the ``diagnostics`` category, so the tech-lead
+    assistant can triage runtime failures from durable evidence.
+    """
+    project = await _require_project(project_id, current_user, db)
+    instruction_id = data.instruction_id
+    if not instruction_id:
+        latest = await db.scalar(
+            select(Instruction)
+            .where(Instruction.project_id == project_id)
+            .order_by(Instruction.created_at.desc())
+            .limit(1)
+        )
+        instruction_id = latest.id if latest else None
+    if not instruction_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No instruction to attach diagnostics evidence to.",
+        )
+
+    command = ["pytest", "-q", "--durations=5"]
+    try:
+        authorization_id = await authorize_tool(
+            project=project,
+            user_id=current_user.id,
+            instruction_id=instruction_id,
+            tool_name="run_tests",
+            operation="command.execute",
+            arguments={"cmd_array": command, "timeout": 120},
+            summary=(
+                "Capture runtime diagnostics by running the project "
+                "test suite."
+            ),
+        )
+    except ApprovalRequiredError as exc:
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "WAITING_APPROVAL",
+                "approval_id": exc.approval_id,
+                "detail": exc.summary,
+            },
+        )
+
+    device_id, workspace = await _resolve_execution_target(project, db)
+    started = time.monotonic()
+    tool_res = await ToolGateway.invoke_tool(
+        device_id=device_id,
+        workspace_id=workspace,
+        job_id="job_diagnostics",
+        tool_name="run_tests",
+        arguments={"cmd_array": command, "timeout": 120},
+        authorization_id=authorization_id,
+    )
+    elapsed = time.monotonic() - started
+    if not tool_res.success:
+        if _tool_is_offline(tool_res):
+            return _offline_response()
+        raise HTTPException(status_code=500, detail=tool_res.error)
+
+    result: dict[str, Any] = {
+        "success": tool_res.success,
+        "duration_seconds": round(elapsed, 3),
+    }
+    if isinstance(tool_res.result, dict):
+        result.update(tool_res.result)
+    elif isinstance(tool_res.result, str):
+        result["output"] = tool_res.result[:4000]
+    await record_verification(
+        project_id=project_id,
+        instruction_id=instruction_id,
+        category="diagnostics",
+        command=command,
+        result=result,
+    )
+    return {
+        "ok": True,
+        "category": "diagnostics",
+        "instruction_id": instruction_id,
+        "result": result,
     }
 
 

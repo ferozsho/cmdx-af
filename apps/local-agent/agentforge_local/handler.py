@@ -32,6 +32,7 @@ class ToolHandler:
             "git_checkout_branch",
             "git_commit",
             "git_rollback",
+            "create_pull_request",
         }
     )
 
@@ -110,6 +111,14 @@ class ToolHandler:
                 res = GitTools.get_log(ws_path, max_count=args.get("max_count", 20))
             elif req.tool_name == "git_rollback":
                 res = GitTools.rollback(ws_path, args["commit_hash"])
+            elif req.tool_name == "create_pull_request":
+                res = GitTools.create_pull_request(
+                    ws_path,
+                    args["branch_name"],
+                    args["title"],
+                    body=args.get("body", ""),
+                    base=args.get("base", "main"),
+                )
             elif req.tool_name == "git_show_file":
                 res = GitTools.show_file(ws_path, args["path"])
             elif req.tool_name == "run_command":

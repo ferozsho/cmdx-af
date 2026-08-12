@@ -279,6 +279,35 @@ Key implementation areas: `apps/api/app/agents/pipeline.py`,
 `apps/api/app/services/verification.py`, `apps/api/app/mcp/router.py`, and
 `infrastructure/docker-compose.yml`.
 
+### Phase 12: Market-Standard Adoptions (framed per §5 — not predictions) [PLANNED]
+
+These capabilities already ship in leading products (Cursor, Lovable, v0,
+Codespaces), so they are framed as **adoptions/completions**, not novel
+predictions, and remain behind the existing approval/evidence gates.
+
+#### Phase 12a — Screenshot-to-UI Generation [PLANNED]
+- [ ] UI/UX Agent accepts an image input (screenshot / Figma export) via the
+  existing vision path (`visual_analysis.py`) and produces a structured UI
+  specification.
+- [ ] Frontend Agent consumes the spec to generate Next.js/React code through
+  the governed pipeline (approvals, provenance, verification evidence
+  unchanged).
+- [ ] Acceptance: a screenshot → generated UI spec → generated code round-trip
+  completes inside the pipeline with persisted evidence; market framing —
+  Cursor, Lovable, and v0 already ship screenshot-to-UI, so this is a
+  completion inside AgentForge's governed pipeline, not a prediction.
+
+#### Phase 12b — Cloud Sandbox Execution [PLANNED]
+- [ ] Extend the Tool Gateway so tools can target a disposable cloud sandbox
+  (container) when a project has no online workstation, instead of only the
+  local agent.
+- [ ] Sandbox runs reuse the same approval, policy, secret-redaction, and
+  verification-evidence layers as local execution.
+- [ ] Acceptance: a tool (e.g. `run_tests`) executes in the sandbox and its
+  evidence is recorded identically to local execution; market framing —
+  Codespaces-style remote execution is standard, AgentForge adds its
+  approval/evidence layer on top.
+
 ---
 
 ## 5. Market Context & Roadmap Positioning
@@ -300,9 +329,9 @@ not be presented as AgentForge-only future features:
 | Autonomous issue handling | [GitHub Copilot agents](https://docs.github.com/en/copilot/concepts/agents/cloud-agent), [Cursor Background Agents](https://docs.cursor.com/background-agent) | Completed as governed, auditable agent runs (Phase 11 durable jobs) |
 | Asynchronous / background agents | Cursor Background Agents | Durable SQL-backed worker provides retries, heartbeats, cancellation, idempotency |
 | Centralized session monitoring | GitHub Copilot agents, Cursor | Per-user SSE + observability surfaces agent sessions centrally |
-| Agents creating PRs | GitHub Copilot agents, Cursor Background Agents | Git agent creates isolated branches and commits today; PR creation is a natural extension, not a novel prediction |
-| Automated debugging & performance investigation | [Sentry Seer](https://docs.sentry.io/product/ai-in-sentry/seer) | Stored validation evidence (tests, linting, security, builds, profiling, browser commands) covers the repository side; deeper runtime triage is a follow-on |
-| AI-specific quality gates & project labeling | [Sonar AI Code Assurance](https://docs.sonarsource.com/sonarqube-cloud/ai-capabilities/ai-code-assurance) | CI verification gates plus stored validation evidence are the equivalent, focused on the repo rather than the project |
+| Agents creating PRs | GitHub Copilot agents, Cursor Background Agents | Implemented: `create_pull_request` local tool (GitHub CLI) + `POST /projects/{id}/git/pull-request`, approval/policy gated (G7a) |
+| Automated debugging & performance investigation | [Sentry Seer](https://docs.sentry.io/product/ai-in-sentry/seer) | Implemented: `POST /projects/{id}/diagnostics` captures timed test evidence as `diagnostics`-category verification runs that feed tech-lead triage (G7b); deeper runtime triage remains a follow-on |
+| AI-specific quality gates & project labeling | [Sonar AI Code Assurance](https://docs.sonarsource.com/sonarqube-cloud/ai-capabilities/ai-code-assurance) | CI verification gates (in-pipeline `ci_gate_enabled` default + external GitHub Actions gate via `GET /verification/latest`, G3) plus stored validation evidence — focused on the repo rather than the project |
 | Repository-wide assistants over issue trackers, docs, and external systems via MCP | [GitHub Copilot code review](https://docs.github.com/en/copilot/concepts/agents/code-review) (MCP context; human validation still required) | Repository-aware technical-lead assistant with authenticated MCP integration matches this, with approval gates preserved |
 | "AI as technical lead" — Q&A and task coordination | GitHub Copilot, Cursor | Repository-aware technical-lead assistant with task view and audited conversations implements this today |
 

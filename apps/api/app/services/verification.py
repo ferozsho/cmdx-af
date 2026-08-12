@@ -26,6 +26,33 @@ def sanitize_evidence(value: str, limit: int = 4000) -> str:
     return redacted[:limit]
 
 
+def evaluate_gate(
+    *,
+    stored_status: str | None,
+    stored_output_digest: str | None,
+    local_output_digest: str | None = None,
+) -> str:
+    """Compute the external CI gate verdict from stored and local evidence.
+
+    Returns one of:
+    - ``NO_EVIDENCE`` when no stored evidence exists for the project;
+    - ``FAILED`` when the stored run failed, or when the local run produced a
+      different output digest than the stored one (stale / tampered
+      evidence);
+    - ``PASSED`` otherwise.
+    """
+    if not stored_status or not stored_output_digest:
+        return "NO_EVIDENCE"
+    if stored_status != "PASSED":
+        return "FAILED"
+    if (
+        local_output_digest
+        and local_output_digest != stored_output_digest
+    ):
+        return "FAILED"
+    return "PASSED"
+
+
 async def record_verification(
     *,
     project_id: str | None,

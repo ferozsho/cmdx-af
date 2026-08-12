@@ -1,0 +1,75 @@
+# AgentForge — External CI Verification Gate (G3)
+#
+# Enforces that the repository's local verification evidence matches what
+# AgentForge recorded when its agents committed the changes. The workflow
+# runs the verification suite, digests the combined output, and fails the
+# build if the AgentForge gate reports anything other than PASSED (missing
+# evidence, failed stored run, or digest mismatch = stale/tampered evidence).
+#
+# Configuration (repository Variables / Secrets):
+#   AGENTFORGE_API_URL    — e.g. https://api.agentforge.example
+#   AGENTFORGE_TOKEN      — a user access token (Bearer) — store as a SECRET
+#   AGENTFORGE_PROJECT_ID — the owned project id in AgentForge
+#
+# If any of the three are unset, the gate logs a warning and passes (opt-in).
+name: AgentForge Verification Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verification-gate:
+    runs-on: ubuntu-latest
+    env:
+      AGENTFORGE_API_URL: ${{ vars.AGENTFORGE_API_URL }}
+      AGENTFORGE_TOKEN: ${{ secrets.AGENTFORGE_TOKEN }}
+      AGENTFORGE_PROJECT_ID: ${{ vars.AGENTFORGE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Python dependencies
+        run: |
+          pip install -e packages/protocol -e apps/api
+          (cd apps/web && npm ci)
+
+      - name: Run verification suite and capture output
+        id: verify
+        run: |
+          {
+            echo "--- pytest ---"
+            python -m pytest -q apps/api/tests 2>&1 || true
+            echo "--- ruff ---"
+            python -m ruff check apps/api 2>&1 || true
+            echo "--- tsc ---"
+            (cd apps/web && npx tsc --noEmit 2>&1 || true)
+          } | tee /tmp/agentforge-verify.log
+          echo "digest=$(sha256sum /tmp/agentforge-verify.log | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Compare against AgentForge stored evidence
+        env:
+          LOCAL_DIGEST: ${{ steps.verify.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AGENTFORGE_API_URL:-}" ] || [ -z "${AGENTFORGE_TOKEN:-}" ] || [ -z "${AGENTFORGE_PROJECT_ID:-}" ]; then
+            echo "::warning::AgentForge gate not configured (AGENTFORGE_API_URL / AGENTFORGE_TOKEN / AGENTFORGE_PROJECT_ID); skipping."
+            exit 0
+          fi
+          response="$(curl --fail --silent \
+            -H "Authorization: Bearer ${AGENTFORGE_TOKEN}" \
+            "${AGENTFORGE_API_URL}/api/v1/projects/${AGENTFORGE_PROJECT_ID}/verification/latest?local_output_digest=${LOCAL_DIGEST}")"
+          gate="$(printf '%s' "$response" | python -c 'import sys,json; print(json.load(sys.stdin)["gate_status"])')"
+          echo "AgentForge gate status: ${gate}"
+          if [ "${gate}" != "PASSED" ]; then
+            echo "::error::AgentForge verification gate rejected the change (status=${gate})." >&2
+            exit 1
+          fi
