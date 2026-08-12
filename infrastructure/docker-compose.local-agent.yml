@@ -1,22 +1,23 @@
 # AgentForge — Local Execution Daemon (Docker)
 # ---------------------------------------------------------------------------
-# Runs the local agent inside a container instead of on the host. It connects
-# OUTBOUND to the cloud API over the shared `infrastructure_default` network,
-# so start the main stack first:
+# Runs the local agent inside a container. It connects OUTBOUND to the AgentForge
+# cloud API over WebSocket, so it works from any machine — no inbound ports,
+# no public IP, no NAT configuration.
 #
-#   docker compose -f infrastructure/docker-compose.yml up -d
+# THIS FILE is the dev template for this machine. The same image works for any
+# client anywhere in the world; they just run it with their own config:
 #
-# Then start the local agent (mounting your project folder):
+#   docker run -d --name agentforge-local \
+#     -e AGENTFORGE_SERVER_URL=https://your-agentforge.example.com \
+#     -e AGENTFORGE_DEVICE_ID=... -e AGENTFORGE_DEVICE_TOKEN=... \
+#     -e 'AGENTFORGE_WORKSPACES=ws-proj=/app/my-project,ws-web=/app/my-web' \
+#     -v /absolute/path/to/my-project:/app/my-project \
+#     -v /absolute/path/to/my-web:/app/my-web \
+#     -v agentforge_config:/home/agentforge/.agentforge \
+#     agentforge-local:latest
 #
-#   AGENT_WORKSPACE=/path/to/your/project \
-#     docker compose -f infrastructure/docker-compose.local-agent.yml up -d --build
-#
-# Register the mounted folder as the workspace the API targets (ws-test):
-#
-#   docker exec agentforge-local agentforge workspace-add ws-test /workspace
-#
-# Optional: pair this container as a real device instead of the default id:
-#
+# Pairing: generate a code on the Devices page, then either set the device id/
+# token above, or run inside the container:
 #   docker exec -it agentforge-local agentforge connect AGF-XXXX
 # ---------------------------------------------------------------------------
 
@@ -53,16 +54,23 @@ services:
       # read-only). Repos owned by the host user are marked safe.directory so
       # git doesn't reject them ("dubious ownership").
       - GIT_CONFIG_GLOBAL=/home/agentforge/.agentforge/gitconfig
+      # Public server base URL (clients point this at the hosted AgentForge
+      # API). Unset => local dev stack.
+      - AGENTFORGE_SERVER_URL=${AGENTFORGE_SERVER_URL:-http://api:8000}
       - CLOUD_WSS_URL=ws://api:8000/api/v1/ws/devices
       - CLOUD_API_URL=http://api:8000/api/v1
       - QDRANT_URL=http://qdrant:6333
       - DEVICE_ID=${AGENTFORGE_DEVICE_ID:?AGENTFORGE_DEVICE_ID must be set in .env}
       - DEVICE_TOKEN=${AGENTFORGE_DEVICE_TOKEN:?AGENTFORGE_DEVICE_TOKEN must be set in .env}
+      # Workspaces auto-registered at container start (before the daemon
+      # boots, so no manual workspace-add + restart needed).
+      - AGENTFORGE_WORKSPACES=${AGENTFORGE_WORKSPACES:-ws-test=/home/administrator/cmdx-af,ws-glsm=/home/administrator/glsm}
     volumes:
-      # Real host project folders, mounted at their absolute paths so the
-      # agent works on the actual project files (matches projects.local_path).
-      - /home/administrator/cmdx-af:/home/administrator/cmdx-af
-      - /home/administrator/glsm:/home/administrator/glsm
+      # Client project folders, mounted at their absolute paths so the agent
+      # works on the actual project files (matches projects.local_path). On a
+      # client machine, mount that client's own folders instead.
+      - ${PROJECT_CMDXAF:-/home/administrator/cmdx-af}:${PROJECT_CMDXAF:-/home/administrator/cmdx-af}
+      - ${PROJECT_GLSM:-/home/administrator/glsm}:${PROJECT_GLSM:-/home/administrator/glsm}
       # Default workspace mount for ad-hoc / other projects.
       - ${AGENT_WORKSPACE:-./workspace}:/workspace
       # Persist pairing credentials + workspace registry across restarts.

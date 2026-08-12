@@ -31,13 +31,21 @@ RUN groupadd --gid 10001 agentforge \
     && mkdir -p /home/agentforge/.agentforge /home/agentforge/.cache/huggingface \
     && chown -R agentforge:agentforge /home/agentforge
 
+# Make the self-configuring entrypoint executable.
+RUN chmod +x /app/apps/local-agent/entrypoint.sh
+
 WORKDIR /app/apps/local-agent
 
 ENV HOME=/home/agentforge
 
-USER agentforge
+# The agent operates on the client's own mounted project folders (owned by the
+# host user), so it runs as root by default. Clients may lock it down with a
+# `--user` override if they prefer.
+USER root
 
-# Run the daemon by default; override with other CLI commands, e.g.
-#   docker run --rm agentforge-local agentforge connect AGF-XXXX
-ENTRYPOINT ["agentforge"]
+# Self-configuring entrypoint: reads AGENTFORGE_* env vars, registers the
+# client's workspaces, then runs the daemon. Override the command for other
+# CLI operations, e.g.:
+#   docker run --rm -it agentforge-local agentforge connect AGF-XXXX
+ENTRYPOINT ["/app/apps/local-agent/entrypoint.sh"]
 CMD ["start"]
