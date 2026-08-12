@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import DiffViewer from '@/components/diff-viewer'
 import AiFixModal from '@/components/ai-fix-modal'
+import Markdown from '@/components/markdown'
 import {
   getProject,
   getProjectTree,
@@ -3508,9 +3509,7 @@ export default function WorkspaceClient({
                       {interaction.question}
                     </p>
                   )}
-                  <p className="text-sm text-muted whitespace-pre-wrap">
-                    {interaction.answer}
-                  </p>
+                  <Markdown>{interaction.answer}</Markdown>
                   <div className="mt-3 flex items-center gap-3 text-[10px] text-muted">
                     <span>{interaction.model_name || 'model unavailable'}</span>
                     <span>{interaction.total_tokens} tokens</span>
