@@ -39,9 +39,19 @@ def save_device_identity(device_id: str) -> None:
 
 
 def system_info() -> Dict[str, Any]:
-    """Collect basic workstation metadata for pairing."""
+    """Collect basic workstation metadata for pairing.
+
+    ``AGENTFORGE_DEVICE_NAME`` (when set) becomes the human-readable device
+    name shown on the Devices page; otherwise the machine hostname is used.
+    """
+    from agentforge_local.config import local_settings
+
     return {
-        "device_name": platform_mod.node() or "workstation",
+        "device_name": (
+            local_settings.AGENTFORGE_DEVICE_NAME
+            or platform_mod.node()
+            or "workstation"
+        ),
         "hostname": socket.gethostname() or "unknown",
         "platform": platform_mod.system().lower() or "unknown",
         "os_version": platform_mod.version() or None,

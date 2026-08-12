@@ -21,6 +21,9 @@ class LocalAgentSettings(BaseSettings):
     CONFIG_DIR: Path = Path.home() / ".agentforge"
     DEVICE_ID: str | None = None
     DEVICE_TOKEN: str | None = None
+    # Optional human-readable device name (shown on the Devices page). Falls
+    # back to the machine hostname when unset.
+    AGENTFORGE_DEVICE_NAME: str | None = None
     HEARTBEAT_INTERVAL: int = 15
 
     # Qdrant vector store (local or docker-published endpoint)

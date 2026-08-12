@@ -74,6 +74,8 @@ services:
       <<: *agent-env
       DEVICE_ID: ${AGENTFORGE_DEVICE_ID_CMDXAF:?AGENTFORGE_DEVICE_ID_CMDXAF must be set in .env}
       DEVICE_TOKEN: ${AGENTFORGE_DEVICE_TOKEN_CMDXAF:?AGENTFORGE_DEVICE_TOKEN_CMDXAF must be set in .env}
+      # Human-readable name shown on the Devices page.
+      AGENTFORGE_DEVICE_NAME: ${AGENTFORGE_DEVICE_NAME_CMDXAF:-Test Project (cmdx-af)}
       # This agent only ever sees the cmdx-af project.
       AGENTFORGE_WORKSPACES: ${AGENTFORGE_WORKSPACES_CMDXAF:-ws-test=/home/administrator/cmdx-af}
     volumes:
@@ -89,6 +91,8 @@ services:
       <<: *agent-env
       DEVICE_ID: ${AGENTFORGE_DEVICE_ID_GLSM:?AGENTFORGE_DEVICE_ID_GLSM must be set in .env}
       DEVICE_TOKEN: ${AGENTFORGE_DEVICE_TOKEN_GLSM:?AGENTFORGE_DEVICE_TOKEN_GLSM must be set in .env}
+      # Human-readable name shown on the Devices page.
+      AGENTFORGE_DEVICE_NAME: ${AGENTFORGE_DEVICE_NAME_GLSM:-GLSM (Moodle)}
       # This agent only ever sees the glsm project.
       AGENTFORGE_WORKSPACES: ${AGENTFORGE_WORKSPACES_GLSM:-ws-glsm=/home/administrator/glsm}
     volumes:
