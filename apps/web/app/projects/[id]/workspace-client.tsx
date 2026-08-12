@@ -1031,23 +1031,29 @@ export default function WorkspaceClient({
     }
   }
 
-  // Poll live RAG stats while on the RAG tab so progress + last-index stay
-  // fresh (covers startup background index, watcher re-index, explicit
-  // re-index, and idle stats)
+  // Poll the project's live workspace reachability and RAG stats. This keeps
+  // the local-workspace status accurate on every tab and refreshes indexing
+  // progress more frequently while the RAG tab is active.
   useEffect(() => {
-    if (activeTab !== 'RAG') return
+    // A device record can be stale after a local agent disconnects. Probe the
+    // project's own workspace rather than showing the header as connected
+    // merely because some device is marked online in the database.
+    if (project?.execution_target !== 'LOCAL') return
     const tick = async () => {
       try {
         const s = await getRagStats(projectId)
         setRagStats(s)
+        setIsOffline(s.online === false)
       } catch {
-        // ignore transient errors
+        // A failed reachability probe must not leave a false "Connected"
+        // status visible for a local workspace.
+        setIsOffline(true)
       }
     }
     tick()
-    const timer = window.setInterval(tick, 2000)
+    const timer = window.setInterval(tick, activeTab === 'RAG' ? 2000 : 5000)
     return () => window.clearInterval(timer)
-  }, [activeTab, projectId])
+  }, [activeTab, project?.execution_target, projectId])
 
   // Refresh the chunks browser when a background index finishes so the
   // default "All Chunks" view always reflects the latest index.
@@ -1504,7 +1510,9 @@ export default function WorkspaceClient({
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary/15 text-primary border border-primary/30">
               ●{' '}
               {project?.execution_target === 'LOCAL'
-                ? 'Local · Connected'
+                ? isOffline
+                  ? 'Local · Offline'
+                  : 'Local · Connected'
                 : 'Cloud · Connected'}
             </span>
           </div>

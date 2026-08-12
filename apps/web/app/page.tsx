@@ -397,7 +397,12 @@ export default function DashboardPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[18px]">
           {projects.map((project) => {
-            const isOnline = devices.some((d) => d.status === 'online')
+            // Device presence is not enough: a device may still be marked
+            // online while the project workspace cannot answer tool requests.
+            // `ragIndex` is populated by the project's live RAG-status call,
+            // so only present a workspace as connected after that call has
+            // confirmed it is reachable.
+            const isOnline = ragIndex[project.id]?.online === true
             return (
             <div
               key={project.id}
