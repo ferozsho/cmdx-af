@@ -87,7 +87,17 @@ def create_app() -> FastAPI:
         allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Accept"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Accept",
+            # The web client sends an Idempotency-Key on instruction submits;
+            # without it in the allow-list Starlette rejects the preflight
+            # with 400 "Disallowed CORS header".
+            "Idempotency-Key",
+            "X-Request-ID",
+            "X-Idempotency-Key",
+        ],
     )
     app.add_middleware(SecurityHeadersMiddleware)
 

@@ -59,15 +59,19 @@ async function rawFetch(
 ): Promise<Response> {
   const url = `${API_BASE}${path}`
   const token = getToken()
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...options?.headers,
+  }
   return fetch(url, {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options?.headers,
-    },
     body: body ? JSON.stringify(body) : undefined,
+    // Spread options FIRST, then apply headers last so a caller-supplied
+    // `options.headers` (e.g. Idempotency-Key on instruction submits) cannot
+    // clobber the Content-Type and Authorization headers.
     ...options,
+    headers,
   })
 }
 
