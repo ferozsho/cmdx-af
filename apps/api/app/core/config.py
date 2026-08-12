@@ -46,6 +46,12 @@ RUNTIME_SETTING_KEYS = frozenset(
 # Non-secret runtime-overridable settings (set by Settings page via API).
 runtime_settings: Dict[str, str] = {}
 
+# DB-backed secrets (LLM API keys) cached in memory. Populated at startup from
+# the `platform_settings` table and refreshed after key updates via the API.
+# Kept in-process so the synchronous `get_setting()` used by the LLM layer,
+# worker and health checks works without a DB session at call time.
+db_secret_settings: Dict[str, str] = {}
+
 # Persist runtime settings across restarts (JSON file on disk).
 # config.py lives at <root>/app/core/config.py, so we need THREE parents to
 # reach <root> (e.g. /app/apps/api) where the `data/` volume is mounted.
@@ -105,7 +111,13 @@ def save_runtime_settings() -> None:
 
 def get_setting(key: str, default: str = "") -> str:
     """Resolve a setting without permitting runtime overrides for secrets."""
-    if key not in SECRET_SETTING_KEYS:
+    if key in SECRET_SETTING_KEYS:
+        # Secrets: prefer the DB-backed store (encrypted at rest), then the
+        # .env fallback for backwards compatibility with existing deploys.
+        stored_secret = db_secret_settings.get(key)
+        if stored_secret:
+            return stored_secret
+    else:
         runtime_value = runtime_settings.get(key)
         if runtime_value:
             return runtime_value

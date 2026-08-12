@@ -1,5 +1,9 @@
 """FastAPI AgentForge Cloud Control Plane Main Application."""
 
+import logging
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -7,8 +11,43 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.database import AsyncSessionLocal
 from app.core.http_security import SecurityHeadersMiddleware
 from app.mcp.router import router as mcp_router
+from app.repositories.device_repo import DeviceRepository
+from app.services.platform_settings import load_db_secrets
+
+logger = logging.getLogger(__name__)
+
+
+async def _mark_stale_devices_offline() -> None:
+    """Clear leftover "online" flags from before this process started.
+
+    A fresh API process holds no WebSocket connections, so any device still
+    marked online in the DB lost its socket with the previous process. Devices
+    flip back to "online" automatically once they reconnect and heartbeat.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            repo = DeviceRepository(db)
+            cleared = await repo.mark_all_offline()
+            await db.commit()
+            if cleared:
+                logger.info(
+                    "Marked %d stale device(s) offline at startup", cleared
+                )
+    except Exception:
+        # Never block API startup on the sweep; the live-status reporting in
+        # the devices list covers correctness even if this fails.
+        logger.exception("Failed to mark stale devices offline at startup")
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Run one-time startup work: load secrets, clear stale device flags."""
+    await load_db_secrets()
+    await _mark_stale_devices_offline()
+    yield
 
 
 def create_app() -> FastAPI:
@@ -19,6 +58,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         openapi_url=f"{settings.API_PREFIX}/openapi.json",
         docs_url=f"{settings.API_PREFIX}/docs",
+        lifespan=_lifespan,
     )
 
     async def _http_exception_handler(

@@ -6,8 +6,10 @@ import {
   getFullHealth,
   getModels,
   getSettings,
+  REMOVE_API_KEY,
   setTokens,
   testProviderConnection,
+  updateApiKey,
   updateSettings,
   type ComponentHealth,
 } from '@/lib/api'
@@ -317,9 +319,13 @@ export default function SettingsPage() {
         {/* DeepSeek Tab */}
         {activeProvider === 'deepseek' && (
           <div className="space-y-4">
-            <EnvironmentSecretStatus
+            <ApiKeyCard
+              provider="deepseek"
               variable="DEEPSEEK_API_KEY"
               configured={providerConfigured.deepseek === true}
+              onConfiguredChange={(v) =>
+                setProviderConfigured((prev) => ({ ...prev, deepseek: v }))
+              }
             />
             <Field label="Base URL" inputRef={baseUrlRef} defaultValue="https://api.deepseek.com/v1" />
             <div>
@@ -346,9 +352,13 @@ export default function SettingsPage() {
         {/* OpenAI Tab */}
         {activeProvider === 'openai' && (
           <div className="space-y-4">
-            <EnvironmentSecretStatus
+            <ApiKeyCard
+              provider="openai"
               variable="OPENAI_API_KEY"
               configured={providerConfigured.openai === true}
+              onConfiguredChange={(v) =>
+                setProviderConfigured((prev) => ({ ...prev, openai: v }))
+              }
             />
             <Field label="Base URL" inputRef={oaiBaseUrlRef} defaultValue="https://api.openai.com/v1" />
             <div>
@@ -370,9 +380,13 @@ export default function SettingsPage() {
         {/* Gemini Tab */}
         {activeProvider === 'gemini' && (
           <div className="space-y-4">
-            <EnvironmentSecretStatus
+            <ApiKeyCard
+              provider="gemini"
               variable="GEMINI_API_KEY"
               configured={providerConfigured.gemini === true}
+              onConfiguredChange={(v) =>
+                setProviderConfigured((prev) => ({ ...prev, gemini: v }))
+              }
             />
             <div>
               <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
@@ -393,9 +407,13 @@ export default function SettingsPage() {
         {/* Claude Tab */}
         {activeProvider === 'claude' && (
           <div className="space-y-4">
-            <EnvironmentSecretStatus
+            <ApiKeyCard
+              provider="claude"
               variable="CLAUDE_API_KEY"
               configured={providerConfigured.claude === true}
+              onConfiguredChange={(v) =>
+                setProviderConfigured((prev) => ({ ...prev, claude: v }))
+              }
             />
             <div>
               <label className="block font-bold text-[13px] text-foreground mb-[7px]">Chat Model</label>
@@ -542,27 +560,143 @@ function Field({
   )
 }
 
-function EnvironmentSecretStatus({
+type ProviderKey = 'deepseek' | 'openai' | 'gemini' | 'claude'
+
+function ApiKeyCard({
+  provider,
   variable,
   configured,
+  onConfiguredChange,
 }: {
+  provider: ProviderKey
   variable: string
   configured: boolean
+  onConfiguredChange: (configured: boolean) => void
 }) {
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [feedback, setFeedback] = useState<{
+    ok: boolean
+    text: string
+  } | null>(null)
+
+  const saveKey = async () => {
+    const key = value.trim()
+    if (!key) {
+      setFeedback({ ok: false, text: 'Enter an API key first.' })
+      return
+    }
+    setBusy(true)
+    setFeedback(null)
+    try {
+      const res = await updateApiKey(provider, key)
+      if (res.ok) {
+        setValue('')
+        setFeedback({ ok: true, text: res.detail || 'API key saved.' })
+        onConfiguredChange(true)
+      } else {
+        setFeedback({
+          ok: false,
+          text: res.error || 'Failed to save API key.',
+        })
+      }
+    } catch (err) {
+      setFeedback({
+        ok: false,
+        text:
+          err instanceof Error ? err.message : 'Failed to save API key.',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeKey = async () => {
+    setBusy(true)
+    setFeedback(null)
+    try {
+      const res = await updateApiKey(provider, REMOVE_API_KEY)
+      if (res.ok) {
+        setValue('')
+        setFeedback({ ok: true, text: res.detail || 'API key removed.' })
+        onConfiguredChange(false)
+      } else {
+        setFeedback({
+          ok: false,
+          text: res.error || 'Failed to remove API key.',
+        })
+      }
+    } catch (err) {
+      setFeedback({
+        ok: false,
+        text:
+          err instanceof Error ? err.message : 'Failed to remove API key.',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <div className="rounded-[10px] border border-border bg-surface-secondary p-3">
-      <p className="text-xs font-semibold text-foreground m-0">
-        {variable}
-      </p>
-      <p
-        className={`text-[11px] mt-1 mb-0 ${
-          configured ? 'text-emerald-500' : 'text-amber-500'
-        }`}
-      >
-        {configured
-          ? '✓ Configured from the root .env file'
-          : 'Not configured — add this variable to the root .env file and restart the API'}
-      </p>
+    <div className="rounded-[10px] border border-border bg-surface-secondary p-3 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold text-foreground m-0">
+            {variable}
+          </p>
+          <p
+            className={`text-[11px] mt-1 mb-0 ${
+              configured ? 'text-emerald-500' : 'text-amber-500'
+            }`}
+          >
+            {configured
+              ? '✓ Configured (encrypted at rest)'
+              : 'Not configured — enter a key below to enable this provider.'}
+          </p>
+        </div>
+        {configured && (
+          <button
+            type="button"
+            onClick={removeKey}
+            disabled={busy}
+            className="btn-secondary-af text-[11px] !px-[10px] !py-[6px] disabled:opacity-50"
+          >
+            {busy ? 'Removing...' : 'Remove'}
+          </button>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="password"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={
+            configured
+              ? '•••••••••••••••• (leave blank to keep)'
+              : 'Paste API key...'
+          }
+          autoComplete="new-password"
+          className="input-af flex-1 font-mono text-xs"
+        />
+        <button
+          type="button"
+          onClick={saveKey}
+          disabled={busy}
+          className="btn-secondary-af text-xs disabled:opacity-50"
+        >
+          {busy ? 'Saving...' : configured ? 'Replace' : 'Save Key'}
+        </button>
+      </div>
+      {feedback && (
+        <p
+          className={`text-[11px] m-0 ${
+            feedback.ok ? 'text-emerald-500' : 'text-red-500'
+          }`}
+        >
+          {feedback.ok ? '✓ ' : '✗ '}
+          {feedback.text}
+        </p>
+      )}
     </div>
   )
 }

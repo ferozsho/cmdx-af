@@ -20,6 +20,7 @@ from app.core.security import (
 from app.models.pairing_code import PairingCode
 from app.models.user import User
 from app.repositories.device_repo import DeviceRepository
+from app.wss.connection_manager import wss_manager
 
 router = APIRouter()
 
@@ -61,7 +62,12 @@ async def list_devices(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    """Get all registered workstation devices for the authenticated user."""
+    """Get all registered workstation devices for the authenticated user.
+
+    Status reflects the LIVE WebSocket connection, not the DB field. The DB
+    ``status`` is only updated on clean connect/disconnect and can go stale
+    when the API restarts, so it must not be shown as "online" on its own.
+    """
     repo = DeviceRepository(db)
     devices = await repo.list_for_user(current_user.id)
     return [
@@ -70,7 +76,7 @@ async def list_devices(
             name=d.name,
             hostname=d.hostname,
             platform=d.platform,
-            status=d.status,
+            status="online" if wss_manager.is_device_online(d.id) else "offline",
             agent_version=d.agent_version,
             os_version=d.os_version,
         )

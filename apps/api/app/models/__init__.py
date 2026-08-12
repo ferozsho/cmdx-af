@@ -13,6 +13,7 @@ from app.models.instruction_event import InstructionEvent
 from app.models.llm_usage import LLMUsage
 from app.models.pairing_code import PairingCode
 from app.models.password_reset_token import PasswordResetToken
+from app.models.platform_setting import PlatformSetting
 from app.models.project import Project
 from app.models.refresh_token import RefreshToken
 from app.models.session import Session
@@ -41,6 +42,7 @@ __all__ = [
     "LLMUsage",
     "PairingCode",
     "PasswordResetToken",
+    "PlatformSetting",
     "RefreshToken",
     "Session",
     "TechLeadInteraction",

@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.config import (
@@ -15,10 +15,21 @@ from app.core.config import (
     runtime_settings,
     save_runtime_settings,
 )
+from app.core.database import get_db
+from app.core.secrets import REMOVE_KEY_SENTINEL
 from app.core.security import get_current_admin, get_current_user
 from app.llm.router import get_model_list
+from app.services.platform_settings import remove_secret, set_secret
 
 router = APIRouter()
+
+# Map of provider -> environment/DB setting key that holds its API key.
+PROVIDER_KEY_SETTINGS: dict[str, str] = {
+    "deepseek": "DEEPSEEK_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "claude": "CLAUDE_API_KEY",
+}
 
 
 class SettingsPayload(BaseModel):
@@ -47,6 +58,18 @@ class SettingsPayload(BaseModel):
     rag_similarity_threshold: float = 0.65
     context_window_budget: str = "30%"
     allowed_commands: str = ""
+
+
+class ApiKeyPayload(BaseModel):
+    """Set, replace or remove a provider API key.
+
+    ``api_key`` is the plaintext value to store. Pass ``"__remove__"`` to
+    delete the key for the provider. Empty strings are rejected so a blank
+    form submission never wipes an existing key.
+    """
+
+    provider: str
+    api_key: str
 
 
 @router.get("/settings")
@@ -151,7 +174,48 @@ async def update_settings(
     save_runtime_settings()
     return {
         "ok": True,
-        "detail": "Non-secret settings updated; API keys are managed in .env",
+        "detail": "Settings saved. API keys are managed via /settings/keys.",
+    }
+
+
+@router.put("/settings/keys")
+async def update_api_key(
+    data: ApiKeyPayload,
+    db: Any = Depends(get_db),
+    current_user: Any = Depends(get_current_admin),
+) -> Any:
+    """Set, replace or remove a provider API key (encrypted at rest)."""
+    key_setting = PROVIDER_KEY_SETTINGS.get(data.provider.strip().lower())
+    if not key_setting:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown provider: {data.provider}",
+        )
+
+    api_key = data.api_key.strip()
+
+    if api_key == REMOVE_KEY_SENTINEL:
+        await remove_secret(db, key_setting)
+        return {
+            "ok": True,
+            "detail": f"{data.provider} API key removed.",
+        }
+
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="API key must not be empty (pass a value or __remove__).",
+        )
+    if len(api_key) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="API key looks too short to be valid.",
+        )
+
+    await set_secret(db, key_setting, api_key)
+    return {
+        "ok": True,
+        "detail": f"{data.provider} API key saved (encrypted at rest).",
     }
 
 

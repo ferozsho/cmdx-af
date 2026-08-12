@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.time import naive_utcnow
@@ -96,6 +96,21 @@ class DeviceRepository:
             device.status = status
             await self.db.flush()
         return device
+
+    async def mark_all_offline(self) -> int:
+        """Set every currently-"online" device to offline.
+
+        Called at API startup: a fresh process holds no WebSocket connections,
+        so any leftover "online" row is stale (its socket died with the
+        previous process without a clean disconnect). Devices flip back to
+        "online" automatically when they reconnect and heartbeat.
+        """
+        result = await self.db.execute(
+            update(Device)
+            .where(Device.status == "online")
+            .values(status="offline")
+        )
+        return int(result.rowcount or 0)
 
     async def record_heartbeat(
         self,

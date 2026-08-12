@@ -23,6 +23,7 @@ from app.models.session import Session
 from app.models.workspace import Workspace
 from app.repositories.device_repo import DeviceRepository
 from app.services.instruction_events import append_instruction_event
+from app.services.platform_settings import load_db_secrets
 from app.tools.gateway.tool_gateway import ToolGateway
 
 logger = logging.getLogger(__name__)
@@ -407,6 +408,8 @@ async def run_worker() -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    # Load DB-backed API keys so the pipeline's LLM router can resolve them.
+    await load_db_secrets()
     recovered = await _recover_stale_jobs()
     if recovered:
         logger.warning("Recovered %d stale instruction jobs", recovered)

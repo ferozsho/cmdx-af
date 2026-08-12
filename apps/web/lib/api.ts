@@ -386,6 +386,23 @@ export function updateSettings(data: {
   return request('PUT', '/api/v1/settings', data)
 }
 
+/** Sentinel passed to updateApiKey to delete a provider key. */
+export const REMOVE_API_KEY = '__remove__'
+
+/**
+ * PUT /api/v1/settings/keys — set, replace, or remove a provider API key.
+ * Pass REMOVE_API_KEY as `apiKey` to delete the key.
+ */
+export function updateApiKey(
+  provider: 'deepseek' | 'openai' | 'gemini' | 'claude',
+  apiKey: string,
+): Promise<{ ok: boolean; detail?: string; error?: string }> {
+  return request('PUT', '/api/v1/settings/keys', {
+    provider,
+    api_key: apiKey,
+  })
+}
+
 /** GET /api/v1/projects/stats/summary */
 export function getProjectStats(): Promise<{
   total_projects: number
