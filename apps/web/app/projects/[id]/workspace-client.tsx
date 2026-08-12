@@ -174,6 +174,9 @@ function formatFileSize(bytes?: number): string {
 // RAG results rendered per page
 const PAGE_SIZE = 10
 
+// Tech-lead conversations rendered per page
+const TECH_LEAD_PAGE_SIZE = 5
+
 function cleanPath(str: string | null | undefined): string {
   if (!str) return ''
   let s = str
@@ -444,7 +447,12 @@ export default function WorkspaceClient({
     if (!val && typeof window !== 'undefined') {
       try {
         const rawSearch = window.location.search
-        const match = rawSearch.match(new RegExp(`(?:^|[?&]|%26)${key}=([^&%]*)`, 'i'))
+        const match = rawSearch.match(
+          new RegExp(
+            `(?:^|[?&]|%26)${key}(?:%3D|=)([^&%]*)`,
+            'i',
+          ),
+        )
         if (match) val = match[1]
       } catch {
         // ignore
@@ -789,6 +797,28 @@ export default function WorkspaceClient({
   >([])
   const [techLeadLoading, setTechLeadLoading] = useState(false)
   const [techLeadError, setTechLeadError] = useState<string | null>(null)
+  // Pagination + collapse/expand for the tech-lead conversation history.
+  // Page is mirrored in the URL (?tlpage=N, 1-based) so shared/bookmarked
+  // links restore the exact page (matches the RAG tab's URL pattern).
+  const [techLeadPage, setTechLeadPage] = useState(() => {
+    const raw = getParam('tlpage')
+    const parsed = parseInt(raw || '0', 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed - 1 : 0
+  })
+  const [expandedTechLeadIds, setExpandedTechLeadIds] = useState<Set<string>>(
+    () => new Set(),
+  )
+
+  // Keep the tech-lead page in sync with the URL (?tlpage=N) so a shared or
+  // bookmarked link restores the exact page whenever the tab is opened.
+  useEffect(() => {
+    if (activeTab !== 'LEAD') return
+    const raw = getParam('tlpage')
+    const parsed = parseInt(raw || '0', 10)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- URL-driven sync
+    setTechLeadPage(Number.isFinite(parsed) && parsed > 0 ? parsed - 1 : 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- URL-driven sync
+  }, [activeTab, searchParams])
 
   // Fetch project details
   useEffect(() => {
@@ -848,6 +878,12 @@ export default function WorkspaceClient({
         { ...interaction, question },
         ...previous,
       ])
+      setTechLeadPage(0)
+      setExpandedTechLeadIds((previous) =>
+        new Set(previous).add(interaction.id),
+      )
+      // Newest answer first -> back to page 1, and clear ?tlpage from the URL
+      updateUrl('lead', undefined, undefined, undefined, undefined, undefined, 0)
       setTechLeadQuestion('')
     } catch (err) {
       setTechLeadError(
@@ -859,7 +895,7 @@ export default function WorkspaceClient({
   }
 
   // Function to switch tab with SEO-friendly URL sync:
-  // /projects/[id]/[tab]?file=...&q=...&page=N&view=chunks|search&cpage=N
+  // /projects/[id]/[tab]?file=...&q=...&page=N&view=chunks|search&cpage=N&tlpage=N
   const updateUrl = (
     tab: string,
     file?: string,
@@ -867,6 +903,7 @@ export default function WorkspaceClient({
     page?: number,
     view?: string,
     cpage?: number,
+    tlpage?: number,
   ) => {
     const cleanTab = cleanPath(tab).toLowerCase()
     const cleanFile = cleanPath(file)
@@ -878,6 +915,7 @@ export default function WorkspaceClient({
     if (page && page > 0) params.set('page', String(page))
     if (view) params.set('view', view)
     if (cpage && cpage > 0) params.set('cpage', String(cpage))
+    if (tlpage && tlpage > 0) params.set('tlpage', String(tlpage))
     const qs = params.toString()
     router.push(
       `/projects/${encodeURIComponent(projectId)}/${cleanTab}${
@@ -1000,6 +1038,26 @@ export default function WorkspaceClient({
     setChunksPage(next)
     loadRagChunks(next * PAGE_SIZE)
     updateUrl('rag', undefined, undefined, 0, 'chunks', next)
+  }
+
+  // Tech-lead pagination — keeps ?tlpage=N in the URL (shareable, SEO-friendly)
+  const goToTechLeadPage = (page: number) => {
+    const total = Math.max(
+      1,
+      Math.ceil(techLeadHistory.length / TECH_LEAD_PAGE_SIZE),
+    )
+    const next = Math.max(0, Math.min(page, total - 1))
+    setTechLeadPage(next)
+    // 1-based in the URL; omitted for page 1
+    updateUrl(
+      'lead',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      next > 0 ? next + 1 : 0,
+    )
   }
 
   const toggleResult = (idx: number) => {
@@ -1283,12 +1341,14 @@ export default function WorkspaceClient({
       const cleanPage = cleanPath(searchParams.get('page'))
       const cleanView = cleanPath(searchParams.get('view'))
       const cleanCpage = cleanPath(searchParams.get('cpage'))
+      const cleanTlpage = cleanPath(searchParams.get('tlpage'))
       const params = new URLSearchParams()
       if (cleanFile) params.set('file', cleanFile)
       if (cleanQ) params.set('q', cleanQ)
       if (cleanPage) params.set('page', cleanPage)
       if (cleanView) params.set('view', cleanView)
       if (cleanCpage) params.set('cpage', cleanCpage)
+      if (cleanTlpage) params.set('tlpage', cleanTlpage)
       const cleanSearch = params.toString()
       if (cleanSearch !== raw.replace(/^\?/, '')) {
         const base = window.location.pathname
@@ -3499,34 +3559,136 @@ export default function WorkspaceClient({
                 No technical-lead conversations yet.
               </p>
             ) : (
-              techLeadHistory.map((interaction) => (
-                <article
-                  key={interaction.id}
-                  className="rounded-lg border border-border bg-surface-secondary p-4"
-                >
-                  {interaction.question && (
-                    <p className="text-xs font-semibold text-foreground mb-2">
-                      {interaction.question}
-                    </p>
-                  )}
-                  <Markdown>{interaction.answer}</Markdown>
-                  <div className="mt-3 flex items-center gap-3 text-[10px] text-muted">
-                    <span>{interaction.model_name || 'model unavailable'}</span>
-                    <span>{interaction.total_tokens} tokens</span>
-                    <span>{new Date(interaction.created_at).toLocaleString()}</span>
-                  </div>
-                  {interaction.sources.length > 0 && (
-                    <details className="mt-2 text-[10px] text-muted">
-                      <summary className="cursor-pointer text-primary">
-                        {interaction.sources.length} context sources
-                      </summary>
-                      <div className="mt-1 font-mono break-all">
-                        {interaction.sources.join(' · ')}
+              (() => {
+                const totalPages = Math.max(
+                  1,
+                  Math.ceil(techLeadHistory.length / TECH_LEAD_PAGE_SIZE),
+                )
+                const safePage = Math.min(techLeadPage, totalPages - 1)
+                const pageItems = techLeadHistory.slice(
+                  safePage * TECH_LEAD_PAGE_SIZE,
+                  safePage * TECH_LEAD_PAGE_SIZE + TECH_LEAD_PAGE_SIZE,
+                )
+                return (
+                  <>
+                    {pageItems.map((interaction) => {
+                      const isExpanded = expandedTechLeadIds.has(
+                        interaction.id,
+                      )
+                      return (
+                        <article
+                          key={interaction.id}
+                          className="rounded-lg border border-border bg-surface-secondary overflow-hidden"
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedTechLeadIds((previous) => {
+                                const next = new Set(previous)
+                                if (next.has(interaction.id)) {
+                                  next.delete(interaction.id)
+                                } else {
+                                  next.add(interaction.id)
+                                }
+                                return next
+                              })
+                            }
+                            aria-expanded={isExpanded}
+                            className="w-full flex items-start justify-between gap-3 p-4 text-left hover:bg-hover/50 transition-colors"
+                          >
+                            <div className="min-w-0 flex-1">
+                              {interaction.question && (
+                                <p className="text-xs font-semibold text-foreground mb-1">
+                                  {interaction.question}
+                                </p>
+                              )}
+                              <div className="flex items-center gap-3 text-[10px] text-muted flex-wrap">
+                                <span>
+                                  {interaction.model_name || 'model unavailable'}
+                                </span>
+                                <span>
+                                  {interaction.total_tokens} tokens
+                                </span>
+                                <span>
+                                  {new Date(
+                                    interaction.created_at,
+                                  ).toLocaleString()}
+                                </span>
+                                {interaction.sources.length > 0 && (
+                                  <span className="text-primary">
+                                    {interaction.sources.length} context sources
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span className="text-muted text-sm flex-shrink-0 mt-0.5">
+                              {isExpanded ? '▲' : '▼'}
+                            </span>
+                          </button>
+                          {isExpanded && (
+                            <div className="border-t border-border px-4 py-3">
+                              <Markdown>{interaction.answer}</Markdown>
+                              {interaction.sources.length > 0 && (
+                                <div className="mt-3 text-[10px] text-muted">
+                                  <span className="text-primary font-semibold">
+                                    {interaction.sources.length} context sources
+                                  </span>
+                                  <div className="mt-1 font-mono break-all">
+                                    {interaction.sources.join(' · ')}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </article>
+                      )
+                    })}
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between pt-2 border-t border-border">
+                        <span className="text-[10px] text-muted">
+                          Page {safePage + 1} of {totalPages}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={safePage === 0}
+                            onClick={() => goToTechLeadPage(safePage - 1)}
+                            className="px-2.5 py-1 rounded-[8px] text-[11px] font-semibold border border-border
+                              text-muted hover:text-foreground hover:bg-hover
+                              disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          >
+                            ‹ Prev
+                          </button>
+                          {Array.from({ length: totalPages }, (_, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => goToTechLeadPage(i)}
+                              className={`w-7 h-7 rounded-[8px] text-[11px] font-semibold transition-colors ${
+                                i === safePage
+                                  ? 'bg-primary text-white shadow-sm'
+                                  : 'border border-border text-muted hover:text-foreground hover:bg-hover'
+                              }`}
+                            >
+                              {i + 1}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            disabled={safePage >= totalPages - 1}
+                            onClick={() => goToTechLeadPage(safePage + 1)}
+                            className="px-2.5 py-1 rounded-[8px] text-[11px] font-semibold border border-border
+                              text-muted hover:text-foreground hover:bg-hover
+                              disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          >
+                            Next ›
+                          </button>
+                        </div>
                       </div>
-                    </details>
-                  )}
-                </article>
-              ))
+                    )}
+                  </>
+                )
+              })()
             )}
           </div>
         </section>
