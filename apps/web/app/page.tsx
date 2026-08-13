@@ -429,9 +429,15 @@ export default function DashboardPage() {
             // so only present a workspace as connected after that call has
             // confirmed it is reachable.
             const isOnline = ragIndex[project.id]?.online === true
-            // RAG readiness gate: a project with no completed index is locked
-            // and cannot be opened from the dashboard until indexing finishes.
-            const ragLocked = project.rag_gate?.locked === true
+            // RAG readiness gate: a project whose live index is missing/empty
+            // is locked and cannot be opened from the dashboard until indexing
+            // completes. Uses live `files_indexed` (the local agent's actual
+            // indexed-file set) so a project whose agent restarted / index was
+            // cleared is locked again — matching what the RAG page reports.
+            const liveFiles = ragIndex[project.id]?.files_indexed ?? 0
+            const ragLocked =
+              project.rag_gate?.locked === true ||
+              (isOnline && liveFiles === 0)
             const openable = isOnline && !ragLocked
             return (
             <div

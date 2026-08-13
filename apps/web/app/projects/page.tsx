@@ -2,16 +2,23 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { listProjects, type ProjectResponse } from '@/lib/api'
+import {
+  getRagStats,
+  listProjects,
+  type ProjectResponse,
+  type RagStats,
+} from '@/lib/api'
 
 export default function LiveWorkspacePage() {
   const [projects, setProjects] = useState<ProjectResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Live RAG index state per project, used to lock cards until the actual
+  // index has chunks (a project whose agent restarted / index was cleared
+  // gets locked again even if it was indexed before).
+  const [ragIndex, setRagIndex] = useState<Record<string, RagStats>>({})
 
   // Load all projects so the user can choose one from the Live Workspace.
-  // Uses the DB-only `rag_gate` field — no per-project RAG probing here
-  // (the RAG check happens when a project is selected, plus on dashboard cards).
   useEffect(() => {
     let ignore = false
     const load = async () => {
@@ -55,6 +62,33 @@ export default function LiveWorkspacePage() {
     }
   }, [projects])
 
+  // Poll live RAG stats for every project so the card lock reflects the ACTUAL
+  // index state (chunks) — a project whose index is empty is locked even if it
+  // was indexed before (e.g. after the local agent restarted and is re-indexing).
+  useEffect(() => {
+    if (loading || projects.length === 0) return
+    let timer: number | null = null
+    const tick = async () => {
+      const updates: Record<string, RagStats> = {}
+      await Promise.all(
+        projects.map(async (p) => {
+          try {
+            const s = await getRagStats(p.id)
+            updates[p.id] = s
+          } catch {
+            // ignore offline / transient errors
+          }
+        }),
+      )
+      setRagIndex((prev) => ({ ...prev, ...updates }))
+    }
+    void tick()
+    timer = window.setInterval(tick, 5000)
+    return () => {
+      if (timer) window.clearInterval(timer)
+    }
+  }, [loading, projects])
+
   return (
     <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col min-h-0 space-y-6">
       {/* Page header */}
@@ -97,10 +131,16 @@ export default function LiveWorkspacePage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[18px]">
           {projects.map((project) => {
-            // RAG readiness gate: a project with no completed index is locked
-            // and cannot be opened until indexing finishes.
-            const ragLocked = project.rag_gate?.locked === true
-            const openable = !ragLocked
+            // RAG readiness gate: locked until the ACTUAL index has indexed
+            // files. Uses live rag_status `files_indexed` so a project whose
+            // agent restarted / index was cleared is locked again — matching
+            // what the RAG page reports ("No chunks indexed yet").
+            const isOnline = ragIndex[project.id]?.online === true
+            const liveFiles = ragIndex[project.id]?.files_indexed ?? 0
+            const ragLocked =
+              project.rag_gate?.locked === true ||
+              (isOnline && liveFiles === 0)
+            const openable = isOnline && !ragLocked
             const techStack = project.tech_stack
             const tags = techStack
               ? Object.keys(techStack).filter((k) => techStack[k])
@@ -194,6 +234,10 @@ export default function LiveWorkspacePage() {
                     >
                       Open Workspace →
                     </Link>
+                  ) : !isOnline ? (
+                    <span className="text-muted italic text-[11px]">
+                      Workspace offline
+                    </span>
                   ) : (
                     <span className="text-amber-600 dark:text-amber-400 italic text-[11px] font-medium">
                       🔒 Indexing…

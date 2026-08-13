@@ -1137,12 +1137,12 @@ async def get_rag_stats(
                 "rag_gate": persisted_gate(project),
             }
         result = tool_res.result if isinstance(tool_res.result, dict) else {}
-        # Auto re-index: when a project has no index yet and nothing is
-        # running, durably enqueue the background re-index process so the
-        # project becomes usable without a manual click.
+        # Auto re-index: when the live index is empty and nothing is running,
+        # durably enqueue the background re-index process so the project gets
+        # (re)populated automatically — including after a local-agent restart
+        # that left the in-memory/Qdrant index empty.
         if (
-            project.rag_indexed_at is None
-            and not bool(result.get("indexing"))
+            not bool(result.get("indexing"))
             and int(result.get("chunks") or 0) == 0
         ):
             try:
